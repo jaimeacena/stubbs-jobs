@@ -7,6 +7,7 @@
 - Identidad estable compartida por app, código y descarga, con huellas de procedencia y componentes incluidos.
 - Comprobaciones del código público en GitHub para cada cambio, con dependencias fijadas y datos ficticios.
 - El mantenimiento del icono vuelve a intentarlo si Windows tarda en responder y termina al perder la ventana propia.
+- Las comprobaciones de CV reconocen rutas equivalentes de Windows y mantienen el bloqueo de archivos externos; las pruebas usan rutas físicas para comprobar la misma carpeta en cualquier instalación.
 
 ## Stubbs Jobs Beta 4 · 0.1.0-beta.4 · 02/10/2026
 

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import app_workflow as workflow
+import stubbs_jobs
 import cv_usage
 import stubbs_jobs_app as server
 from stubbs_jobs_core import digest, identity, now
@@ -14,6 +15,24 @@ from workflow_fixtures import WorkflowFixture
 
 
 class CVUsageTests(WorkflowFixture, unittest.TestCase):
+    def test_equivalent_root_can_review_exact_cv_and_still_rejects_an_external_pdf(self):
+        root=self.root/'installation';(root/'outputs').mkdir(parents=True)
+        (root/'alias').mkdir()
+        content=(self.root/'outputs/cv.pdf').read_bytes()
+        (root/'outputs/cv.pdf').write_bytes(content)
+        (self.root/'outside.pdf').write_bytes(b'%PDF-outside-installation')
+        # A non-canonical root models the same comparison as Windows 8.3 names.
+        alias=root/'alias'/'..'
+        with patch.object(workflow,'ROOT',alias),patch.object(workflow,'DATA',root/'data'),\
+             patch.object(stubbs_jobs,'ROOT',alias),patch.object(stubbs_jobs,'DATA',root/'data'):
+            self.assertEqual(workflow.cv_bytes(self.row),content)
+            self.assertIsNone(workflow.cv_bytes({'CV preparado':'../outside.pdf'}))
+            self.review()
+            package=workflow.state(self.data)['packages'][-1]
+            self.assertEqual(package['payload']['cvHash'],digest(content))
+            self.assertEqual(workflow.conserved_package(package)['payload']['cvHash'],digest(content))
+            self.assertEqual((root/'data/packages'/package['id']/'cv.pdf').read_bytes(),content)
+
     def document(self, name='CV de ejemplo.pdf', relative='outputs/cv.pdf'):
         return {'id': digest((self.root / relative).read_bytes()), 'name': name,
                 'path': relative, 'url': '/api/document?id=uploaded%3Aexample'}

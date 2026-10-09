@@ -293,7 +293,7 @@ def _apply_batch(data,batch):
                 prior=[h for h in data['historicalApplications'] if vacancy_key(h)==vacancy_key(row)]
                 if prior and not event.get('reapplicationAuthorization'): raise ValueError('Coincide con una candidatura anterior; necesita decisión expresa de volver a solicitar')
                 cv=(ROOT/event['cv']).resolve()
-                if not cv.is_relative_to(ROOT) or not cv.is_file(): raise ValueError('CV inexistente o fuera del proyecto')
+                if not cv.is_relative_to(ROOT.resolve()) or not cv.is_file(): raise ValueError('CV inexistente o fuera del proyecto')
                 event['cvHash']=digest(cv.read_bytes()); row['CV usado']=event['cv']; row['Fecha candidatura']=excel_day(event['at'])
                 import app_workflow as workflow
                 workflow.seed(data)

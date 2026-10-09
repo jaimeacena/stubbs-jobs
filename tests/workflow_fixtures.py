@@ -35,7 +35,7 @@ class WorkflowFixture:
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         (self.root / 'outputs').mkdir()
         (self.root / 'outputs/cv.pdf').write_bytes(b'%PDF-test-one')
         for module in (workflow, stubbs_jobs):

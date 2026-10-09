@@ -41,7 +41,7 @@ class BackupTests(unittest.TestCase):
     def recovery_destination(self):
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
-        return Path(holder.name) / 'recovered-test'
+        return Path(holder.name).resolve() / 'recovered-test'
 
     def test_verified_backup_conserves_profile_and_cv_without_session_data(self):
         (self.root / 'data').mkdir()

@@ -297,7 +297,7 @@ def answers(data,op_id):
 def cv_bytes(row):
     value=row.get('CV preparado')
     path=(ROOT/value).resolve() if value else None
-    if not path or not path.is_relative_to(ROOT) or path.suffix.lower()!='.pdf' or not path.is_file(): return None
+    if not path or not path.is_relative_to(ROOT.resolve()) or path.suffix.lower()!='.pdf' or not path.is_file(): return None
     def read():
         try:return path.read_bytes()
         except OSError:return None

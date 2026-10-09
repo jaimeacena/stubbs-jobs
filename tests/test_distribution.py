@@ -131,7 +131,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_generated_python_tests_preserve_valid_line_continuations(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             runtime = root / 'runtime'
             runtime.mkdir()
             portable = root / 'portable'
@@ -162,7 +162,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_generated_document_reading_copies_preserve_original_newlines(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             source=root/'source';SOURCE['build'](portable,source)
             for name in ('APLICACION.md','CLAUDE.md','perfil.md'):
@@ -174,7 +174,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_icon_changes_origin_identity_and_rejects_old_portable(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             identity=SOURCE['SHARE']['source_identity']
             other=root/'another-source-tree'
@@ -193,7 +193,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_portable_and_source_preserve_exact_icon_and_logo(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';archive=BUILD(portable,runtime)
             source=root/'source';source_archive=SOURCE['build'](portable,source)
             for bundle,directory in ((archive,portable),(source_archive,source)):
@@ -208,7 +208,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_transient_source_change_cannot_claim_the_original_revision(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             source=synthetic_source(root/'source')
             original=Path.read_bytes;reads=0
             def changing_read(path):
@@ -226,7 +226,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_unlisted_portable_input_is_never_copied_unverified(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             path=portable/'config/files.sha256.json'
             manifest=json.loads(path.read_text());manifest.pop('app/app.js');path.write_text(json.dumps(manifest))
@@ -237,7 +237,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_portable_change_between_validation_and_copy_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             original=Path.read_bytes;reads=0
             def changing_read(path):
@@ -254,7 +254,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_source_builder_requires_the_exact_origin_revision_not_just_version(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable'
             BUILD(portable,runtime)
             source_build=SOURCE['build']
@@ -273,7 +273,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_source_builder_rejects_legacy_without_origin_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             path=portable/'config/source-provenance.json';path.unlink()
             manifest_path=portable/'config/files.sha256.json'
@@ -285,7 +285,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_portable_and_source_share_origin_and_all_public_protocols(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             SOURCE['build'](portable,root/'source')
             provenance=json.loads((portable/'config/source-provenance.json').read_text())
@@ -314,7 +314,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_source_change_during_copy_is_not_published_as_another_revision(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             identity=SOURCE['SHARE']['source_identity']
             original=identity()
@@ -336,7 +336,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_existing_zip_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             runtime = root / 'runtime'
             runtime.mkdir()
             destination = root / 'share'
@@ -358,7 +358,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_versioned_zip_name_keeps_version_and_platform(self):
         with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             source=synthetic_source(root/'source')
             destination=root/'Stubbs-Jobs-0.1.0-beta.1-Windows-x64'
             with patch.dict(BUILD.__globals__,{'ROOT':source}):
@@ -368,7 +368,7 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_portable_copy_only_contains_approved_interface_and_documents(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             runtime = root / 'runtime'
             runtime.mkdir()
             source = synthetic_source(root / 'source')
