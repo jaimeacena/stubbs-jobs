@@ -1,0 +1,20 @@
+{
+  "pythonMinimum": "3.10",
+  "pythonPackages": [
+    "pypdfium2",
+    "Pillow",
+    "reportlab"
+  ],
+  "nodePackages": [
+    "@oai/artifact-tool"
+  ],
+  "testedVersions": {
+    "Python": "3.14.7",
+    "pypdfium2": "5.13.0",
+    "Pillow": "12.3.0",
+    "reportlab": "4.4.9",
+    "@oai/artifact-tool": "2.8.59"
+  },
+  "runtime": "runtime/python, Windows x64 portable",
+  "installation": "Included. Node and artifact-tool are optional for XLSX; CSV is always available."
+}

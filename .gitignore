@@ -1,0 +1,12 @@
+/data/
+/outputs/
+/runtime/
+/auditoria/
+/tmp/
+/.venv/
+.env
+.env.*
+/Abrir Stubbs Jobs.exe
+**/__pycache__/
+*.pyc
+/tools/node_modules/

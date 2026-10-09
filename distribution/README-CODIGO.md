@@ -29,7 +29,7 @@ Guardar cambios o preparar el perfil no inicia una búsqueda ni un envío. Para 
 
 La descarga empieza vacía. Tu información se guarda en tu carpeta; el agente elegido puede leerla y tratarla según las condiciones de su servicio. Usa **Copias de seguridad** para conservarla. Para compartir la app, comparte el ZIP original.
 
-Consulta el [manual de uso](distribution/README.md), las [novedades](CHANGELOG.md), la [recuperación de datos](RECUPERACION.md) y el [alcance y las comprobaciones pendientes](LIMITES.md).
+Consulta el [manual de uso](README.md), las [novedades](CHANGELOG.md), la [recuperación de datos](RECUPERACION.md) y el [alcance y las comprobaciones pendientes](LIMITES.md).
 
 ## Código y licencia
 

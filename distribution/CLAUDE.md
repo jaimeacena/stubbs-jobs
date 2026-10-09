@@ -1,0 +1,3 @@
+Copia generada para consultar las plantillas. El documento editable es [CLAUDE.md](../CLAUDE.md). Esta copia no se utiliza al construir la aplicación.
+
+Lee AGENTS.md e INICIO.md antes de trabajar. Consulta tools/stubbs_jobs.py agent-status y amplía el caso, encargo o perfil antes de buscar, solicitar o atender cambios. La entrevista inicial guiada por la IA guarda el perfil en el mismo registro que muestra la app. Guardar en la app no inicia tareas.

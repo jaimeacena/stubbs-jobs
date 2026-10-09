@@ -1,0 +1,6 @@
+{
+  "regenerableDays": 30,
+  "automaticDeletion": false,
+  "alwaysPreserve": ["registry", "packages", "snapshots", "workbook-backups", "migration", "backups", "conflict copies", "agent-runs", "package-recovery"],
+  "recovery": "Restore into an isolated directory and reconcile with the current registry before replacing anything."
+}

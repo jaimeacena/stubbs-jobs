@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "name": "Stubbs Jobs",
+  "label": "Stubbs Jobs 1.0",
+  "version": "1.0.0",
+  "releaseDate": "2026-10-09",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "license": "MIT",
+  "authorUrl": "https://github.com/jaimeacena"
+}

@@ -1,0 +1,5 @@
+# Bibliotecas de la distribución Windows 1.0.
+pypdfium2==5.13.0
+Pillow==12.3.0
+reportlab==4.4.9
+charset-normalizer==3.5.1

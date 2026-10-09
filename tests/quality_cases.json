@@ -1,0 +1,12 @@
+[
+  {"name":"salario ausente se aclara", "changes":{}, "expected":"Sí, aclarar"},
+  {"name":"contrato incompatible", "changes":{"Indefinido":"No"}, "expected":"No"},
+  {"name":"remoto incompatible", "changes":{"Remoto España":"No"}, "expected":"No"},
+  {"name":"viajes incompatibles", "changes":{"Viajes ≤1/mes":"No"}, "expected":"No"},
+  {"name":"fijo insuficiente", "changes":{"Fijo mín. confirmado":31000}, "expected":"No"},
+  {"name":"contradiccion pendiente se aclara en el proceso", "changes":{"Indefinido":"Contradicción"}, "expected":"Sí, aclarar"},
+  {"name":"vacante cerrada", "changes":{"Vigencia":"Cerrada"}, "expected":"No"},
+  {"name":"proceso cerrado", "changes":{"Estado":"Cerrada"}, "expected":"No"},
+  {"name":"prioridad exploratoria no bloquea elegir", "changes":{"Prioridad":"B"}, "expected":"Sí, aclarar"},
+  {"name":"banda publicada no confirma fijo", "changes":{"Banda publicada":"40.000–50.000 € con variable"}, "expected":"Sí, aclarar"}
+]

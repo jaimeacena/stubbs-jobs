@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="color-scheme" content="light dark">
+ <title>Stubbs Jobs</title>
+ <link rel="icon" type="image/x-icon" href="/assets/stubbs.ico">
+ <script src="/theme.js"></script>
+ <link rel="stylesheet" href="/redesign.css">
+ <script src="/icons.js" defer></script>
+ <script src="/client.js" defer></script>
+ <script src="/formatting.js" defer></script>
+ <script src="/workflow.js" defer></script>
+ <script src="/presentation.js" defer></script>
+ <script src="/activity.js" defer></script>
+ <script src="/drafts.js" defer></script>
+ <script src="/setup.js" defer></script>
+ <script src="/release.js" defer></script>
+ <script src="/recovery.js" defer></script>
+ <script src="/explanations.js" defer></script>
+ <script src="/criteria.js" defer></script>
+ <script src="/app.js" defer></script>
+</head>
+<body>
+ <a class="skip-link" href="#main">Ir al contenido</a>
+ <header class="site-header">
+  <div class="header-inner">
+   <div class="header-leading"><button type="button" class="brand" data-screen="solicitar" aria-label="Ir a Ofertas"><img src="/assets/stubbs.png" alt=""></button></div>
+   <nav aria-label="Navegación principal">
+    <button type="button" data-screen="perfil">Mi perfil</button>
+    <button type="button" data-screen="solicitar" aria-current="page">Ofertas</button>
+    <button type="button" data-screen="agente">Resumen</button>
+   </nav>
+   <div class="header-tools">
+    <label class="header-search"><span class="sr-only">Buscar ofertas y solicitudes guardadas</span><svg class="header-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="global-search" type="search" placeholder="Buscar ofertas" autocomplete="off" title="Buscar ofertas (Ctrl+K)" aria-keyshortcuts="Control+K Meta+K"><span class="search-shortcut" aria-hidden="true"><kbd>Ctrl</kbd><kbd>K</kbd></span></label>
+    <button type="button" id="header-undo" class="header-refresh" aria-label="Deshacer último cambio" title="Deshacer último cambio" hidden><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h11a7 7 0 0 1 0 14M3 10l5-5M3 10l5 5" transform="translate(0 -2)"/></svg></button>
+    <details class="header-menu">
+     <summary aria-label="Más opciones" title="Más opciones"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg></summary>
+     <div class="header-menu-options">
+      <button type="button" class="header-menu-action" data-refresh-state="1" aria-label="Actualizar estado" title="Actualizar estado"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.4-6.4L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.4 6.4L3 16M8 16H3v5"/></svg><span>Actualizar estado</span></button>
+      <button type="button" class="header-help" data-screen="copias" aria-label="Copias de seguridad"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3h13l4 4v14H3V3h1M7 3v6h10V3M7 21v-8h10v8"/></svg><span>Copias de seguridad</span></button>
+      <details class="theme-picker"><summary aria-label="Apariencia"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41m0-14.14-1.41 1.41M6.34 17.66l-1.41 1.41"/><circle cx="12" cy="12" r="4"/></svg><span>Apariencia</span><svg class="theme-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary><div class="theme-options" role="group" aria-label="Tema de color"><button type="button" data-theme="system">Sistema</button><button type="button" data-theme="light">Claro</button><button type="button" data-theme="dark">Oscuro</button></div></details>
+     </div>
+    </details>
+   </div>
+  </div>
+ </header>
+ <p id="storage-warning" class="storage-warning" role="status" hidden>El navegador no permite conservar todos los borradores al cerrar. Guarda tus cambios antes de salir.</p>
+ <div class="shell"><div id="connection" role="status" aria-live="polite"></div><nav id="page-back" aria-label="Volver a la pantalla anterior" hidden></nav><main id="main" tabindex="-1"><div class="app-loading" role="status"><span class="sr-only">Abriendo tu búsqueda…</span><div class="skeleton skeleton-title" aria-hidden="true"></div><div class="skeleton skeleton-lead" aria-hidden="true"></div><div class="skeleton skeleton-bar" aria-hidden="true"></div><div class="skeleton skeleton-table" aria-hidden="true"></div></div></main></div>
+ <div id="toast" role="status" aria-live="polite" hidden></div>
+ <dialog id="criteria-effect" aria-labelledby="criteria-effect-title" aria-describedby="criteria-effect-intro"><form method="dialog"><h2 id="criteria-effect-title">Antes de guardar tus criterios</h2><p id="criteria-effect-intro"></p><ul id="criteria-effect-list" class="criteria-effect-list"></ul><label id="criteria-effect-rounds" class="criteria-effect-rounds" hidden><input type="checkbox" aria-labelledby="criteria-rounds-label" aria-describedby="criteria-rounds-note"><span><strong id="criteria-rounds-label" class="criteria-rounds-label"></strong><span id="criteria-rounds-note" class="criteria-rounds-note"></span></span></label><p id="criteria-effect-keep" class="criteria-effect-keep" hidden></p><div class="actions dialog-actions"><button value="cancel">Cancelar</button><button class="primary" value="ok">Guardar</button></div></form></dialog>
+ <dialog id="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-text"><form method="dialog"><h2 id="confirm-title"></h2><p id="confirm-text"></p><div class="actions dialog-actions"><button value="cancel">Cancelar</button><button class="primary" value="ok">Confirmar</button></div></form></dialog>
+ <dialog id="search-profile-name-dialog" aria-labelledby="search-profile-name-title"><form method="dialog"><h2 id="search-profile-name-title">Perfil de búsqueda</h2><label class="field"><span>Nombre</span><input type="text" maxlength="100" required autocomplete="off"></label><div class="actions dialog-actions"><button value="cancel" formnovalidate>Cancelar</button><button class="primary" value="ok">Guardar nombre</button></div></form></dialog>
+ <dialog id="search-profile-trash-dialog" aria-labelledby="search-profile-trash-title"><h2 id="search-profile-trash-title">Papelera</h2><p>Recuperar devuelve el perfil al selector. Las ofertas conservan sus criterios de evaluación.</p><ul class="deleted-search-profiles"></ul><form method="dialog"><div class="actions dialog-actions"><button value="close">Cerrar</button></div></form></dialog>
+</body>
+</html>
