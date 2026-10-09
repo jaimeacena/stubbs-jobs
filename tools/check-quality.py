@@ -38,6 +38,10 @@ def check(output):
         count = re.search(r'Ran (\d+) tests', log) or re.search(r'(?:# tests|ℹ tests) (\d+)', log)
         results.append({'suite': filename, 'ok': result.returncode == 0, 'tests': int(count[1]) if count else None})
         print(json.dumps(results[-1], ensure_ascii=False), flush=True)
+        if result.returncode:
+            # Keep failed checks diagnosable on CI, where the local output folder
+            # disappears with the runner. The complete log remains on disk.
+            print(log[-18000:], flush=True)
     after = digest(registry.read_bytes()) if registry.is_file() else None
     report = {'at': now(), 'checks': results, 'registryUnchanged': before == after,
               'ok': before == after and all(item['ok'] for item in results),
