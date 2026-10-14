@@ -7,6 +7,7 @@ import copy
 import re
 from stubbs_jobs_core import digest, now
 from state_support import instant
+import view_cache
 
 VERSION = 1
 LEGACY_ID = 'search-current'
@@ -20,7 +21,9 @@ def profiles(data):
     if saved is not None:
         if data['app'].get('searchProfilesVersion')!=VERSION:
             raise ValueError('Versión de perfiles de búsqueda no compatible; conserva el registro')
-        validate(saved, data['app'].get('defaultSearchProfileId'))
+        default = data['app'].get('defaultSearchProfileId')
+        # Validation is pure; within one view snapshot identical content is checked once.
+        view_cache.memo(('search-profiles-valid', digest([saved, default])), lambda: validate(saved, default) or True)
         return saved
     app = data.get('app', {})
     from personalization import CONTEXT

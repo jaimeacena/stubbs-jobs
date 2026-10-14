@@ -142,9 +142,10 @@
     const at=Dates.tableTimestamp(item.at),end=Dates.tableTimestamp(Workflow.taskAt(request));
     return (item.opportunityId||null)===(request.opportunityId||null)&&at!==null&&end!==null&&Math.abs(at-end)<=1000&&(item.detail===request.result||/^(Encargo|Tarea) terminado$/.test(item.title||''));
   }
-  function outcomes(model){
+  function outcomes(model,allSteps=false){
     const done=(model.requests||[]).filter(r=>r.status==='done'&&r.type!=='mail');
-    const results=completions(model).filter(r=>['discovery','send','review','change','investigate'].includes(r.type)).map(request=>({at:Workflow.taskAt(request),request}));
+    const completed=allSteps?done.filter(r=>r.summary||r.result||r.activityResult):completions(model);
+    const results=completed.filter(r=>['discovery','send','review','change','investigate'].includes(r.type)).map(request=>({at:Workflow.taskAt(request),request}));
     // Keep business outcomes; permissions, saves and internal checks remain in
     // the original history. Matching completions must appear only once.
     const useful=/^(?:Envío confirmado|Solicitud enviada|Respuesta recibida|Respuesta de empresa|Entrevista\b|Oferta recibida|Solicitud lograda|Proceso cerrado|Candidatura rechazada|Rechazo registrado por ti|Seguimiento cerrado por ti|Disponibilidad comprobada|Seguimiento comprobado|Paquete listo para tu decisión|Paquete revisado|Solicitud lista para revisar|Solicitud revisada)\b/i;
@@ -152,7 +153,7 @@
     const seen=new Set();
     for(const item of chronological(events).reverse()){
       const ready=/^(Paquete|Solicitud)/i.test(item.title||'');
-      if(ready&&item.opportunityId&&done.some(r=>r.opportunityId===item.opportunityId&&Dates.tableTimestamp(Workflow.taskAt(r))>=Dates.tableTimestamp(item.at)))continue;
+      if(!allSteps&&ready&&item.opportunityId&&done.some(r=>r.opportunityId===item.opportunityId&&Dates.tableTimestamp(Workflow.taskAt(r))>=Dates.tableTimestamp(item.at)))continue;
       const key=ready?'ready:'+item.opportunityId:[item.title,item.opportunityId,item.packageId||item.at,item.detail].join('|');
       if(seen.has(key))continue;
       seen.add(key);results.push({at:item.at,event:item});
@@ -173,10 +174,81 @@
     return [...groups.values()];
   }
   const work=model=>Workflow.work(model);
-  function entries(model){
+  function entries(model,{allSteps=false}={}){
     const queued=Workflow.work(model).queued.filter(request=>request.type!=='mail').map(request=>({at:Workflow.taskAt(request)||request.createdAt,request}));
-    return [...queued,...outcomes(model)].sort((a,b)=>(Dates.tableTimestamp(b.at)??-Infinity)-(Dates.tableTimestamp(a.at)??-Infinity));
+    return [...queued,...outcomes(model,allSteps)].sort((a,b)=>(Dates.tableTimestamp(b.at)??-Infinity)-(Dates.tableTimestamp(a.at)??-Infinity));
   }
-  const api={coverage,chronological,newest,searchModel,searchTitle,completions,matchesCompletion,outcomes,entries,days,work,title,caseHistory,grouped,relevant,recent,details};
+  const groupLabels={
+    found:['oferta encontrada','ofertas encontradas','search'],search:['búsqueda realizada','búsquedas realizadas','search'],
+    investigate:['oferta revisada','ofertas revisadas','search'],review:['solicitud revisada','solicitudes revisadas','file'],
+    send:['solicitud enviada','solicitudes enviadas','check'],availability:['anuncio comprobado','anuncios comprobados','search'],
+    followup:['candidatura comprobada','candidaturas comprobadas','eye'],response:['respuesta recibida','respuestas recibidas','bell'],
+    interview:['candidatura con entrevista','candidaturas con entrevista','clock'],offer:['puesto ofrecido','puestos ofrecidos','trophy'],
+    rejected:['candidatura rechazada','candidaturas rechazadas','close'],closed:['proceso cerrado','procesos cerrados','lock'],
+    change:['solicitud actualizada','solicitudes actualizadas','pencil'],profile:['actualización del perfil','actualizaciones del perfil','pencil'],
+    pending:['tarea pendiente','tareas pendientes','clock'],other:['novedad registrada','novedades registradas','arrow-right']
+  };
+  function dailyKind(item){
+    const request=item.request,event=item.event;
+    if(request){
+      if(request.status==='queued')return 'pending';
+      if(request.type==='discovery')return Number.isSafeInteger(request.activityResult?.newOfferCount)&&request.activityResult.newOfferCount>=0?'found':'search';
+      if(request.type==='investigate')return request.purpose==='followup'?'followup':'investigate';
+      if(request.type==='change')return request.opportunityId?'change':'profile';
+      return ['review','send'].includes(request.type)?request.type:'other';
+    }
+    const fact=event?.activity||{},text=event?.title||'';
+    if(fact.kind==='availability'||/^(Disponibilidad comprobada|Anuncio disponible)/i.test(text))return 'availability';
+    if(fact.kind==='followup'||/^Seguimiento comprobado/i.test(text))return 'followup';
+    if(fact.type==='sent'||/^(Envío confirmado|Solicitud enviada)/i.test(text))return 'send';
+    if(fact.type==='interview'||/^Entrevista\b/i.test(text))return 'interview';
+    if(fact.type==='offer'||/^(Oferta recibida|Solicitud lograda)/i.test(text))return 'offer';
+    if(fact.type==='response'||/^Respuesta/i.test(text))return 'response';
+    if(/^(Candidatura rechazada|Rechazo registrado por ti)/i.test(text))return 'rejected';
+    if(/^(Proceso cerrado|Seguimiento cerrado por ti)/i.test(text))return 'closed';
+    if(/^(Paquete|Solicitud) (listo|lista|revisado|revisada)/i.test(text))return 'review';
+    return 'other';
+  }
+  // Daily compression is a separate view. Every member keeps its original records;
+  // case history and the dates of earlier outcomes are never rewritten.
+  function dailyGroups(day,model){
+    const jobs=new Map((model.opportunities||[]).map(job=>[job.id,job])),groups=new Map();
+    for(const [index,item] of chronological(day.items,item=>item.at).reverse().entries()){
+      const kind=dailyKind(item),[single,plural,icon]=groupLabels[kind];
+      if(!groups.has(kind))groups.set(kind,{key:kind,single,plural,icon,members:[],items:[],offerIds:[],count:0});
+      const group=groups.get(kind),record=item.request||item.event,id=record.opportunityId;
+      const identity=kind!=='pending'&&id?(jobs.get(id)?.canonicalKey||id):'record:'+(record.id??index);
+      let member=group.members.find(value=>value.key===identity);
+      if(!member){member={key:identity,item,items:[]};group.members.push(member);}
+      member.items.push(item);group.items.push(item);
+    }
+    return [...groups.values()].map(group=>{
+      group.count=group.members.length;
+      if(group.key==='found'){
+        const ids=new Set();let missing=0;
+        for(const {request} of group.items){
+          const result=request.activityResult,listed=Array.isArray(result.newOpportunityIds)?[...new Set(result.newOpportunityIds.filter(id=>typeof id==='string'&&id.trim()))]:[];
+          // An inconsistent list cannot certify which positions made up the count.
+          if(listed.length===result.newOfferCount)for(const id of listed)ids.add(id);
+          else missing+=result.newOfferCount;
+        }
+        group.offerIds=[...ids];group.count=ids.size+missing;group.unlistedCount=missing;
+      }
+      group.label=`${group.count} ${group.count===1?group.single:group.plural}`;
+      return group;
+    });
+  }
+  function statistics(model){
+    const recorded=new Set((model.opportunities||[]).map(job=>job.canonicalKey||'current:'+job.id));
+    for(const job of model.historical||[])if(job.category!=='No laboral')recorded.add(job.canonicalKey||'historical:'+job.id);
+    const metric=key=>Number.isSafeInteger(model.metrics?.[key])&&model.metrics[key]>=0?model.metrics[key]:null;
+    return [
+      {key:'registered',label:'Ofertas registradas',value:recorded.size,note:'Todo tu historial de ofertas',icon:'search'},
+      {key:'sent',label:'Solicitudes enviadas',value:metric('sent'),note:'Envíos confirmados en la app',icon:'send'},
+      {key:'interviews',label:'Candidaturas con entrevista',value:metric('interviews'),note:'Procesos con envío registrado',icon:'clock'},
+      {key:'offers',label:'Puestos ofrecidos',value:metric('offers'),note:'Ofertas del puesto recibidas',icon:'trophy'}
+    ];
+  }
+  const api={coverage,chronological,newest,searchModel,searchTitle,completions,matchesCompletion,outcomes,entries,days,work,title,caseHistory,grouped,relevant,recent,details,dailyGroups,statistics};
   if(typeof module!=='undefined')module.exports=api;else window.StubbsJobsActivity=api;
 })();

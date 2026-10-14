@@ -1,6 +1,59 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const Activity=require('../app/activity.js');
 
+test('daily groups count distinct positions and retain repeat checks without borrowing another day',()=>{
+ const model={opportunities:[{id:'one',canonicalKey:'vacancy-1'},{id:'alias',canonicalKey:'vacancy-1'},{id:'two',canonicalKey:'vacancy-2'}]},items=[
+  {at:'2026-10-13T08:00:00Z',request:{id:'early',type:'investigate',status:'done',opportunityId:'one'}},
+  {at:'2026-10-13T10:00:00Z',request:{id:'latest',type:'investigate',status:'done',opportunityId:'alias'}},
+  {at:'2026-10-13T09:00:00Z',request:{id:'other',type:'investigate',status:'done',opportunityId:'two'}},
+  {at:'2026-10-13T11:00:00Z',request:{id:'send',type:'send',status:'queued',opportunityId:'one'}}];
+ const before=structuredClone({model,items}),groups=Activity.dailyGroups({key:'2026-10-13',items},model);
+ assert.equal(groups[0].label,'1 tarea pendiente');assert.equal(groups[1].label,'2 ofertas revisadas');
+ assert.equal(groups[1].members[0].item.request.id,'latest');assert.equal(groups[1].members[0].items.length,2);
+ assert.equal(groups[1].items.length,3);assert.deepEqual({model,items},before);
+ assert.equal(Activity.dailyGroups({key:'2026-10-12',items:[{...items[0],at:'2026-10-12T08:00:00Z'}]},model)[0].count,1);
+});
+
+test('daily search results link only retained positions and deduplicate shared results',()=>{
+ const found=(id,ids)=>({at:'2026-10-13T10:00:00Z',request:{id,type:'discovery',status:'done',activityResult:{newOfferCount:ids.length,newOpportunityIds:ids}}});
+ const groups=Activity.dailyGroups({key:'2026-10-13',items:[found('a',['one','two']),found('b',['two','three'])]},{opportunities:[]});
+ assert.equal(groups.length,1);assert.equal(groups[0].label,'3 ofertas encontradas');assert.deepEqual(new Set(groups[0].offerIds),new Set(['one','two','three']));assert.equal(groups[0].items.length,2);
+ const old={at:'2026-10-12T10:00:00Z',request:{type:'discovery',status:'done',summary:'3 ofertas preseleccionadas'}};
+ const legacy=Activity.dailyGroups({key:'2026-10-12',items:[old]},{})[0];assert.equal(legacy.label,'1 búsqueda realizada');assert.deepEqual(legacy.offerIds,[]);
+ const conflicting=found('conflict',['one','two']);conflicting.request.activityResult.newOfferCount=1;
+ const retained=Activity.dailyGroups({key:'2026-10-13',items:[conflicting]},{})[0];assert.equal(retained.count,1);assert.deepEqual(retained.offerIds,[]);assert.equal(retained.unlistedCount,1);
+});
+
+test('daily advertisement checks and candidature outcomes remain separate with their original facts',()=>{
+ const check=(id,outcome,at)=>({at,event:{id,opportunityId:'one',title:'Disponibilidad comprobada',activity:{kind:'availability',outcome}}}),items=[
+  check('open','open','2026-10-13T08:00:00Z'),check('unknown','unknown','2026-10-13T10:00:00Z'),
+  {at:'2026-10-13T09:00:00Z',event:{id:'reply',opportunityId:'one',title:'Respuesta recibida'}},
+  {at:'2026-10-13T11:00:00Z',event:{id:'rejected',opportunityId:'two',title:'Candidatura rechazada'}}];
+ const before=structuredClone(items),groups=Activity.dailyGroups({items},{});
+ assert.deepEqual(groups.map(group=>group.key),['rejected','availability','response']);
+ const availability=groups[1];assert.equal(availability.count,1);assert.equal(availability.members[0].item.event.activity.outcome,'unknown');assert.equal(availability.items.length,2);assert.deepEqual(items,before);
+});
+
+test('dashboard uses recorded vacancy identities and confirmed metrics without inferring outcomes',()=>{
+ const model={opportunities:[{id:'a',canonicalKey:'shared',state:'Enviada'},{id:'b',canonicalKey:'second'}],historical:[
+  {id:'old',canonicalKey:'shared',category:'Laboral'},{id:'other',canonicalKey:'third',category:'Laboral'},{id:'ignore',category:'No laboral'}],
+  metrics:{sent:1,interviews:0,offers:0},requests:[{type:'send',status:'queued'},{type:'send',status:'blocked'}]},before=structuredClone(model);
+ assert.deepEqual(Activity.statistics(model).map(stat=>stat.value),[3,1,0,0]);assert.deepEqual(model,before);
+ assert.deepEqual(Activity.statistics({...model,metrics:{sent:null,interviews:-1,offers:'2'}}).map(stat=>stat.value),[3,null,null,null]);
+ assert.deepEqual(Activity.statistics({opportunities:[],metrics:{sent:0,interviews:0,offers:0}}).map(stat=>stat.value),[0,0,0,0]);
+});
+
+test('daily history keeps earlier preparation and reviews after a confirmed send without duplicate completions',()=>{
+ const review={id:'review',type:'investigate',status:'done',opportunityId:'one',summary:'Revisada',activityAt:'2026-10-12T09:00:00Z'},
+  preparation={id:'prepare',type:'review',status:'done',opportunityId:'one',summary:'Lista',activityAt:'2026-10-13T09:00:00Z'},
+  send={id:'send',type:'send',status:'done',opportunityId:'one',summary:'Recibo',packageId:'exact',activityAt:'2026-10-13T10:00:00Z'};
+ const model={requests:[review,preparation,send],history:[{id:'receipt',title:'Envío confirmado',opportunityId:'one',packageId:'exact',at:'2026-10-13T10:00:00Z'},
+  {id:'task',title:'Encargo terminado',requestId:'prepare',opportunityId:'one',at:'2026-10-13T09:00:00Z'}]},before=structuredClone(model);
+ const days=Activity.days(Activity.entries(model,{allSteps:true}));assert.deepEqual(days.map(day=>day.key),['2026-10-13','2026-10-12']);
+ assert.deepEqual(Activity.dailyGroups(days[0],model).map(group=>group.label),['1 solicitud enviada','1 solicitud revisada']);
+ assert.equal(Activity.dailyGroups(days[1],model)[0].label,'1 oferta revisada');assert.equal(days[0].items.length,2);assert.deepEqual(model,before);
+});
+
 test('personal job offer and rejection appear as results without becoming new agent work',()=>{
  const model={requests:[],history:[{id:'offer',opportunityId:'one',title:'Solicitud lograda',at:'2026-10-07T10:00:00Z',actor:'Usuario'},
   {id:'rejected',opportunityId:'two',title:'Rechazo registrado por ti',at:'2026-10-06T10:00:00Z',actor:'Usuario'}]},before=structuredClone(model);

@@ -18,6 +18,26 @@ def node_path():
         if value and Path(value).is_file():return Path(value)
     raise ValueError('No se encuentra Node. Configura STUBBS_JOBS_NODE con su ruta o repara las dependencias de Codex.')
 
+SYNC_PROVIDERS=(('onedrive','OneDrive'),('dropbox','Dropbox'),('google drive','Google Drive'),('googledrive','Google Drive'),
+                ('pcloud','pCloud'),('icloud','iCloud'),('box sync','Box'),('mega','MEGA'),('sync.com','Sync.com'))
+
+def synced_folder(root):
+    """Name of a cloud sync service that appears to own this folder, or None.
+
+    Sync clients can create conflict copies of data/registry.json and hold its lock;
+    the app keeps working, but the person is told to move it to a local folder."""
+    resolved=Path(root).resolve()
+    parts=[part.casefold() for part in resolved.parts]
+    for marker,name in SYNC_PROVIDERS:
+        if any(part==marker or part.startswith(marker+' ') or part.startswith(marker+'-') for part in parts):return name
+    for variable in ('OneDrive','OneDriveConsumer','OneDriveCommercial'):
+        base=os.environ.get(variable)
+        if base:
+            try:
+                if resolved.is_relative_to(Path(base).resolve()):return 'OneDrive'
+            except (OSError,ValueError):pass
+    return None
+
 def doctor(root):
     manifest=json.loads((root/'config/dependencies.json').read_text(encoding='utf-8'))
     minimum=tuple(int(part) for part in manifest['pythonMinimum'].split('.'))
@@ -29,7 +49,9 @@ def doctor(root):
         except importlib.metadata.PackageNotFoundError:checks.append({'name':name,'available':False})
     package=root/'tools/node_modules/@oai/artifact-tool/package.json'
     checks.append({'name':'@oai/artifact-tool','available':package.is_file(),'version':json.loads(package.read_text(encoding='utf-8')).get('version') if package.is_file() else None})
-    return {'ok':all(c['available'] for c in checks if c['name'] not in ('Node','@oai/artifact-tool')),'excelAvailable':excel_available(root),'checks':checks}
+    synced=synced_folder(root)
+    warnings=[f'La carpeta está dentro de {synced}. Muévela a una carpeta local sin sincronizar (por ejemplo C:\\StubbsJobs) para evitar copias en conflicto del registro.'] if synced else []
+    return {'ok':all(c['available'] for c in checks if c['name'] not in ('Node','@oai/artifact-tool')),'excelAvailable':excel_available(root),'checks':checks,'syncedFolder':synced,'warnings':warnings}
 
 def excel_available(root):
     if not (root/'tools/node_modules/@oai/artifact-tool/package.json').is_file():return False

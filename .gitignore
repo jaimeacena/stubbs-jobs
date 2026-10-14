@@ -1,5 +1,6 @@
 /data/
 /outputs/
+/private/
 /runtime/
 /auditoria/
 /tmp/
@@ -10,3 +11,5 @@
 **/__pycache__/
 *.pyc
 /tools/node_modules/
+*conflicted*
+/perfil.md

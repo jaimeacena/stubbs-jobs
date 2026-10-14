@@ -13,15 +13,9 @@ TESTS=SHARE['SOURCE_TESTS']
 BUILD_TOOLS=SHARE['SOURCE_BUILD_TOOLS']
 
 def generic_builder(text):
-    function=next(node for node in ast.parse(text).body if isinstance(node,ast.FunctionDef) and node.name=='build')
-    lines=[]
-    for index,line in enumerate(text.splitlines(),1):
-        if function.lineno<=index<=function.end_lineno and line.lstrip().startswith(('text=text.replace(',"if name!='scan_boards.py':")):
-            continue
-        lines.append(line)
-    result='\n'.join(lines)+'\n'
-    ast.parse(result)
-    return result
+    """Personal replacements live in private/publication-replacements.json, so the builder ships unchanged."""
+    ast.parse(text)
+    return text if text.endswith('\n') else text+'\n'
 
 def build(portable,destination):
     portable=portable.resolve();destination=destination.resolve();archive=Path(str(destination)+'.zip')
@@ -45,7 +39,8 @@ def build(portable,destination):
         raise ValueError('El portable pertenece a otra revisión del código; reconstruye ambos desde el mismo estado')
     names=['app/'+name for name in SHARE['APP_FILES']]+['app/assets/'+name for name in SHARE['APP_ASSETS']]
     names+=['tools/'+name for name in SHARE['MODULES']]
-    names+=['AGENTS.md','APLICACION.md','CLAUDE.md','INICIO.md','OPERACION.md','PROGRAMACION.md','perfil.md','estrategia.md','CHANGELOG.md','LIMITES.md','AUTORIA.md','LICENSE','TERCEROS.md','SISTEMA.md','AGENTE.md','PLAN-SISTEMA.md','algoritmo-busqueda.md','RECUPERACION.md','DESARROLLO.md']
+    names+=[SHARE['document_target'](name) for name in SHARE['DOCUMENTS']]
+    names+=['docs/application-contract.md','CLAUDE.md']
     names+=['config/'+name for name in ('dependencies.json','retention.json','sources.json','distribution.json','release.json','source-provenance.json')]
     def portable_bytes(name):
         if name not in manifest:raise ValueError('El manifiesto portable no acredita este archivo: '+name)
@@ -69,27 +64,25 @@ def build(portable,destination):
             # Public source is already generic; do not ship personal sanitization rules.
             text=generic_builder(text)
         (destination/'tools'/name).write_text(text,encoding='utf-8')
-    for name in SHARE['DOCUMENTS']+('README-CODIGO.md',):
-        target=destination/'distribution'/name;target.parent.mkdir(exist_ok=True)
-        target.write_text(SHARE['render_document'](source_text('distribution/'+name),info),encoding='utf-8')
+    for name in SHARE['DOCUMENTS']:
+        target=destination/'distribution'/name;target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_text(SHARE['render_document'](source_text('distribution/'+name),info,template=True),encoding='utf-8')
     # The shared templates link to these generated documents by their public names.
-    # These reading copies are not build inputs; the root documents remain canonical.
-    for name in ('APLICACION.md','CLAUDE.md','perfil.md'):
-        notice=f'Copia generada para consultar las plantillas. El documento editable es [{name}](../{name}). Esta copia no se utiliza al construir la aplicación.\n\n'
+    # These reading copies are not build inputs; docs/ contains the editable contract.
+    for name in ('docs/application-contract.md','CLAUDE.md','private/profile.md'):
+        relative='../'*len(Path(name).parts)+name
+        notice=f'Copia generada para consultar las plantillas. El documento editable es [{Path(name).name}]({relative}). Esta copia no se utiliza al construir la aplicación.\n\n'
         (destination/'distribution'/name).write_text(notice+portable_bytes(name).decode('utf-8').replace('\r\n','\n'),encoding='utf-8')
-    readme=SHARE['render_document'](source_text('distribution/README-CODIGO.md'),info)
-    # This template also ships in distribution/, where its manual link is local.
-    readme=readme.replace('[manual de uso](README.md)','[manual de uso](distribution/README.md)')
-    (destination/'README.md').write_text(readme,encoding='utf-8')
     for name in TESTS:
         target=destination/'tests'/name;target.parent.mkdir(exist_ok=True)
         # The generic interface names the legacy owner state as the portable build does.
-        target.write_text(source_text('tests/'+name).replace('Pendiente de Jaime','Pendiente de Usuario'),encoding='utf-8')
+        target.write_text(SHARE['replace_private'](source_text('tests/'+name),'tests'),encoding='utf-8')
     for name in SHARE['SOURCE_PROJECT_FILES']:
         target=destination/name;target.parent.mkdir(parents=True,exist_ok=True)
         target.write_text(source_text(name),encoding='utf-8')
-    (destination/'.gitignore').write_text('/data/\n/outputs/\n/runtime/\n/auditoria/\n/tmp/\n/.venv/\n.env\n.env.*\n/Abrir Stubbs Jobs.exe\n**/__pycache__/\n*.pyc\n/tools/node_modules/\n',encoding='utf-8')
+    (destination/'.gitignore').write_text('/data/\n/outputs/\n/private/\n/runtime/\n/auditoria/\n/tmp/\n/.venv/\n.env\n.env.*\n/Abrir Stubbs Jobs.exe\n**/__pycache__/\n*.pyc\n/tools/node_modules/\n*conflicted*\n/perfil.md\n',encoding='utf-8')
     if SHARE['source_identity']()!=source_fingerprint:raise ValueError('El código cambió durante la construcción; conserva el diagnóstico y prepara una copia nueva')
+    SHARE['assert_no_personal_data'](destination)
     hashes={p.relative_to(destination).as_posix():hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(destination.rglob('*')) if p.is_file()}
     (destination/'config/source-files.sha256.json').write_text(json.dumps(hashes,indent=2),encoding='utf-8')
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:

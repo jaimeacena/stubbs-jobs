@@ -49,7 +49,8 @@ def application_context(data,search=None):
 def experience(data):
     import app_workflow as w
     if 'experience' in w.state(data):return w.state(data)['experience']
-    path=w.ROOT/'perfil.md'
+    path=w.ROOT/'private/profile.md'
+    if not path.is_file():path=w.ROOT/'perfil.md'  # Older installations and backups.
     if not path.exists():return ''
     section=path.read_text(encoding='utf-8').split('## Datos confirmados por Usuario',1)[-1].split('## ',1)[0].strip()
     # Operational preferences have their own editable source and must not be duplicated here.
@@ -124,10 +125,12 @@ def definitions(data,op_id=None):
     if data.get('app',{}).get('personalized'):
         from personalization import context
         if data['profile'].get('workAuthorizations') is None:result['workPermitWithoutSponsorship']['label']='Permiso de trabajo en el destino, sin patrocinio (dato anterior)'
-        result['salaryExpectationFixed']['label']='Salario deseado (bruto anual, '+data['profile'].get('salaryCurrency',context(data)['currency'])+')'
+        currency=data['profile'].get('salaryCurrency',context(data)['currency'])
+        result['salaryExpectationFixed']['label']='Salario deseado (bruto anual'+(', '+currency if isinstance(currency,str) and currency.strip() else '')+')'
     result['salaryCurrency']={'key':'salaryCurrency','label':'Moneda del salario para formularios','type':'text','scope':'global'}
+    removed=w.state(data).get('removedProfileFields',{})
     for field in question_catalog(data).values():
-        if field['scope']=='global':result[field['key']]=field
+        if field['scope']=='global' and field['key'] not in removed:result[field['key']]=field
     for field in w.state(data)['drafts'].get(op_id,{}).get('questions',[]):
         result[field['key']]=field
     return result
@@ -141,6 +144,8 @@ def validate_questions(data,op_id,fields):
         if not re.fullmatch(r'custom_[a-z][a-z0-9_]{0,59}',key) or key in seen:raise ValueError('Identificador de pregunta no válido')
         if not isinstance(f.get('label'),str) or not 1<=len(f['label'].strip())<=200:raise ValueError('La pregunta necesita un texto claro')
         if f.get('type') not in ('text','number','boolean') or f.get('scope') not in ('global','opportunity'):raise ValueError('Tipo de pregunta no válido')
+        if key in data.get('app',{}).get('removedProfileFields',{}):
+            raise ValueError('Este campo se eliminó de Mi perfil; utiliza Deshacer para recuperarlo')
         if key in catalog and catalog[key]!=f:raise ValueError('Esta pregunta ya tiene otro significado; utiliza otra clave')
         catalog[key]=dict(f)
         seen.add(key)
@@ -152,11 +157,44 @@ def validate_custom(field,value):
     if kind=='number' and (type(value) not in (int,float) or not -1000000<=value<=1000000):raise ValueError('Escribe un número válido')
     if kind=='text' and (not isinstance(value,str) or not value.strip() or len(value)>5000):raise ValueError('Escribe una respuesta de hasta 5000 caracteres')
 
+def profile_field_state(data,key):
+    return {'definition':question_catalog(data).get(key),
+            'answerPresent':key in data['profile'],'value':data['profile'].get(key),
+            'removed':data.get('app',{}).get('removedProfileFields',{}).get(key)}
+
+def remove_profile_field(data,op):
+    """Remove an unused current field while preserving its meaning and history."""
+    import app_workflow as w
+    key=op.get('key');app=w.state(data)
+    if op.get('opportunityId') is not None or not isinstance(key,str) or not key.startswith('custom_'):
+        raise ValueError('Solo se eliminan campos generales adicionales de Mi perfil')
+    if 'expectedRevision' not in op or not op.get('proof'):
+        raise ValueError('Eliminar un campo necesita decisión humana y revisión esperada')
+    w.expect(data['revision'],op['expectedRevision'])
+    before=profile_field_state(data,key)
+    if not before['definition'] or before['definition']['scope']!='global' or before['removed']:
+        raise ValueError('No hay un campo general actual con esa clave')
+    w.expect(before,op.get('expected'))
+    for draft in app['drafts'].values():
+        used=set(draft.get('requiredAnswers',[]))|set(draft.get('formAnswerKeys',[]))|set(draft.get('answers',{}))
+        used.update(f['key'] for f in draft.get('questions',[]))
+        if key in used:
+            raise ValueError('Ese campo se utiliza en una solicitud; retira primero su uso declarado')
+    data['profile'].pop(key,None)
+    app.setdefault('removedProfileFields',{})[key]={'removedAt':w.now(),'proof':op['proof'],'actor':op.get('actor','Agente')}
+    event=w.record(data,'Campo eliminado de Mi perfil',actor=op.get('actor','Agente'),detail=before['definition']['label'])
+    event['changedFields']=[before['definition']['label']]
+    app['undo'].append({'id':event['id'],'kind':'profile-field-remove','key':key,
+                        'before':before,'after':profile_field_state(data,key),'used':False})
+
 def handle(data,op):
     import app_workflow as w
     import personalization
     if personalization.handle(data,op):return True
     app=w.state(data);kind=op['kind'];key=op.get('opportunityId');actor=op.get('actor','Agente')
+    if kind=='ui-profile-field-remove':
+        remove_profile_field(data,op)
+        return True
     if kind=='ui-request-summary':
         r=next(r for r in app['requests'] if r['id']==op['id'])
         w.require_current_execution(r)

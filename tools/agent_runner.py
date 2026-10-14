@@ -85,7 +85,7 @@ def prompt(ids):
         console_python = console_python.with_name('python.exe')
     return f'''Trabaja en español en el procedimiento Stubbs Jobs de esta carpeta. La aplicación ha solicitado
 continuar el trabajo guardado. Atiende exclusivamente estos identificadores de encargo: {json.dumps(ids)}.
-Lee AGENTS.md, APLICACION.md y los documentos operativos. Consulta agent-status, una lectura pura y breve.
+Lee AGENTS.md y, de los documentos operativos y docs/application-contract.md, las secciones que indica para estos encargos. Consulta agent-status, una lectura pura, breve y paginada.
 Amplía solo lo necesario con agent-status --case ID, --request ID o --case ID --history.
 Conserva la lista original de arriba y usa --request-ids {','.join(ids)} junto a --execution-id en cada apply.
 No cambies el código de la aplicación, reglas, configuración, automatizaciones ni permisos.

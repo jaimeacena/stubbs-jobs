@@ -31,8 +31,11 @@ DEMOGRAPHIC_FIELDS={
     'gender':{'label':'Género (opcional)','type':'text','maxlength':100,
               'placeholder':'Ej.: hombre, mujer, no binario o prefiero no responder',
               'descriptionId':'profile-gender-help','help':'Solo se utiliza cuando el formulario lo pide y aceptas participar en su encuesta demográfica.'},
-    'demographicSurveyParticipation':{'label':'Participar en encuestas demográficas (opcional)','type':'boolean',
-              'descriptionId':'profile-demographic-help','help':'Sí: usar tus datos guardados en encuestas opcionales de las solicitudes que elijas. No: omitirlas o elegir «Prefiero no responder». No incluye el consentimiento para tramitar la candidatura.'},
+    'demographicSurveyParticipation':{'label':'Encuestas demográficas (opcional)','type':'choice',
+              'options':[{'value':'decline','label':'Prefiero no responder'},
+                         {'value':'omit','label':'No, omitirlas'},
+                         {'value':'use_saved','label':'Sí, usar mis datos'}],
+              'descriptionId':'profile-demographic-help','help':'Solo para encuestas opcionales de las candidaturas que elijas.'},
 }
 FORM_FIELDS=(*PERSONAL,'noticeDays',*CONTACT_FIELDS,*DEMOGRAPHIC_FIELDS)
 CHECKS=('cv','form','destination','vacancy','duplicates')
@@ -216,14 +219,21 @@ def publish_package(key,p,content,protected=False):
 
 def material_versions(data):
     seed(data)
-    return {r['ID']:(stamp(data,r['ID']),r.get('Prioridad'),r['Estado'] in CLOSED) for r in data['sheets']['Oportunidades']}
+    return current_material(data,[r['ID'] for r in data['sheets']['Oportunidades']])
+
+def current_material(data,keys):
+    # Pure read of one unchanged state: share the row index and catalogues
+    # instead of rebuilding them for every offer (quadratic with many offers).
+    with view_cache.snapshot():
+        return {key:(stamp(data,key),row_for(data,key).get('Prioridad'),row_for(data,key)['Estado'] in CLOSED) for key in keys}
 
 def protect_material(data,before):
     """All writers, including legacy operations and undo, share this invariant."""
     changed=False
+    current_versions=current_material(data,list(before))
     for key,previous in before.items():
-        row=row_for(data,key)
-        current=(stamp(data,key),row.get('Prioridad'),row['Estado'] in CLOSED)
+        # After an automatic review mutates the store, later offers are measured again.
+        current=current_material(data,[key])[key] if changed else current_versions[key]
         if previous==current:continue
         changed=True
         if any(r['type']=='send' and r['status']=='running' and r.get('opportunityId')==key for r in state(data)['requests']):
@@ -289,15 +299,22 @@ def answers(data,op_id):
     result.update({k:data['profile'].get(k) for k in (*CONTACT_FIELDS,'demographicSurveyParticipation') if k in requested})
     if 'gender' in requested:
         participation=d['answers'].get('demographicSurveyParticipation',data['profile'].get('demographicSurveyParticipation'))
-        result['gender']=data['profile'].get('gender') if participation is True else 'Prefiero no responder' if participation is False else None
+        mode=survey_mode(participation)
+        result['gender']=data['profile'].get('gender') if mode=='use_saved' else 'Prefiero no responder' if mode=='decline' else None
     result.update({k:data['profile'].get(k) for k,f in context.definitions(data,op_id).items() if k.startswith('custom_') and f['scope']=='global' and k in requested})
     result.update(draft(data,op_id)['answers'])
     return result
 
+def survey_mode(value):
+    """Project legacy booleans without rewriting decisions or granting consent."""
+    if value is True:return 'use_saved'
+    if value is False:return 'decline'
+    return value if value in ('decline','omit','use_saved') else None
+
 def cv_bytes(row):
     value=row.get('CV preparado')
     path=(ROOT/value).resolve() if value else None
-    if not path or not path.is_relative_to(ROOT.resolve()) or path.suffix.lower()!='.pdf' or not path.is_file(): return None
+    if not path or not path.is_relative_to(view_cache.memo(('root-real',),ROOT.resolve)) or path.suffix.lower()!='.pdf' or not path.is_file(): return None
     def read():
         try:return path.read_bytes()
         except OSError:return None
@@ -341,6 +358,9 @@ def missing(data,op_id):
     if row['Estado'] in CLOSED: result.append('Proceso cerrado')
     elif archived(data,op_id): result.append('Oferta archivada')
     if not p['cvHash']: result.append('Seleccionar un CV disponible')
+    else:
+        from cv_retirement import retired
+        if retired(data,p['cvHash']):result.append('Sustituir el CV retirado por una versión vigente')
     if not isinstance(d.get('formAnswerKeys'),list):result.append('Comprobar las preguntas que pide el destino')
     if d.get('messageUsage') is None:result.append('Comprobar si el destino utiliza presentación')
     if d.get('messageUsage')=='unknown':result.append('Comprobar si el formulario utiliza presentación')
@@ -372,7 +392,8 @@ def validate_answer(key,value,definition=None):
     if key in DEMOGRAPHIC_FIELDS:
         if value is None:return
         if key=='demographicSurveyParticipation':
-            if type(value) is not bool:raise ValueError('Elige Sí, No o Sin responder para las encuestas demográficas')
+            if type(value) is not bool and (not isinstance(value,str) or value not in ('decline','omit','use_saved')):
+                raise ValueError('Elige Prefiero no responder, No, omitirlas o Sí, usar mis datos')
         elif not isinstance(value,str) or not value.strip() or value!=value.strip() or len(value)>100:
             raise ValueError('Describe tu género o indica «Prefiero no responder», hasta 100 caracteres')
         return
@@ -411,6 +432,7 @@ def pending_change(data,op_id,exclude_owner=False):
 def undo_current(data,item):
     app=state(data);kind=item['kind'];key=item.get('opportunityId')
     if kind=='offer-archive':return {key:archived(data,key) for key in item['after']}
+    if kind=='profile-field-remove':return context.profile_field_state(data,item['key'])
     if kind=='selection':return selection(data,key)
     if kind=='section':
         from personalization import context as search_context
@@ -438,6 +460,8 @@ def archive(data,op_id,cv=None,external=False):
     p=payload(data,op_id); row=row_for(data,op_id)
     content=(ROOT/cv).read_bytes() if cv else cv_bytes(row)
     if not content:raise ValueError('No hay CV para conservar')
+    from cv_retirement import retired
+    if retired(data,digest(content)):raise ValueError('Este CV está retirado; utiliza una versión vigente')
     p['cvHash']=digest(content)
     if cv:p['cv']=cv
     fingerprint=digest(p)
@@ -581,8 +605,9 @@ def handle(data,op):
     if kind in ('ui-add-opportunity','ui-draft','ui-review','ui-cv-review','ui-approve','ui-select-opportunity','ui-contact-draft','ui-request-update','ui-delivery-check','ui-offer-assessment','ui-source-review'):
         from onboarding import require_ready
         require_ready(data)
-    import source_reviews, application_lifecycle
-    if application_lifecycle.handle(data,op,__import__('sys').modules[__name__]):pass
+    import source_reviews, application_lifecycle, cv_retirement
+    if cv_retirement.handle(data,op,__import__('sys').modules[__name__]):pass
+    elif application_lifecycle.handle(data,op,__import__('sys').modules[__name__]):pass
     elif source_reviews.handle(data,op):pass
     elif context.handle(data,op):pass
     elif kind=='ui-criteria-scope':
@@ -703,6 +728,19 @@ def handle(data,op):
     elif kind=='ui-profile':
         scope=op.get('scope','global'); target=data['profile'] if scope=='global' else draft(data,op_id)['answers']
         if scope not in ('global','opportunity'):raise ValueError('Indica el alcance global o particular de la respuesta')
+        if 'questions' in op:
+            if scope!='global' or op_id is not None:
+                raise ValueError('Los datos personales adicionales se declaran en Mi perfil, sin una oferta')
+            if not op.get('proof') or 'expectedRevision' not in op:
+                raise ValueError('Declarar datos personales necesita confirmación y revisión esperada')
+            expect(data['revision'],op['expectedRevision'])
+            canonical={re.sub(r'[^a-z0-9]','',k.lower()) for k in context.definitions(data) if not k.startswith('custom_')}
+            context.validate_questions(data,None,op['questions'])
+            for field in op['questions']:
+                if field['scope']!='global':
+                    raise ValueError('Los datos de Mi perfil tienen alcance general')
+                if re.sub(r'[^a-z0-9]','',field['key'][7:].lower()) in canonical:
+                    raise ValueError('Utiliza el campo personal existente, sin duplicarlo')
         values=op['values']; before={k:target.get(k) for k in values}; absent=[k for k in values if k not in target]
         if 'minimumFixed' in values and 'searchProfiles' in app:
             raise ValueError('Guarda el mínimo en el perfil de búsqueda mediante ui-preferences y searchProfileId')
@@ -852,6 +890,11 @@ def handle(data,op):
                 if value is None:app['offerArchives'].pop(key,None)
                 else:app['offerArchives'][key]=copy.deepcopy(value)
             record(data,'Archivo deshecho',actor=actor,detail='Ofertas recuperadas sin restaurar selecciones ni permisos de envío.')
+        elif item['kind']=='profile-field-remove':
+            key=item['key'];before=item['before']
+            app['removedProfileFields'].pop(key,None)
+            if before['answerPresent']:data['profile'][key]=before['value']
+            else:data['profile'].pop(key,None)
         elif item['kind']=='selection':
             # Recovering a selection never recovers an old send permission.
             handle(data,{'kind':'ui-select-opportunity','opportunityId':item['opportunityId'],'selected':bool(item['before']),

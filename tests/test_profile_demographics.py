@@ -10,6 +10,48 @@ import view_cache
 
 
 class ProfileDemographicsTests(WorkflowFixture, unittest.TestCase):
+    def test_decline_omit_and_saved_data_have_distinct_meanings_without_granting_consent(self):
+        self.save({'gender':'Mujer'})
+        self.form()
+        for mode,expected in [('decline','Prefiero no responder'),('omit',None),('use_saved','Mujer')]:
+            self.save({'demographicSurveyParticipation':mode})
+            self.assertEqual(w.answers(self.data,'one')['gender'],expected)
+            self.assertEqual(self.data['profile']['gender'],'Mujer')
+            self.assertNotIn('custom_demographic_decline_consent',self.data['profile'])
+        fields=c.definitions(self.data)
+        self.assertEqual([option['label'] for option in fields['demographicSurveyParticipation']['options']],
+                         ['Prefiero no responder','No, omitirlas','Sí, usar mis datos'])
+
+    def test_new_mode_keeps_local_survey_decisions_and_legacy_false(self):
+        self.save({'gender':'Mujer','demographicSurveyParticipation':'omit'})
+        self.form()
+        d=w.draft(self.data,'one')
+        self.apply({'kind':'ui-draft','opportunityId':'one','values':{'answers':{'demographicSurveyParticipation':True}},'expected':{'answers':d['answers']}})
+        self.assertEqual(w.answers(self.data,'one')['gender'],'Mujer')
+        self.save({'demographicSurveyParticipation':False})
+        self.assertEqual(self.data['profile']['demographicSurveyParticipation'],False)
+        self.assertEqual(w.survey_mode(False),'decline')
+
+    def test_legacy_interview_confirmation_keeps_its_original_fingerprint(self):
+        from stubbs_jobs_core import digest
+        field=profile_interview.fields(self.data)['demographicSurveyParticipation']
+        original={**field,'label':'Participar en encuestas demográficas (opcional)','type':'boolean'}
+        for value in (True,False):
+            self.assertEqual(profile_interview.fingerprint(self.data,{'demographicSurveyParticipation':value},field),
+                             digest(['profile-interview-v1',original,value,{}]))
+
+    def test_omit_revokes_a_package_using_gender_and_undo_restores_the_exact_mode(self):
+        self.save({'gender':'Mujer','demographicSurveyParticipation':'use_saved'});self.form();self.review()
+        self.apply({'kind':'ui-approve','opportunityId':'one','fingerprint':w.stamp(self.data,'one')})
+        package=copy.deepcopy(w.state(self.data)['packages'][0])
+        self.save({'demographicSurveyParticipation':'omit'})
+        self.assertEqual(w.state(self.data)['packages'][0]['payload'],package['payload'])
+        self.assertTrue(w.state(self.data)['packages'][0]['revokedAt'])
+        self.assertIn('Género (opcional)',w.missing(self.data,'one'))
+        self.apply({'kind':'ui-undo','id':w.state(self.data)['undo'][-1]['id']})
+        self.assertEqual(self.data['profile']['demographicSurveyParticipation'],'use_saved')
+        self.assertEqual(w.answers(self.data,'one')['gender'],'Mujer')
+
     def save(self, values):
         self.apply({'kind':'ui-profile-section','section':'about','values':values,
                     'expected':{k:self.data['profile'].get(k) for k in values}})

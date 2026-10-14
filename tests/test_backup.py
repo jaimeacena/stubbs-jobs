@@ -12,6 +12,7 @@ from unittest.mock import patch
 from workflow_fixtures import WorkflowFixture, fixture
 import app_workflow as workflow
 import backup
+import cv_usage
 import stubbs_jobs_app as server
 import stubbs_jobs_core as core
 
@@ -55,12 +56,52 @@ class BackupTests(unittest.TestCase):
         self.assertNotIn('data/agent-run.json', verified['files'])
         self.assertEqual(verified['manifest']['revision'], self.data['revision'])
 
+    def test_private_documents_and_legacy_conflicts_survive_isolated_recovery(self):
+        self.prepare_code()
+        documents = {'private/profile.md': b'TEST new profile',
+                     'private/search-strategy.md': b'TEST personal strategy',
+                     'private/profile [conflicted].md': b'TEST preserved conflict',
+                     'perfil.md': b'TEST legacy profile',
+                     'estrategia [conflicted].md': b'TEST legacy conflict'}
+        for name, content in documents.items():
+            path = self.root/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        (self.root/'private/unrelated.md').write_text('TEST must not enter backup')
+        (self.root/'docs').mkdir()
+        (self.root/'docs/operations.md').write_text('TEST installed operation contract')
+        result = self.create()
+        verified = backup.verify(Path(result['path']).read_bytes())
+        for name, content in documents.items():
+            self.assertEqual(verified['files'][name], content)
+        self.assertNotIn('private/unrelated.md', verified['files'])
+        original = (self.root/'data/registry.json').read_bytes()
+        destination = self.recovery_destination()
+        backup.restore(self.root, result['path'], destination)
+        for name, content in documents.items():
+            self.assertEqual((destination/name).read_bytes(), content)
+        self.assertEqual((destination/'docs/operations.md').read_text(), 'TEST installed operation contract')
+        self.assertEqual((self.root/'data/registry.json').read_bytes(), original)
+
+    def test_profile_file_fallback_preserves_legacy_and_saved_experience(self):
+        import app_context
+        data = copy.deepcopy(self.data)
+        data['app'].pop('experience', None)
+        (self.root/'perfil.md').write_text('TEST legacy experience\n')
+        with patch.object(workflow, 'ROOT', self.root):
+            self.assertEqual(app_context.experience(data), 'TEST legacy experience')
+            (self.root/'private').mkdir()
+            (self.root/'private/profile.md').write_text('TEST current experience\n')
+            self.assertEqual(app_context.experience(data), 'TEST current experience')
+            data['app']['experience'] = 'TEST saved and confirmed experience'
+            self.assertEqual(app_context.experience(data), 'TEST saved and confirmed experience')
+
     def test_backup_preserves_unused_legacy_pdfs_visible_in_personal_or_generic_library(self):
         self.data['sheets']['Oportunidades'] = []
         self.data['app']['cvLibrary'] = []
         self.data['app']['packages'] = []
         self.data['app']['personalized'] = False
-        for name in ('CV-Jaime-TEST.pdf', 'CV-Usuario-TEST.pdf'):
+        for name in {pattern.replace('*', 'TEST') for pattern in cv_usage.LEGACY_PATTERNS}:
             (self.root / 'outputs' / name).write_bytes(b'%PDF-test-one')
         with patch.object(server, 'ROOT', self.root):
             documents = server.cv_library(self.data)

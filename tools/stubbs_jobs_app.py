@@ -34,7 +34,7 @@ import personalization
 import onboarding
 import offer_quality
 import window_icon
-from runtime import excel_available
+from runtime import excel_available, synced_folder
 from state_support import cycle_view, excel_date, instant, first_seen_dates
 
 WEB=ROOT/'app'
@@ -142,7 +142,7 @@ def state_version(data,brief=False,case=None,history=False,execution=None):
         name=row.get('CV preparado')
         if name and name not in files:
             content=w.cv_bytes(row);files[name]=digest(content) if content else None
-    paths=[ROOT/'perfil.md',ROOT/'config/sources.json']
+    paths=[ROOT/'private/profile.md',ROOT/'perfil.md',ROOT/'config/sources.json']
     if not brief:paths.extend((EXPORT_STATUS,WORKBOOK))
     for path in paths:
         try:files[str(path)]=digest(path.read_bytes()) if path.is_file() else None
@@ -277,7 +277,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
             'setupComplete':app.get('setupComplete',True),'personalized':app.get('personalized',False),'legacyEvidenceMode':not bool(data.get('lastOpportunityReset')) and not app.get('personalized',False),'searchContext':personalization.context(data),'excelAvailable':excel_available(ROOT),
             'searchProfiles':search_profiles.visible_profiles(data),'deletedSearchProfiles':search_profiles.deleted_profiles(data),
             'defaultSearchProfileId':search_profiles.default_id(data),
-            'assistantMode':personalization.assistant_mode(data),'automation':{'applicationMode':w.automation(data)['applicationMode']},'workspacePath':str(ROOT),'agentInstructions':agent_runner.external_prompt(data) if include_instructions else '',
+            'assistantMode':personalization.assistant_mode(data),'automation':{'applicationMode':w.automation(data)['applicationMode']},'workspacePath':str(ROOT),'syncedFolder':view_cache.memo(('synced-folder',),lambda:synced_folder(ROOT)),'agentInstructions':agent_runner.external_prompt(data) if include_instructions else '',
             'experience':context.experience(data),'applicationVerification':personalization.application_verification(data),
             'history':application_lifecycle.history_view(data),'seenAt':app['seenAt'],'snoozes':app['snoozes'],'rounds':w.rounds(data),'requests':[application_lifecycle.request_view(data,request_view(req,unresolved_ids,superseded),w) for req in app['requests']],'undo':undo,
             'metrics':j.metrics(data),
@@ -293,7 +293,9 @@ def cv_library(data):
     import cv_usage
     registered=[{'id':p['id'],'name':p['name'],'path':p['path'],'url':document_url('uploaded:'+p['id'])} for p in data.get('app',{}).get('cvLibrary',[])]
     legacy=[{'name':p.name,'path':p.relative_to(ROOT).as_posix(),'url':document_url('library:'+p.name)} for p in cv_usage.legacy_paths(data,ROOT)]
-    return cv_usage.enrich(data,legacy+registered,ROOT,w.package_issue)
+    from cv_retirement import retired
+    return [d for d in cv_usage.enrich(data,legacy+registered,ROOT,w.package_issue)
+            if not retired(data,d['fingerprint'])]
 
 def doc_path(identifier):
     if identifier.startswith('backup:'):

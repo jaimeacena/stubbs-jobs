@@ -12,6 +12,7 @@ let workspace=null,actionAttempts=window.StubbsJobsDrafts.actionJournal(draftSto
 let refreshInFlight=null, stateVersion=null, navigationSerial=0, mutationSerial=0, saving=false,actionBusy=false,profileSaving=false;
 let reviewSnapshot=null, navigationReady=false, historyLimit=30, toastTimer=null;
 let activityDayLimit=7;
+const openActivityGroups=new Set();
 let setupCopiedUntil=0,setupCopyTimer=null;
 const flowScreens=['perfil','solicitar','agente'];
 const flowFilters={solicitar:'todas'};
@@ -82,7 +83,7 @@ function acceptState(next){
   if(offerProfileFilter&&!next.searchProfiles.some(p=>p.id===offerProfileFilter))offerProfileFilter='';
   window.StubbsJobsDrafts.bindSearchProfile(draftStorage,'search-current');
  }
- model=next;return true;
+ model=next;UI.configure({personalized:next.personalized});return true;
 }
 function captureFocus(element=document.activeElement){
  if(!element||!main.contains(element)&&!columnMenuFor(element))return null;
@@ -146,8 +147,17 @@ function restoreForm(form=main.querySelector('form[data-form]')){
  if(!form)return;
  try{
   const stored=JSON.parse(draftStorage.getItem(draftKey(form))||'null');if(!stored)return;
-  for(const [key,value] of Object.entries(stored.values)){const field=form.elements.namedItem(key);if(field)field.value=value;}
+  for(const [key,value] of Object.entries(stored.values)){
+   const field=form.elements.namedItem(key);if(!field)continue;
+   const shownValue=key==='demographicSurveyParticipation'&&field.dataset.type==='choice'&&['true','false'].includes(String(value))?surveyMode(String(value)==='true'):value;
+   // A previous text answer or boolean draft must survive a switch to options.
+   if(field.tagName==='SELECT'&&field.options&&shownValue!==null&&shownValue!==''&&![...field.options].some(option=>option.value===String(shownValue))){
+    const option=document.createElement('option');option.value=String(shownValue);option.hidden=true;option.textContent='Respuesta anterior: '+shownValue;field.add(option);
+   }
+   field.value=shownValue;
+  }
   form._expected={...form._expected,...stored.expected};form._shown={...form._shown,...stored.shown};
+  projectSurveyShown(form);
   if(form.dataset.form==='search'&&Object.hasOwn(stored.values,'regions')){
    const source=formSource('search');
    const wanted=visibleSearchLocation(stored.values.location??source.location,stored.values.workMode??source.workMode,stored.values.regions);
@@ -267,7 +277,7 @@ function setupCopyButton(label='Copiar mensaje',available=true){
 function setupAgentPrompt(){
  return `Quiero preparar mi perfil de Stubbs Jobs en esta carpeta: ${model.workspacePath||'[ubicación aún no disponible]'}.
 
-Sigue INICIO.md y comprueba el acceso a la carpeta y sus herramientas. Retoma el avance guardado y hazme una entrevista breve para confirmar primero los datos esenciales de la búsqueda: ayúdame con los CV que adjunte, pregunta solo por lo necesario ahora y conserva los demás datos como pendientes y confirma qué quiero dejar en blanco.
+Sigue docs/getting-started.md y comprueba el acceso a la carpeta y sus herramientas. Retoma el avance guardado y hazme una entrevista breve para confirmar primero los datos esenciales de la búsqueda: ayúdame con los CV que adjunte, pregunta solo por lo necesario ahora y conserva los demás datos como pendientes y confirma qué quiero dejar en blanco.
 
 Muéstrame el resumen antes de guardar solo lo que confirme. Si ya tengo perfil, no repitas la entrevista. No busques ofertas ni envíes solicitudes todavía.`;
 }
@@ -278,7 +288,7 @@ function setupForm(){
  const progress={access_checked:'Carpeta comprobada. Continúa en el chat.',preparing:state.coverage?.complete?'Continúa en el chat para revisar el resumen.':'Responde a lo pendiente en el chat; puedes dejar datos en blanco.',awaiting_confirmation:'Revisa el resumen en el chat y confírmalo o pide cambios.',blocked:state.summary||'Consulta el chat para resolver el paso pendiente.'};
  const coverage=state.coverage&&status!=='waiting'?`${state.coverage.provided+state.coverage.blank} de ${state.coverage.total} aspectos del perfil tratados.${state.coverage.blank?` ${state.coverage.blank} dejado${state.coverage.blank===1?'':'s'} en blanco por tu decisión.`:''}`:'';
  const current=progress[status]?`<p class="setup-coverage" role="status">${esc(progress[status])}${coverage?` <span>${esc(coverage)}</span>`:''}</p>`:'';
- return `<div class="welcome-view setup-view"><h1>Empieza con Stubbs Jobs</h1><p class="lead">Encuentra ofertas a tu medida y prepara tus solicitudes con tu agente de IA. Tú decides dónde solicitar.</p>${current}<section class="setup-instructions"><h2><span class="setup-step" aria-hidden="true">1</span> Añade esta carpeta como proyecto en tu agente de IA</h2><div class="copy-line"><code>${esc(available?path:'Cargando ubicación…')}</code><button data-copy-path="1"${available?'':' disabled'}>Copiar ubicación</button></div><h2><span class="setup-step" aria-hidden="true">2</span> Pega este mensaje en un chat dentro de tu nuevo proyecto para empezar el on-boarding</h2><pre id="setup-message" class="setup-message" tabindex="0" aria-label="Mensaje para tu agente">${esc(setupAgentPrompt())}</pre>${setupCopyButton('Copiar mensaje',available)}</section>${state.executionId?`<section class="setup-resume" aria-labelledby="setup-resume-title"><h2 id="setup-resume-title">Si cambias de chat, retoma aquí antes de continuar</h2><p>Conserva tus respuestas y CV y retira al chat anterior el acceso a esta preparación.</p><button data-setup-retry="1">Retomar en otro chat</button></section>`:''}</div>`;
+ return `<div class="welcome-view setup-view"><h1>Empieza con Stubbs Jobs</h1><p class="lead">Encuentra ofertas a tu medida y prepara tus solicitudes con tu agente de IA. Tú decides dónde solicitar.</p>${current}${typeof model.syncedFolder==='string'&&model.syncedFolder?`<p class="setup-warning" role="alert">Esta carpeta está dentro de ${esc(model.syncedFolder)}. Para evitar copias en conflicto de tus datos, cierra la app y mueve la carpeta completa a una ubicación local sin sincronizar, como C:\\StubbsJobs.</p>`:''}<section class="setup-instructions"><h2><span class="setup-step" aria-hidden="true">1</span> Añade esta carpeta como proyecto en tu agente de IA</h2><div class="copy-line"><code>${esc(available?path:'Cargando ubicación…')}</code><button data-copy-path="1"${available?'':' disabled'}>Copiar ubicación</button></div><h2><span class="setup-step" aria-hidden="true">2</span> Pega este mensaje en un chat dentro de tu nuevo proyecto para empezar el on-boarding</h2><pre id="setup-message" class="setup-message" tabindex="0" aria-label="Mensaje para tu agente">${esc(setupAgentPrompt())}</pre>${setupCopyButton('Copiar mensaje',available)}</section>${state.executionId?`<section class="setup-resume" aria-labelledby="setup-resume-title"><h2 id="setup-resume-title">Si cambias de chat, retoma aquí antes de continuar</h2><p>Conserva tus respuestas y CV y retira al chat anterior el acceso a esta preparación.</p><button data-setup-retry="1">Retomar en otro chat</button></section>`:''}</div>`;
 }
 function setupReady(){
  return `<div class="welcome-view setup-view"><h1>Tu perfil está preparado</h1><p class="lead">Para encontrar tus primeras ofertas, pide «Busca ofertas nuevas» en el chat de tu agente.</p><div class="setup-actions"><button class="primary" data-setup-finish="solicitar">Ir a Ofertas</button><button data-setup-finish="perfil">Revisar mi perfil</button></div>${!model.searchContext.targetRoles||!model.preferences.location?'<p class="helper">Antes de buscar, concreta los puestos y la zona con tu agente o en Mi perfil.</p>':''}</div>`;
@@ -286,9 +296,73 @@ function setupReady(){
 function sectionDefinitions(section){
  const context=window.StubbsJobsSetup.context,contact=window.StubbsJobsSetup.contact;
  const preferences={contract:{label:'Contrato',type:'text',placeholder:'Ej.: indefinido'},location:{label:'Zona de búsqueda',type:'text',placeholder:'Países o zonas donde quieres trabajar'},maxTrips:{label:'Viajes al mes (máximo)',type:'number'},minimumFixed:{label:'Salario fijo mínimo bruto anual',type:'number'},keywords:{label:'Palabras clave',type:'text',placeholder:'Términos relevantes para tu sector'},noticeDays:{label:'Preaviso',type:'text',placeholder:'Ej.: 15 días laborables, 3 semanas o inmediato'},searchPriorities:{...context.searchPriorities,label:'Horario que prefiero',placeholder:'Ej.: mañana, flexible o sin turnos de noche'}};
- const keys=section==='about'?['name','email','phone','currentCity','currentCountry','postalCode','address','linkedinUrl','websiteUrl','gender','demographicSurveyParticipation','workAuthorizations','noticeDays',...Object.keys(model.fieldDefinitions||{}).filter(k=>k.startsWith('custom_')&&model.fieldDefinitions[k].scope==='global')]:section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','searchNotes','languages','previousApplications']:section==='sources'?['sourceUrls','platforms']:[];
+ const keys=section==='about'?Object.values(aboutLayout()).flat(2):section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','searchNotes','languages','previousApplications']:section==='sources'?['sourceUrls','platforms']:[];
  const personal={currentCity:{label:'Ciudad actual',type:'text'},workPermitWithoutSponsorship:{label:'Permiso de trabajo sin patrocinio',type:'boolean'},salaryExpectationFixed:{label:'Salario fijo esperado al año',type:'number'},noticeDays:{label:'Días de preaviso',type:'number'}};
- const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Permiso de trabajo sin patrocinio en',type:'multiselect'},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000}};return Object.fromEntries(keys.map(k=>[k,defs[k]||{label:k,type:'text'}]));
+ const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Permiso de trabajo sin patrocinio en',type:'multiselect'},gender:{...window.StubbsJobsSetup.demographics.gender,...model.fieldDefinitions?.gender,help:null,descriptionId:null},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000}};
+ return Object.fromEntries(keys.map(k=>[k,{...(defs[k]||{label:k,type:'text'}),...(section==='about'&&window.StubbsJobsSetup.aboutOptions.choices[k]?{options:window.StubbsJobsSetup.aboutOptions.choices[k]}:{})}]));
+}
+// A flat, occupation-independent order keeps related personal data together.
+function aboutCustomGroup(key,definition){
+ const text=(key+' '+(definition?.label||'')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ if(/demogr|gender|genero|protected|protegid|ethnic|etnic|race|raza|veteran|disab|discapac|divers|pronoun|pronombre/.test(text))return 'demographic';
+ if(/consent|retention|processing|privacy|gdpr|rgpd|autoriz|conserv/.test(text))return 'consent';
+ if(/birth|nacimiento|nationality|nacionalidad/.test(text))return 'identity';
+ if(definition?.inputType==='url'||/github|gitlab|portfolio|web.?url|website|perfil.*url/.test(text))return 'link';
+ if(/driving|conducir|carnet|vehicle|vehiculo/.test(text))return 'mobility';
+ if(/availability|incorporacion|disponibilidad|current.*salary|salario actual|self.?employ|autonomo/.test(text))return 'work';
+ return 'answer';
+}
+function aboutCustomRank(key,definition){
+ const text=(key+' '+(definition?.label||'')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ return /birth|nacimiento|availability|incorporacion|disponibilidad|driving|conducir|carnet/.test(text)?0:/nationality|nacionalidad|current.*salary|salario actual|vehicle|vehiculo/.test(text)?1:2;
+}
+function aboutLayout(){
+ const definitions=model.fieldDefinitions||{},custom=Object.keys(definitions).filter(k=>k.startsWith('custom_')&&definitions[k].scope==='global');
+ const group=name=>custom.filter(k=>aboutCustomGroup(k,definitions[k])===name).sort((a,b)=>aboutCustomRank(a,definitions[a])-aboutCustomRank(b,definitions[b])||definitions[a].label.localeCompare(definitions[b].label,'es',{sensitivity:'base'})||a.localeCompare(b)),answers=[],used=new Set();
+ const stem=k=>k.replace(/^custom_/,'').split('_').slice(0,2).join('_');
+ // A yes/no question and its text detail (same key stem) share one row.
+ for(const key of group('answer')){
+  if(used.has(key))continue;used.add(key);
+  const type=definitions[key].type,partner=group('answer').find(other=>!used.has(other)&&stem(other)===stem(key)&&[type,definitions[other].type].sort().join()==='boolean,text');
+  if(partner){used.add(partner);answers.push(type==='boolean'?[key,partner]:[partner,key]);}else answers.push(key);
+ }
+ return {contact:['name','email','phone','linkedinUrl','websiteUrl',...group('link'),...group('identity'),'currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays',...group('work'),...group('mobility')],answers,consent:group('consent'),demographic:['demographicSurveyParticipation','gender',...group('demographic')]};
+}
+function aboutFieldsHtml(keys,values,defs){
+ const permissions=window.StubbsJobsSetup.aboutOptions.permissions.filter(item=>defs[item.key]);
+ return keys.map(item=>{
+  if(Array.isArray(item)){
+   const [question,detail]=item,labelId='profile-pair-'+question+'-label';
+   if(window.StubbsJobsSetup.aboutOptions.details[question]===detail){
+    return `<div class="profile-field-wide profile-conditional" data-profile-detail="${esc(question)}">${fieldHtml(question,{...defs[question],falseLabel:'No aplica: no he participado',trueLabel:'Sí, he participado'},values[question])}<div data-profile-detail-content${values[question]===true?'':' hidden'}>${fieldHtml(detail,{...defs[detail],label:'Participación y resultados (opcional)',type:'longtext',rows:2,autoGrow:true,maxlength:5000,placeholder:'Competiciones, participación y resultados'},values[detail])}</div></div>`;
+   }
+   return `<div class="profile-field-wide field-pair" role="group" aria-labelledby="${esc(labelId)}"><span class="field-pair-label" id="${esc(labelId)}">${esc(fieldLabel(UI.answerTitle(defs[question].label)))}</span><div class="field-pair-controls">${fieldHtml(question,{...defs[question],labelClass:'sr-only'},values[question])}${fieldHtml(detail,{...defs[detail],labelClass:'sr-only',placeholder:defs[detail].placeholder||'Detalle y resultados'},values[detail])}</div></div>`;
+  }
+  if(permissions.some(permission=>permission.key===item))return item===permissions[0].key?profilePermissionsField(permissions,values):'';
+  if(item==='custom_demographic_decline_consent')return `<div data-profile-legacy-consent hidden>${fieldHtml(item,defs[item],values[item])}</div>`;
+  const html=fieldHtml(item,defs[item],values[item]);
+  if(item==='gender')return `<div data-profile-gender${surveyMode(values.demographicSurveyParticipation)==='use_saved'?'':' hidden'}>${html}</div>`;
+  return item==='name'||item==='workAuthorizations'||item.startsWith('custom_')&&aboutCustomGroup(item,defs[item])==='link'?`<div class="profile-field-wide">${html}</div>`:html;
+ }).join('');
+}
+function surveyMode(value){return value===true?'use_saved':value===false?'decline':['decline','omit','use_saved'].includes(value)?value:null;}
+function projectSurveyShown(form){const key='demographicSurveyParticipation';if(form.elements.namedItem(key)?.dataset.type==='choice'&&typeof form._shown[key]==='boolean')form._shown[key]=surveyMode(form._shown[key]);}
+function permissionSummary(permissions,values){
+ const allowed=permissions.filter(item=>values[item.key]===true).map(item=>item.short),pending=permissions.filter(item=>values[item.key]!==true&&values[item.key]!==false).length;
+ return [...allowed,...(pending?[pending===permissions.length?'Sin decidir':`${pending} sin decidir`]:[])].join(' · ')||'Ninguno autorizado';
+}
+function profilePermissionsField(permissions,values){
+ return `<div class="field profile-field-wide"><span id="profile-cv-permissions-label">Permisos sobre mi CV y contacto</span><details id="profile-cv-permissions" class="work-authorizations profile-permissions" data-profile-permissions><summary aria-labelledby="profile-cv-permissions-label profile-cv-permissions-value"><span id="profile-cv-permissions-value">${esc(permissionSummary(permissions,values))}</span></summary><div class="profile-permission-options" role="group" aria-labelledby="profile-cv-permissions-label">${permissions.map(item=>`<div class="profile-permission-option"><input type="hidden" name="${esc(item.key)}" data-type="boolean" value="${values[item.key]===true?'true':values[item.key]===false?'false':''}"><label class="permit-option"><input type="checkbox" data-profile-permission="${esc(item.key)}" aria-describedby="permission-state-${esc(item.key)}"${values[item.key]===true?' checked':''}><span>${esc(item.label)}</span></label><small class="helper" id="permission-state-${esc(item.key)}" data-permission-state="${esc(item.key)}">${values[item.key]===true?'Autorizado':values[item.key]===false?'No autorizado':'Sin decidir'}</small><button type="button" class="link-button" data-permission-clear="${esc(item.key)}"${values[item.key]===true||values[item.key]===false?'':' hidden'} aria-label="Dejar pendiente: ${esc(item.label)}">Dejar pendiente</button></div>`).join('')}</div></details><small class="helper">Solo para selección en las candidaturas que elijas. Cada permiso es independiente.</small></div>`;
+}
+function syncProfileOptions(form){
+ if(form?.dataset.form!=='about')return;
+ const read=key=>{const field=form.elements.namedItem(key);return field?field.dataset.type==='boolean'?(field.value===''?null:field.value==='true'):field.dataset.type==='choice'&&['true','false'].includes(field.value)?field.value==='true':field.value||null:null;};
+ const gender=form.querySelector?.('[data-profile-gender]');if(gender)gender.hidden=surveyMode(read('demographicSurveyParticipation'))!=='use_saved';
+ for(const box of form.querySelectorAll?.('[data-profile-detail]')||[]){const key=box.dataset.profileDetail,detail=window.StubbsJobsSetup.aboutOptions.details[key],content=box.querySelector('[data-profile-detail-content]');if(content){content.hidden=read(key)!==true&&sameFieldValue(read(detail),form._shown?.[detail]);if(!content.hidden)for(const field of content.querySelectorAll('textarea[data-auto-grow]'))growField(field);}}
+ const previous=form.querySelector?.('[data-profile-legacy-consent]');if(previous)previous.hidden=sameFieldValue(read('custom_demographic_decline_consent'),form._shown?.custom_demographic_decline_consent);
+ const permissions=window.StubbsJobsSetup.aboutOptions.permissions.filter(item=>form.elements.namedItem(item.key)),values=Object.fromEntries(permissions.map(item=>[item.key,read(item.key)]));
+ const summary=form.querySelector?.('#profile-cv-permissions-value');if(summary)summary.textContent=permissionSummary(permissions,values);
+ for(const checkbox of form.querySelectorAll?.('[data-profile-permission]')||[]){const key=checkbox.dataset.profilePermission,value=values[key];checkbox.checked=value===true;checkbox.indeterminate=value===null;const state=form.querySelector(`[data-permission-state="${key}"]`);if(state)state.textContent=value===true?'Autorizado':value===false?'No autorizado':'Sin decidir';const clear=form.querySelector(`[data-permission-clear="${key}"]`);if(clear)clear.hidden=value===null;}
 }
 function numberAttributes(key){
  if(key.startsWith('custom_'))return 'step="any" min="-1000000" max="1000000"';
@@ -300,7 +374,8 @@ function searchCriteriaFields(values,keys,association=null,{flat=false}={}){
  const field=key=>`<div${['targetRoles','keywords','searchPriorities','previousApplications'].includes(key)?' class="profile-field-wide"':''} id="search-field-${key}">${['minimumFixed','salaryExpectationFixed'].includes(key)?`<div class="field"><label for="profile-${key}">${key==='minimumFixed'?'Salario fijo mínimo bruto anual':'Salario fijo bruto anual para formularios (opcional)'}</label><span class="amount-input"><input id="profile-${key}" name="${key}" data-type="number" type="number" ${numberAttributes(key)} value="${esc(values[key])}">${key==='minimumFixed'?`<input name="currency" data-type="text" class="currency-input" type="text" value="${esc(values.currency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario, código de tres letras (por ejemplo EUR o USD)"${association?` form="${association}"`:''}>`:`<span data-salary-currency="1">${esc(values.currency??'')||'Por indicar'}</span>`}</span></div>`:fieldHtml(key,{...defs[key],...(['targetRoles','keywords'].includes(key)?{type:'longtext',rows:1,autoGrow:true,maxlength:3000}:key==='previousApplications'?{label:'Empresas a evitar',rows:1,autoGrow:true,maxlength:10000,placeholder:'Empresas a las que no quiero presentarme',controlId:'profile-previousApplications'}:{}),form:association},values[key])}${key==='previousApplications'?formErrors('search'):''}</div>`;
  const fields=keys.map(key=>{
   let html=field(key);
-  if(key==='salaryExpectationFixed'&&currentSearchProfile())html=html.replace(/(<span data-salary-currency="1">)[^<]*(<\/span>)/,'$1'+esc(values.salaryCurrency||'Por indicar')+'$2');
+  // With search profiles the form currency is edited beside its amount, not in a second field.
+  if(key==='salaryExpectationFixed'&&currentSearchProfile())html=html.replace(/<span data-salary-currency="1">[^<]*<\/span>/,`<input name="salaryCurrency" data-type="text" class="currency-input" type="text" value="${esc(values.salaryCurrency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario para formularios, código de tres letras"${association?` form="${association}"`:''}>`);
   if(key==='searchNotes')html=html.replace('<div id="search-field-','<div class="profile-field-wide" id="search-field-');
   return html;
  }).join('');return flat?fields:`<div class="form-grid">${fields}</div>`;
@@ -371,6 +446,7 @@ function activityCard(request){
  }else if(!job&&request.type==='change'&&/CVs? comprobados/i.test(text)&&/experiencia/i.test(text))text='Experiencia y CV revisados';
  const target=job?`data-job="${esc(job.id)}"`:search?'data-search-offers="1"':'data-screen="perfil"';
  const action=job?request.type==='send'||request.type==='review'||request.type==='change'?'Ver solicitud':'Ver oferta':search?'Ver ofertas':'Ver perfil';
+ if(job&&request.type!=='send'){const position=activityRole(job);if(position&&!text.includes(position))text=[position,text].filter(Boolean).join(' · ');}
  return activityRow({kind:request.type,title,text,at:window.StubbsJobsWorkflow.taskAt(request),anchor:reportKey(request),target,action});
 }
 function activityRole(job){return String(job?.title||'').replace(/\s*[|·]\s*100%\s+Remoto\b.*$/i,'').trim();}
@@ -385,9 +461,28 @@ function activityEvent(item){
  const target=job?`data-job="${esc(job.id)}"`:'data-screen="solicitar"';
  return activityRow({kind:sent?'send':interview?'interview':'review',title,text:activityRole(job),anchor:'event-'+item.id,target,action:sent||ready?'Ver solicitud':'Ver oferta'});
 }
+function activityGroup(group,day){
+ const key=day.key+':'+group.key,id='activity-group-'+encodeURIComponent(key);
+ let rows=group.members.map(member=>member.item.request?activityCard(member.item.request):activityEvent(member.item.event)).join('');
+ if(group.key==='found'){
+  rows=group.offerIds.map(id=>{
+   const job=getJob(id);if(!job)return '';
+   return activityRow({kind:'discovery',title:job.company||'Oferta registrada',text:job.title,anchor:'found-'+day.key+'-'+id,target:`data-job="${esc(job.id)}"`,action:'Ver oferta'});
+  }).join('');
+  const absent=group.offerIds.filter(id=>!getJob(id)).length+group.unlistedCount;
+  if(absent)rows+=`<li class="activity-group-note">${absent} ${absent===1?'oferta sin detalle de posiciones conservado':'ofertas sin detalle de posiciones conservado'}.</li>`;
+ }
+ const reports=['found','search'].includes(group.key)?`<div class="activity-group-reports">${group.items.map(({request})=>`<button class="link-button" data-report="${esc(reportKey(request))}">Ver resultado de la búsqueda${group.items.length>1?' · '+date(window.StubbsJobsWorkflow.taskAt(request)):''} ${icon('arrow-right')}</button>`).join('')}</div>`:'';
+ const repeated=group.items.length>group.members.length&&!['found','search'].includes(group.key)?'<p class="activity-group-note">Se muestra la última acción del día para cada oferta. Las anteriores siguen en su historial.</p>':'';
+ return `<li class="activity-group-item"><details class="activity-group" id="${esc(id)}" data-activity-key="${esc(key)}" data-anchor="group-${esc(key)}"${openActivityGroups.has(key)?' open':''}><summary><span class="activity-group-icon" aria-hidden="true">${icon(group.icon)}</span><strong>${esc(group.label)}</strong><span class="activity-group-chevron" aria-hidden="true">${icon('chevron-down')}</span></summary><div class="activity-group-content"><ol class="activity-group-rows">${rows}</ol>${repeated}${reports}</div></details></li>`;
+}
+function activityStatistics(){
+ const stats=window.StubbsJobsActivity.statistics(model);
+ return `<section class="activity-statistics" aria-label="Estadísticas históricas">${stats.map(stat=>`<article class="activity-stat" data-stat="${stat.key}"><div class="activity-stat-heading"><span>${esc(stat.label)}</span><span aria-hidden="true">${icon(stat.icon)}</span></div><strong class="activity-stat-value">${stat.value===null?'—':stat.value.toLocaleString('es-ES')}</strong><p>${stat.value===null?'Sin recuento disponible':esc(stat.note)}</p></article>`).join('')}</section>`;
+}
 function recentActivity(){
  const Activity=window.StubbsJobsActivity,timeZone=model?.personalized?Intl.DateTimeFormat().resolvedOptions().timeZone:'Europe/Madrid';
- const days=Activity.days(Activity.entries(model),timeZone);
+ const days=Activity.days(Activity.entries(model,{allSteps:true}),timeZone);
  if(!days.length)return '<p class="muted activity-empty">Aquí aparecerán los resultados de tus búsquedas y solicitudes.</p>';
  const shown=days.slice(0,activityDayLimit),year=new Intl.DateTimeFormat('en',{year:'numeric',timeZone}).format(new Date());
  const label=day=>{
@@ -405,12 +500,12 @@ function recentActivity(){
   const relative=key===today?'Hoy':key===yesterday?'Ayer':'';
   return relative?{main:relative,note:capital(weekday)+', '+label(day)}:{main:label(day),note:capital(weekday)};
  };
- return '<ol class="activity-days">'+shown.map(day=>{const title=heading(day);return `<li class="activity-day" data-anchor="day-${esc(day.key)}"><h2 class="activity-day-label"><time datetime="${esc(day.key==='unknown'?'':day.key)}">${esc(title.main)}</time>${title.note?`<span class="activity-weekday">${esc(title.note)}</span>`:''}</h2><ol class="activity-cards">${day.items.map(item=>item.request?activityCard(item.request):activityEvent(item.event)).join('')}</ol></li>`;}).join('')+'</ol>'+(days.length>shown.length?'<button class="activity-older" data-more-activity="1">Ver anteriores</button>':'');
+ return '<ol class="activity-days">'+shown.map(day=>{const title=heading(day);return `<li class="activity-day" data-anchor="day-${esc(day.key)}"><h2 class="activity-day-label"><time datetime="${esc(day.key==='unknown'?'':day.key)}">${esc(title.main)}</time>${title.note?`<span class="activity-weekday">${esc(title.note)}</span>`:''}</h2><ol class="activity-cards">${Activity.dailyGroups(day,model).map(group=>activityGroup(group,day)).join('')}</ol></li>`;}).join('')+'</ol>'+(days.length>shown.length?'<button class="activity-older" data-more-activity="1">Ver anteriores</button>':'');
 }
 function activityWork(){return window.StubbsJobsExplanations.work(model,{getJob,esc,date,conciseText,copyRequestButton});}
 function agentPage(){
  const first=UI.recommendation(model),recommendation=first?`<div class="offer-recommendation"><div><span class="eyebrow">Para mirar primero</span><strong>${esc(first.company)}</strong>${first.title?`<span class="offer-recommendation-role"> · ${esc(first.title)}</span>`:''}<p>${esc(conciseText(UI.nextCheck(first),160))}</p></div><button class="link-button" data-job="${esc(first.id)}">Ver oferta ${icon('arrow-right')}</button></div>`:'';
- return flowShell('agente',`<div class="agent-view"><h1 id="agent-activity-title">Resumen</h1>${activityWork()}${recommendation}${recentActivity()}</div>`);
+ return flowShell('agente',`<div class="agent-view"><h1 id="agent-activity-title">Resumen</h1>${activityStatistics()}${activityWork()}${recommendation}${recentActivity()}</div>`);
 }
 function activityReport(){
  if(selected?.startsWith('event:')){
@@ -456,7 +551,7 @@ function flowToolbar(tab,choices){
 }
 function bulkExitButton(){return `<button class="icon-button bulk-clear" data-bulk-clear="1" aria-label="Salir de la selección múltiple" title="Salir de la selección múltiple (Esc)">${icon('close')}</button>`;}
 function requestButtonContent(mode,label=requestModes[mode].label){return `<span class="request-icon" aria-hidden="true">${icon(requestModes[mode].icon)}</span>${esc(label)}`;}
-function selectionButtons(j){return `<button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="review" title="Revisarás la solicitud y autorizarás su envío final.">${requestButtonContent('review')}</button><button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="auto" title="Permite enviar esta oferta tras las comprobaciones, sin tu aprobación final." aria-describedby="offer-auto-help-${esc(j.id)}">${requestButtonContent('auto')}</button><span id="offer-auto-help-${esc(j.id)}" class="sr-only">Permite enviar esta oferta tras las comprobaciones, sin tu aprobación final.</span>`;}
+function selectionButtons(j){return `<button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="review" title="Revisarás la solicitud y autorizarás su envío final.">${requestButtonContent('review')}</button><button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="auto" title="Permite enviar esta oferta tras las comprobaciones, sin tu aprobación final. El agente usará tu cuenta del portal: algunos portales, como LinkedIn, prohíben la automatización y pueden restringir tu cuenta." aria-describedby="offer-auto-help-${esc(j.id)}">${requestButtonContent('auto')}</button><span id="offer-auto-help-${esc(j.id)}" class="sr-only">Permite enviar esta oferta tras las comprobaciones, sin tu aprobación final. El agente usará tu cuenta del portal: algunos portales, como LinkedIn, prohíben la automatización y pueden restringir tu cuenta.</span>`;}
 function bulkOptions(j){
  if(j.historical)return [];
  const step=UI.step(j),options=[],category=UI.offerState(j).key;
@@ -495,7 +590,7 @@ function bulkToolbar(){
  const button=(o,mainAction=false)=>{
   const mode=o.key==='select-review'?'review':o.key==='select-auto'?'auto':null,label=bulkLabel(o.label,o.ids.length);
   const scope=`Alcance: ${o.ids.length} de ${jobs.length} ${jobs.length===1?'oferta marcada':'ofertas marcadas'}.`;
-  const help=mode==='auto'?' Permite enviar estas ofertas tras las comprobaciones, sin tu aprobación final.':mode==='review'?' Revisarás las solicitudes y autorizarás su envío final.':'';
+  const help=mode==='auto'?' Permite enviar estas ofertas tras las comprobaciones, sin tu aprobación final. El agente usará tu cuenta del portal: algunos portales, como LinkedIn, prohíben la automatización y pueden restringir tu cuenta.':mode==='review'?' Revisarás las solicitudes y autorizarás su envío final.':'';
   return `<button class="${mode?'primary request-button':mainAction?'primary':''}" data-bulk-action="${esc(o.key)}" data-bulk-targets="${esc(JSON.stringify(o.ids))}" data-bulk-total="${jobs.length}" title="${esc(scope+help)}" aria-label="${esc(label+'. '+scope)}"${mode==='auto'?' aria-describedby="bulk-auto-help"':''}>${mode?requestButtonContent(mode,label):esc(label)}</button>`;
  };
  return `<div class="bulk-actions" role="region" aria-label="Acciones para ${jobs.length} ${jobs.length===1?'oferta marcada':'ofertas marcadas'}">${ordered.map(o=>button(o,o===primary)).join('')}${bulkExitButton()}<span id="bulk-auto-help" class="sr-only">Permite enviar estas ofertas tras las comprobaciones, sin tu aprobación final.</span></div>`;
@@ -930,8 +1025,10 @@ function fieldHtml(key,definition,value){
   const association=(definition.form?` form="${esc(definition.form)}"`:'')+(definition.controlId?` id="${esc(definition.controlId)}"`:'')+(helpId?` aria-describedby="${esc(helpId)}"`:'')+(labelId?` aria-labelledby="${esc(labelId)}"`:'');
   const numberLimits=type==='number'?numberAttributes(key):'',inputType=type==='number'?'number':['email','tel','url'].includes(definition.inputType)?definition.inputType:'text';
   if(type==='multiselect')return workAuthorizationField(value,association);
-  const input=type==='boolean'?`<select name="${esc(key)}"${association} data-type="boolean"><option value="">Sin responder</option><option value="true" ${value===true?'selected':''}>Sí</option><option value="false" ${value===false?'selected':''}>No</option></select>`:type==='longtext'?`<textarea name="${esc(key)}"${association}${definition.autoGrow?' data-auto-grow="1"':''} rows="${definition.rows||10}" maxlength="${definition.maxlength||20000}" ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''}>${esc(value)}</textarea>`:`<input name="${esc(key)}"${association} data-type="${esc(type)}" type="${inputType}" ${numberLimits} value="${esc(value)}" ${definition.autocomplete?`autocomplete="${esc(definition.autocomplete)}"`:''} ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''} maxlength="${definition.maxlength||(key==='noticeDays'?300:5000)}">`;
-  return `<label class="field"><span${labelId?` id="${esc(labelId)}"`:''}>${esc(label)}</span>${input}${definition.help?`<small class="helper" id="${esc(helpId)}">${esc(definition.help)}</small>`:''}</label>`;
+  const choices=definition.options,raw=key==='demographicSurveyParticipation'&&type==='choice'&&typeof value==='boolean'?surveyMode(value):value===null||value===undefined?'':String(value),known=choices?.some(option=>String(option.value)===raw),legacy=choices&&raw&&!known;
+  const choiceInput=choices?`<select name="${esc(key)}"${association} data-type="${esc(type)}"><option value=""${type==='choice'||key==='custom_legally_protected_status'?' hidden disabled':''}${!raw?' selected':''}>${type==='choice'?'Sin decidir':'Sin responder'}</option>${legacy?`<option value="${esc(raw)}" hidden selected>${esc(key==='demographicSurveyParticipation'?(surveyMode(value)==='use_saved'?'Sí, usar mis datos':'Prefiero no responder'):'Respuesta anterior: '+raw)}</option>`:''}${choices.map(option=>`<option value="${esc(option.value)}"${String(option.value)===raw?' selected':''}>${esc(option.label)}</option>`).join('')}</select>`:null;
+  const input=choiceInput|| (type==='boolean'?`<select name="${esc(key)}"${association} data-type="boolean"><option value="">Sin responder</option><option value="true" ${value===true?'selected':''}>${esc(definition.trueLabel||'Sí')}</option><option value="false" ${value===false?'selected':''}>${esc(definition.falseLabel||'No')}</option></select>`:type==='longtext'?`<textarea name="${esc(key)}"${association}${definition.autoGrow?' data-auto-grow="1"':''} rows="${definition.rows||10}" maxlength="${definition.maxlength||20000}" ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''}>${esc(value)}</textarea>`:`<input name="${esc(key)}"${association} data-type="${esc(type)}" type="${inputType}" ${numberLimits} value="${esc(value)}" ${definition.autocomplete?`autocomplete="${esc(definition.autocomplete)}"`:''} ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''} maxlength="${definition.maxlength||(key==='noticeDays'?300:5000)}">`);
+  return `<label class="field"><span${labelId?` id="${esc(labelId)}"`:''}${definition.labelClass?` class="${esc(definition.labelClass)}"`:''}>${esc(label)}</span>${input}${definition.help?`<small class="helper" id="${esc(helpId)}">${esc(definition.help)}</small>`:''}</label>`;
 }
 
 function syncProfileNavigation(){
@@ -953,10 +1050,10 @@ function profileForm(){
   const keys=[...new Set(['currentCity','workPermitWithoutSponsorship','salaryExpectationFixed',...j.draft.requiredAnswers,...formKeys])];
   return `<div class="profile-layout"><form data-form="profile" class="panel"><h1>Respuestas para ${esc(j.company)}</h1><div class="form-grid">${keys.map(k=>fieldHtml(k,j.fieldDefinitions[k],j.answers[k])).join('')}</div><p class="helper">Los datos generales se reutilizan; las respuestas de esta oferta quedan aquí.</p>${formErrors()}<button class="primary" type="submit" hidden>Guardar cambios</button>${Object.keys(j.answerOverrides).length?'<button type="button" data-inherit="1">Volver a usar los datos generales</button>':''}</form></div>`;
  }
- const about=formSource('about');
+ const about=formSource('about'),layout=aboutLayout(),defs=sectionDefinitions('about');
  return `<div class="profile-layout"><div class="profile-heading"><h1>Mi perfil</h1><p class="page-lead">Tus datos y preferencias para preparar solicitudes con precisión.</p></div><div class="profile-workspace"><nav class="profile-section-nav" aria-label="Secciones de Mi perfil">${profileSections.map(([id,label])=>`<a href="#${id}" data-profile-section="${id}"${profileSection===id?' aria-current="location"':''}>${label}</a>`).join('')}</nav><div class="profile-content">${legacyRecovery()}
-  <section class="profile-card" id="profile-about"><h2>Sobre mi</h2><div class="profile-fields"><form data-form="about" class="profile-fields-form"><div class="form-grid">${Object.entries(sectionDefinitions('about')).map(([key,definition])=>fieldHtml(key,definition,about[key])).join('')}</div>${formErrors()}</form>
-  <form data-form="experience" class="profile-fields-form"><div class="form-grid"><div class="profile-field-wide">${fieldHtml('text',{label:'Mi experiencia',type:'longtext',rows:10},model.experience)}</div><div class="profile-field-wide">${fieldHtml('languages',{...sectionDefinitions('search').languages,form:'profile-search-form'},formSource('search').languages)}</div></div>${formErrors()}</form>${formErrors('search')}
+  <section class="profile-card" id="profile-about"><h2>Sobre mi</h2><div class="profile-fields"><form data-form="about" id="profile-about-form" class="profile-fields-form"><div class="form-grid">${aboutFieldsHtml(layout.contact,about,defs)}<div class="profile-field-wide">${fieldHtml('text',{label:'Mi experiencia',type:'longtext',rows:10,form:'profile-experience-form'},model.experience)}</div><div class="profile-field-wide">${fieldHtml('languages',{...sectionDefinitions('search').languages,form:'profile-search-form'},formSource('search').languages)}</div>${aboutFieldsHtml([...layout.answers,...layout.consent,...layout.demographic],about,defs)}</div>${formErrors()}</form>
+  <form data-form="experience" id="profile-experience-form" class="profile-fields-form">${formErrors()}</form>${formErrors('search')}
   </div></section>
   ${searchSettingsPanels()}
   ${cvLibrary()}
@@ -994,7 +1091,7 @@ function searchSettingsPanels(){
  const searchPlace=visibleSearchLocation(search.location,search.workMode,search.regions);search.location=searchPlace.location;search.workMode=searchPlace.workMode;
  const profile=currentSearchProfile(),scope=profile?` data-search-profile-id="${esc(profile.id)}"`:'';
  return `<section class="profile-card" id="profile-work"><h2>Lo que busco</h2>${searchProfileControls()}${profile?'<hr class="search-profile-separator" aria-hidden="true">':''}<div class="profile-fields"><form data-form="search" id="profile-search-form" class="profile-fields-form"${scope}>
-  ${searchCriteriaFields(search,['targetRoles','keywords','searchPriorities',...(profile?['searchNotes']:[]),'location','workMode','onsiteLocations','contract','maxTrips','minimumFixed','salaryExpectationFixed',...(profile?['salaryCurrency']:[])])}${formErrors('search')}</form>
+  ${searchCriteriaFields(search,['targetRoles','keywords','searchPriorities',...(profile?['searchNotes']:[]),'location','workMode','onsiteLocations','contract','maxTrips','minimumFixed','salaryExpectationFixed'])}${formErrors('search')}</form>
   ${searchCriteriaFields(search,['previousApplications'],'profile-search-form',{flat:true})}
   ${profile?'<p class="helper">Idiomas, empresas a evitar y salario para formularios son comunes a todos los perfiles. El mínimo salarial y su moneda pertenecen a este perfil.</p>':''}
   <form data-form="sources" class="profile-fields-form"${scope}>${searchOptionsControls(sources)}${formErrors()}</form></div></section>`;
@@ -1158,7 +1255,7 @@ function syncSalaryCurrency(form){
  const currency=form?.elements.namedItem(form?.dataset.searchProfileId?'salaryCurrency':'currency');if(!currency)return;
  for(const suffix of form.querySelectorAll?.('[data-salary-currency]')||[])suffix.textContent=currency.value||'Por indicar';
 }
-function formValues(form){const values=Object.fromEntries(new FormData(form));for(const [k,v] of Object.entries(values)){const type=form.elements.namedItem(k).dataset.type;values[k]=type==='multiselect'?JSON.parse(v||'null'):type==='boolean'?(v===''?null:v==='true'):type==='number'?(v===''?null:Number(v)):v.trim()||null;if(values[k]===null&&['about','search','sources','context'].includes(form.dataset.form)&&Object.hasOwn(window.StubbsJobsSetup.context,k))values[k]='';}return values;}
+function formValues(form){const values=Object.fromEntries(new FormData(form));for(const [k,v] of Object.entries(values)){const type=form.elements.namedItem(k).dataset.type;values[k]=type==='multiselect'?JSON.parse(v||'null'):type==='boolean'||type==='choice'&&k==='demographicSurveyParticipation'&&['true','false'].includes(v)?(v===''?null:v==='true'):type==='number'?(v===''?null:Number(v)):v.trim()||null;if(values[k]===null&&['about','search','sources','context'].includes(form.dataset.form)&&Object.hasOwn(window.StubbsJobsSetup.context,k))values[k]='';}return values;}
 function changedFormValues(form,values){
  const changed=Object.fromEntries(Object.entries(values).filter(([key,value])=>!sameFieldValue(value,form._shown[key])));
  if(form.dataset.form==='search'&&form.dataset.splitLegacy==='1'&&Object.keys(changed).length){
@@ -1181,7 +1278,7 @@ function render(preserve=false){
  const anchor=preserve?[...main.querySelectorAll('[data-anchor]')].find(n=>n.getBoundingClientRect().top>=70):null;
  const anchorKey=anchor?.dataset.anchor,anchorTop=anchor?.getBoundingClientRect().top;
  const focus=preserve?captureFocus():null;
- const scroll=viewScroll(),previousScroll=scroll.scroll,tableScroll=preserve?scroll.tableScroll:null,tableTop=preserve?scroll.tableTop:null,disclosures=preserve&&['perfil','configurar','copias','preparado','detalle','solicitar','encontrar'].includes(screen)?Object.fromEntries([...main.querySelectorAll('details[id]')].map(item=>[item.id,item.open])):null;
+ const scroll=viewScroll(),previousScroll=scroll.scroll,tableScroll=preserve?scroll.tableScroll:null,tableTop=preserve?scroll.tableTop:null,disclosures=preserve&&['perfil','configurar','copias','preparado','detalle','solicitar','encontrar','agente'].includes(screen)?Object.fromEntries([...main.querySelectorAll('details[id]')].map(item=>[item.id,item.open])):null;
  const currentMenu=preserve?openFilterMenu||main.querySelector('.column-menu[open]'):null;
  const menuState=currentMenu?{tab:currentMenu.dataset.menuTab,key:currentMenu.dataset.menuKey,query:columnPanel(currentMenu)?.querySelector('[data-table-option-search]')?.value||'',scroll:columnPanel(currentMenu)?.querySelector('.column-menu-values')?.scrollTop||0}:null;
  closeColumnMenu();
@@ -1206,9 +1303,10 @@ function render(preserve=false){
  });
  if(preserve){const target=anchorKey?[...main.querySelectorAll('[data-anchor]')].find(n=>n.dataset.anchor===anchorKey):null;window.scrollTo(0,target?previousScroll+target.getBoundingClientRect().top-anchorTop:previousScroll);}
  dirty=false;
- for(const form of visibleForms()){const source=formSource(form.dataset.form),keys=[...new FormData(form).keys()];form._expected=Object.fromEntries(keys.map(k=>[k,source[k]??null]));form._shown={...form._expected};if(typeof form._shown.noticeDays==='number'&&form.elements.namedItem('noticeDays')?.dataset.type==='text')form._shown.noticeDays=String(form._shown.noticeDays);form._dirty=false;if(form.dataset.form==='search'){const projected=visibleSearchLocation(source.location,source.workMode,source.regions);if(projected.split||projected.mergedRegions){form._shown.location=projected.location;form._shown.workMode=projected.workMode;if(projected.split)form.dataset.splitLegacy='1';if(projected.mergedRegions){form.dataset.mergedRegions='1';form._expected.regions=source.regions;}}}restoreForm(form);syncSourceControls(form);updateSave(form);}
+ for(const form of visibleForms()){const source=formSource(form.dataset.form),keys=[...new FormData(form).keys()];form._expected=Object.fromEntries(keys.map(k=>[k,source[k]??null]));form._shown={...form._expected};projectSurveyShown(form);if(typeof form._shown.noticeDays==='number'&&form.elements.namedItem('noticeDays')?.dataset.type==='text')form._shown.noticeDays=String(form._shown.noticeDays);form._dirty=false;if(form.dataset.form==='search'){const projected=visibleSearchLocation(source.location,source.workMode,source.regions);if(projected.split||projected.mergedRegions){form._shown.location=projected.location;form._shown.workMode=projected.workMode;if(projected.split)form.dataset.splitLegacy='1';if(projected.mergedRegions){form.dataset.mergedRegions='1';form._expected.regions=source.regions;}}}restoreForm(form);syncSourceControls(form);updateSave(form);}
  syncDirty();
  syncWorkAuthorizations();
+ for(const form of visibleForms())syncProfileOptions(form);
  for(const form of visibleForms())syncSalaryCurrency(form);
  growProfileFields();
  restoreFocus(focus);
@@ -1302,6 +1400,7 @@ document.addEventListener('click',async e=>{
  if(b.dataset.searchProfileTrash){openDeletedSearchProfiles();return;}
  if(b.dataset.searchProfileRestore){await searchProfileAction('restore',b.dataset.searchProfileRestore);return;}
  if(b.dataset.offerCriteriaChange){await changeOfferCriteria(b.dataset.offerCriteriaChange);return;}
+ if(b.dataset.permissionClear!==undefined){const form=controlForm(b),field=form?.elements.namedItem(b.dataset.permissionClear);if(field){field.value='';form._lastEditedField=field.name;rememberForm(form);syncProfileOptions(form);}return;}
  if(b.dataset.permitAdd!==undefined){const widget=b.closest('[data-work-authorizations]'),input=widget.querySelector('[data-permit-other]'),name=input.value.trim();if(!name)return;if(name.length>100){input.reportValidity();return;}let option=[...widget.querySelectorAll('[data-permit-option]')].find(item=>item.dataset.permitOption.toLocaleLowerCase()===name.toLocaleLowerCase());if(!option){widget.querySelector('.permit-options').insertAdjacentHTML('beforeend',workAuthorizationOption(name,true));option=[...widget.querySelectorAll('[data-permit-option]')].find(item=>item.dataset.permitOption===name);}option.checked=true;saveWorkAuthorizationChoices(widget);input.value='';input.focus();return;}
  if(b.dataset.copyRecovery){const request=model.requests.find(r=>r.id===b.dataset.copyRecovery);if(!request)throw new Error('Actualiza el estado para consultar esta tarea.');const message=window.StubbsJobsRecovery.taskPrompt(model.workspacePath,request);try{await navigator.clipboard.writeText(message);toast('Petición copiada. Pégala en el chat del agente.');}catch{await confirmAction('Mensaje para tu agente',message);}return;}
  if(b.dataset.copyBackup!==undefined&&backupResult){const message=window.StubbsJobsRecovery.backupPrompt(model.workspacePath,backupResult.name);try{await navigator.clipboard.writeText(message);toast('Petición copiada. Pégala en el chat del agente.');}catch{await confirmAction('Mensaje para tu agente',message);}return;}
@@ -1403,6 +1502,7 @@ document.addEventListener('change',e=>{
  if(e.target.dataset.tableValue===undefined)return;if(e.target.dataset.tableTab==='solicitar')tableSelection.clear();const state=tableState[e.target.dataset.tableTab],key=e.target.dataset.tableKey,choices=state.choices[key]||[];const selected=new Set(Object.hasOwn(state.filters,key)?state.filters[key]:choices);if(e.target.checked)selected.add(e.target.dataset.tableValue);else selected.delete(e.target.dataset.tableValue);if(selected.size===choices.length)delete state.filters[key];else state.filters[key]=choices.filter(value=>selected.has(value));historyLimit=30;render(true);
 });
 main.addEventListener('input',e=>{
+ if(e.target.dataset.profilePermission!==undefined){const form=controlForm(e.target),field=form?.elements.namedItem(e.target.dataset.profilePermission);if(field){field.value=String(e.target.checked);form._lastEditedField=field.name;rememberForm(form);syncProfileOptions(form);}return;}
  if(e.target.dataset.autoGrow)growField(e.target);
  if(e.target.dataset.permitOther!==undefined)return;
  if(e.target.dataset.permitOption!==undefined){saveWorkAuthorizationChoices(e.target.closest('[data-work-authorizations]'));return;}
@@ -1412,7 +1512,7 @@ main.addEventListener('input',e=>{
  const form=controlForm(e.target);
  if(form){if(['currency','salaryCurrency'].includes(e.target.name)){e.target.value=e.target.value.toUpperCase();syncSalaryCurrency(form);}form._lastEditedField=e.target.name;rememberForm(form);}
 });
-main.addEventListener('toggle',e=>{const card=e.target;if(card.tagName!=='DETAILS'||!card.dataset.cvKey||!main.contains(card))return;if(card.open)openCvCards.add(card.dataset.cvKey);else openCvCards.delete(card.dataset.cvKey);},true);
+main.addEventListener('toggle',e=>{const card=e.target;if(card.tagName!=='DETAILS'||!main.contains(card))return;const key=card.dataset.cvKey||card.dataset.activityKey,open=card.dataset.cvKey?openCvCards:card.dataset.activityKey?openActivityGroups:null;if(!open)return;if(card.open)open.add(key);else open.delete(key);},true);
 main.addEventListener('scroll',e=>{if(e.target.classList?.contains('workflow-table-wrap')&&openFilterMenu)requestAnimationFrame(()=>placeColumnMenu(openFilterMenu));},true);
 main.addEventListener('keydown',e=>{if(e.target.dataset.permitOther!==undefined&&e.key==='Enter'){e.preventDefault();e.target.closest('[data-work-authorizations]').querySelector('[data-permit-add]').click();return;}const row=e.target.closest('[data-job-row]');if(row&&e.target===row&&['Enter',' '].includes(e.key)){e.preventDefault();caseReturn=screen;setScreen('detalle',row.dataset.jobRow);}});
 async function importCv(file){
@@ -1429,10 +1529,11 @@ async function importCv(file){
  finally{saving=false;mutationSerial++;syncDirty();for(const form of visibleForms())updateSave(form);}
 }
 main.addEventListener('change',async e=>{
+ if(e.target.dataset.profilePermission!==undefined){const form=controlForm(e.target),field=form?.elements.namedItem(e.target.dataset.profilePermission);if(field){field.value=String(e.target.checked);form._lastEditedField=field.name;rememberForm(form);syncProfileOptions(form);}return;}
  if(e.target.dataset.searchProfile!==undefined){await chooseSearchProfile(e.target.value);return;}
  if(e.target.dataset.offerProfile!==undefined){offerProfileFilter=e.target.value;workspaceSession.setItem('stubbs_jobs-offer-profile',offerProfileFilter);tableSelection.clear();historyLimit=100;render(true);return;}
  if(e.target.dataset.tableValue!==undefined)return;
- if(e.target.id==='cv-upload'){await importCv(e.target.files[0]);return;}const form=controlForm(e.target);if(form){form._lastEditedField=e.target.name;rememberForm(form);}});
+ if(e.target.id==='cv-upload'){await importCv(e.target.files[0]);return;}const form=controlForm(e.target);if(form){form._lastEditedField=e.target.name;rememberForm(form);syncProfileOptions(form);}});
 async function saveAttempt(form,operation,stored,key){
  const attempt=stored.attempt||{id:crypto.randomUUID(),operation:structuredClone(operation),values:stored.values};
  draftStorage.setItem(key,JSON.stringify({...stored,attempt}));

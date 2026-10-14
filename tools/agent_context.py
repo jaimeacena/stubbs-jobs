@@ -2,7 +2,76 @@
 import copy
 
 import app_workflow as workflow
+from state_support import instant
 from stubbs_jobs_core import ROOT, digest
+
+OFFER_FILTERS = ('open', 'all', 'closed')
+PAGE_SIZE = 20
+QUEUED_DETAIL = 50
+
+
+def neutral_minimums(minimums):
+    """Agents read country-neutral condition names; the writer accepts both."""
+    from stubbs_jobs import NEUTRAL_CONDITIONS as names
+    if not isinstance(minimums, dict):
+        return minimums
+    return {**minimums,
+            'violations': [{**v, 'key': names.get(v.get('key'), v.get('key'))} for v in minimums.get('violations', [])],
+            'unknowns': [names.get(k, k) for k in minimums.get('unknowns', [])]}
+
+
+def neutral_case(case):
+    from stubbs_jobs import NEUTRAL_CONDITIONS as names
+    case['minimums'] = neutral_minimums(case.get('minimums'))
+    if isinstance(case.get('conditions'), dict):
+        case['conditions'] = {names.get(k, k): v for k, v in case['conditions'].items()}
+    for item in case.get('evidence') or []:
+        if isinstance(item, dict) and item.get('Condición') in names:
+            item['Condición'] = names[item['Condición']]
+    return case
+
+
+def abridged(value, text=240, items=3):
+    """Shorten long proofs and lists in the general listing; --case keeps the complete record."""
+    if isinstance(value, str) and len(value) > text:
+        return value[:text]+'…', True
+    if isinstance(value, list) and len(value) > items:
+        value = value[-items:]
+        shortened = [abridged(v, text, items) for v in value]
+        return [v for v, _ in shortened], True
+    if isinstance(value, list):
+        shortened = [abridged(v, text, items) for v in value]
+        return [v for v, _ in shortened], any(c for _, c in shortened)
+    if isinstance(value, dict):
+        shortened = {k: abridged(v, text, items) for k, v in value.items()}
+        return {k: v for k, (v, _) in shortened.items()}, any(c for _, c in shortened.values())
+    return value, False
+
+
+def offer_page(rows, attention, offers='open', page=1, page_size=PAGE_SIZE):
+    """General listing: offers needing attention first, then the most recent activity.
+
+    Closed or discarded offers stay out of the default listing so the agent's
+    context does not grow with the whole history; they remain available with
+    --offers all/closed and through --case."""
+    def closed(row):
+        return row['state'] in workflow.CLOSED or bool(row.get('archivedAt'))
+    if offers == 'all':
+        pool = list(rows)
+    elif offers == 'closed':
+        pool = [row for row in rows if closed(row)]
+    else:
+        pool = [row for row in rows if row['id'] in attention or not closed(row)]
+    def recency(row):
+        moment = instant(row.get('lastActivityAt')) or instant(row.get('firstSeenAt'))
+        return moment.timestamp() if moment else float('-inf')
+    pool.sort(key=recency, reverse=True)
+    pool.sort(key=lambda row: row['id'] not in attention)
+    pages = max(1, -(-len(pool)//page_size))
+    if page > pages:
+        raise ValueError('Esa página no existe; hay '+str(pages)+' página(s) de ofertas')
+    start = (page-1)*page_size
+    return pool[start:start+page_size], len(pool), pages, sum(1 for row in rows if closed(row))
 
 
 def knowledge_history(data, case, limit=20):
@@ -18,10 +87,15 @@ def knowledge_history(data, case, limit=20):
             'remaining': max(0, len(records)-limit)}
 
 
-def view(data, case=None, request_id=None, history=False, limit=20, since=None,profile_detail=False,search_profile_id=None):
+def view(data, case=None, request_id=None, history=False, limit=20, since=None,profile_detail=False,search_profile_id=None,
+         offers='open', page=1, page_size=PAGE_SIZE):
     from stubbs_jobs_app import state_view
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError('Usa un límite de historial entre 1 y 100')
+    if offers not in OFFER_FILTERS:
+        raise ValueError('Usa --offers open, all o closed')
+    if type(page) is not int or page < 1 or type(page_size) is not int or not 1 <= page_size <= 100:
+        raise ValueError('Usa una página desde 1 y un tamaño de página entre 1 y 100')
     # Seed and projection helpers may fill legacy defaults in memory only.
     data = copy.deepcopy(data)
     if case and not any(row['ID'] == case for row in data['sheets']['Oportunidades']):
@@ -33,7 +107,8 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
     detail_case = requested_case if any(row['ID']==requested_case for row in data['sheets']['Oportunidades']) else None
     scoped = bool(case or request_id or profile_detail or search_profile_id)
     state = state_view(data, brief=True, case=detail_case,pure=True)
-    version = digest([state['version'], case, request_id, history, limit,profile_detail,search_profile_id,workflow.execution_id()])
+    version = digest([state['version'], case, request_id, history, limit,profile_detail,search_profile_id,workflow.execution_id(),
+                      None if scoped else [offers, page, page_size]])
     if since == version:
         return {'unchanged': True, 'version': version}
     uncertain_ids={r['id'] for r in workflow.unresolved_sends(data)}
@@ -56,13 +131,32 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
             item['purpose']=projected.get('purpose')
             item['deliveryUnresolved']=request['id'] in uncertain_ids
             active.append(item)
+    # queuedSnapshot keeps every queued ID; beyond a bound only the IDs are listed
+    # and each task is read with agent-status --request ID before it starts.
+    queued_snapshot = [r['id'] for r in active if r['status'] == 'queued']
+    request_offers = {r.get('opportunityId') for r in active if r.get('opportunityId')}
+    detailed, queued_seen = [], 0
+    for item in active:
+        if item['status'] == 'queued' and not item['deliveryUnresolved']:
+            queued_seen += 1
+            if queued_seen > QUEUED_DETAIL:continue
+        detailed.append(item)
+    compacted = len(active)-len(detailed)
+    active = detailed
     opportunities = []
-    for row in state['opportunities']:
-        if scoped and row['id'] != detail_case:continue
+    if scoped:
+        listed = [row for row in state['opportunities'] if row['id'] == detail_case]
+        matching, pages, closed_count = len(listed), 1, None
+    else:
+        attention = set(request_offers)
+        attention |= {row['id'] for row in state['opportunities'] if row.get('pendingChange')}
+        listed, matching, pages, closed_count = offer_page(state['opportunities'], attention, offers, page, page_size)
+    for row in listed:
         item = {k: copy.deepcopy(row.get(k)) for k in (
             'id', 'company', 'title', 'state', 'archivedAt', 'archiveReason', 'minimums', 'priority', 'selection', 'apply',
             'missing', 'integrityError', 'pendingChange', 'fingerprint', 'fitFingerprint',
             'assessmentFingerprint', 'cvFingerprint','notes','lifecycle')}
+        item['minimums'] = neutral_minimums(item['minimums'])
         item['sent'] = bool(row.get('sent'))
         current = next((p for p in row['packages'] if p.get('isCurrent')), None)
         item['authorization'] = ({k: current.get(k) for k in
@@ -74,6 +168,13 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         if row.get('assessment', {}) and row['assessment']['isCurrent'] and row['assessment'].get('bestArgument'):
             item['assessment']['bestArgument'] = copy.deepcopy(row['assessment']['bestArgument'])
         item['detailCommand'] = 'agent-status --case '+row['id']
+        if not scoped:
+            cut = False
+            for key in ('lifecycle', 'notes'):
+                item[key], shortened = abridged(item[key])
+                cut = cut or shortened
+            if cut:
+                item['abridged'] = True
         opportunities.append(item)
     execution = state['execution']
     result = {'schemaVersion': 1, 'version': version, 'revision': state['revision'],
@@ -99,7 +200,7 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
                                 ('id', 'status', 'updatedAt', 'startedAt', 'presenceUnconfirmed', 'message')},
                             'legacyTracking': True},
               'requests': active,
-              'queuedSnapshot': [r['id'] for r in active if r['status'] == 'queued'],
+              'queuedSnapshot': queued_snapshot,
               'executionScope': copy.deepcopy(data.get('app', {}).get('executionScopes', {}).get(workflow.execution_id())),
               'eligibleContinuations': workflow.eligible_continuations(data) if hasattr(workflow, 'eligible_continuations') else [],
               'opportunities': opportunities,
@@ -108,6 +209,14 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
                         'opportunityUnavailable':bool(requested_case and not detail_case),
                         'totalOpportunities':len(state['opportunities']),
                         'omittedOpportunities':len(state['opportunities'])-len(opportunities),
+                        **({} if scoped else {
+                            'offerFilter':offers, 'page':page, 'pageSize':page_size, 'pages':pages,
+                            'matchingOpportunities':matching, 'closedOpportunities':closed_count,
+                            'nextPageCommand':'agent-status --offers '+offers+' --page '+str(page+1) if page < pages else None,
+                            'listing':'Primero las ofertas con encargos activos o cambios pendientes; después, la actividad más reciente. '
+                                      'Las descartadas y cerradas se consultan con --offers closed o --case ID. '
+                                      'abridged=true indica pruebas o notas abreviadas: detailCommand devuelve el registro completo.',
+                            'queuedRequestsWithoutDetail':compacted}),
                         'generalCommand':'agent-status', 'globalGuardsRetained':True},
               'globalBlocks': [copy.deepcopy(b) for b in data.get('blocks', [])
                                if b.get('status') == 'open' and not b.get('opportunityId')],
@@ -117,7 +226,7 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         result['searchContext']=app_context.scoped_search(data,detail_case)
         result['preferences']=app_context.scoped_criteria(data,detail_case)
         result['searchSourcesExclusive']=bool(result['searchContext'].get('sourceUrls','').strip())
-        result['case'] = next(row for row in state['opportunities'] if row['id'] == detail_case)
+        result['case'] = neutral_case(next(row for row in state['opportunities'] if row['id'] == detail_case))
         if history:
             result['history'] = [copy.deepcopy(h) for h in data.get('app', {}).get('history', [])
                                  if h.get('opportunityId') == detail_case][-limit:]

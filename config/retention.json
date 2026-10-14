@@ -1,6 +1,8 @@
 {
   "regenerableDays": 30,
   "automaticDeletion": false,
-  "alwaysPreserve": ["registry", "packages", "snapshots", "workbook-backups", "migration", "backups", "conflict copies", "agent-runs", "package-recovery"],
+  "snapshots": {"keepRecent": 100, "keepDailyDays": 90},
+  "snapshotRetention": "The writer keeps the 100 most recent registry copies and the newest copy of each day for 90 days. Copies referenced by the registry and conflict copies are never removed. Use Copias de seguridad for long-term copies.",
+  "alwaysPreserve": ["registry", "packages", "workbook-backups", "migration", "backups", "conflict copies", "agent-runs", "package-recovery"],
   "recovery": "Restore into an isolated directory and reconcile with the current registry before replacing anything."
 }

@@ -143,9 +143,22 @@ def evidence_times(data):
     return view_cache.memo(('evidence-times', id(data)), build)
 
 
+def evidence_index(data):
+    """Evidence grouped by offer and condition, preserving writer order within each group."""
+    def build():
+        index = {}
+        for record in data['sheets'].get('Evidencias', []):
+            index.setdefault((record.get('ID oportunidad'), record.get('Condición')), []).append(record)
+        return index
+    return view_cache.memo(('evidence-index', id(data)), build)
+
+
 def latest_evidence(data, row, condition):
-    records = [e for e in data['sheets'].get('Evidencias', [])
-               if e.get('ID oportunidad') == row['ID'] and e.get('Condición') == condition]
+    if view_cache._cache.get() is None:
+        records = [e for e in data['sheets'].get('Evidencias', [])
+                   if e.get('ID oportunidad') == row['ID'] and e.get('Condición') == condition]
+    else:
+        records = evidence_index(data).get((row['ID'], condition), [])
     if not records:
         return {}
     times = evidence_times(data)
@@ -169,7 +182,7 @@ def current_numbers(data, row):
     Old evidence sheets did not store the figures. Recover their provenance from
     the retained official batch when possible; otherwise preserve legacy fields.
     """
-    from stubbs_jobs import excel_day
+    from stubbs_jobs import excel_day, condition_key
     result = {}
     for condition, key, fields in (
         ('Fijo ≥32 k€', 'Fijo ≥32 k€', {'fixed':'Fijo mín. confirmado', 'fixedMax':'Fijo máx. confirmado', 'currency':'Moneda fijo confirmado'}),
@@ -186,7 +199,7 @@ def current_numbers(data, row):
         if numbers is None and latest:
             for batch in reversed(data.get('changes', [])):
                 for operation in reversed(batch.get('operations', [])):
-                    if (operation.get('kind') == 'evidence' and operation.get('id') == row['ID'] and operation.get('condition') == key
+                    if (operation.get('kind') == 'evidence' and operation.get('id') == row['ID'] and condition_key(operation.get('condition')) == key
                             and operation.get('state') == latest.get('Estado') and operation.get('proof') == latest.get('Texto o motivo')
                             and operation.get('url') == latest.get('Fuente') and excel_day(operation['at']) == latest.get('Comprobada')):
                         numbers = {k:operation[k] for k in fields if k in operation}

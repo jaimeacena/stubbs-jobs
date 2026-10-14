@@ -190,6 +190,15 @@ test('offer modality preserves confirmed negatives and contradictions in all pro
  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Pendiente'}})),'Sin concretar');
  assert.equal(ui.offerMode(job(), '—'),'—');
 });
+test('personalized installations describe modality against the saved preference and use local days',()=>{
+ try{
+  ui.configure({personalized:true});
+  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Cumple tu modalidad');
+  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'No'}})),'No cumple tu modalidad');
+  assert.equal(ui.day(at),new Intl.DateTimeFormat('sv-SE').format(at));
+ }finally{ui.configure({personalized:false});}
+ assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Remoto desde España');
+});
 test('profile questions never hide a ready packet',()=>{
   const items=ui.inbox(model([job({questions:[{key:'currentCity'}]}),job({id:'b',missing:[],selection:{selected:true,mode:'review'}})]),at);
   assert.deepEqual(items.map(x=>x.kind),['profile','review']);

@@ -154,3 +154,42 @@ def save_store(data,path=STORE):
     data['revision']+=1; data['updatedAt']=now()
     data.pop('_baseHash',None)
     atomic_json(path,data); data['_baseHash']=digest(path.read_bytes())
+    try:prune_snapshots(path.parent,path.read_bytes())
+    except OSError:pass  # Retention is best effort; a saved registry is never undone.
+
+SNAPSHOT_NAME=re.compile(r'^([0-9a-f]{64})\.json(?:\.gz)?$')
+
+def snapshot_policy(root=ROOT):
+    """Bounded history: recent revisions plus one copy per day. Defaults apply without config."""
+    policy={'keepRecent':100,'keepDailyDays':90}
+    try:
+        configured=json.loads((Path(root)/'config/retention.json').read_text(encoding='utf-8')).get('snapshots',{})
+        for name in policy:
+            if type(configured.get(name)) is int and configured[name]>=1:policy[name]=configured[name]
+    except (OSError,ValueError,AttributeError):pass
+    return policy
+
+def prune_snapshots(directory=DATA,current=b'',policy=None):
+    """Remove only exact registry copies outside the policy and never one the registry references.
+
+    Conflict copies, unknown files and copies named by the registry (for example a
+    reset backup) are always kept. Returns the removed file names."""
+    folder=Path(directory)/'snapshots'
+    if not folder.is_dir():return []
+    policy=policy or snapshot_policy()
+    referenced=set(re.findall(rb'[0-9a-f]{64}',current))
+    copies=[]
+    for item in folder.iterdir():
+        match=SNAPSHOT_NAME.match(item.name)
+        if item.is_file() and not item.is_symlink() and match:copies.append((item.stat().st_mtime,item,match[1].encode()))
+    copies.sort(key=lambda entry:entry[0],reverse=True)
+    keep=set(index for index in range(min(policy['keepRecent'],len(copies))))
+    cutoff=time.time()-policy['keepDailyDays']*86400;days=set()
+    for index,(mtime,_,_) in enumerate(copies):
+        day=datetime.fromtimestamp(mtime,timezone.utc).date()
+        if mtime>=cutoff and day not in days:days.add(day);keep.add(index)
+    removed=[]
+    for index,(_,item,key) in enumerate(copies):
+        if index in keep or key in referenced:continue
+        item.unlink();removed.append(item.name)
+    return removed

@@ -22,7 +22,7 @@ class StubbsJobsLauncher {
         if(!File.Exists(python)) python=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @".cache\codex-runtimes\codex-primary-runtime\dependencies\python\pythonw.exe");
         var script=Path.Combine(root,@"tools\stubbs_jobs_app.py");
         if(!File.Exists(python)||!File.Exists(script)) {
-            MessageBox.Show("Faltan archivos para abrir Stubbs Jobs. Extrae todo el ZIP en una carpeta antes de abrirlo. Si sigue fallando, pide a tu IA que lea INICIO.md. Tus datos siguen guardados.","Stubbs Jobs",MessageBoxButtons.OK,MessageBoxIcon.Information);
+            MessageBox.Show("Faltan archivos para abrir Stubbs Jobs. Extrae todo el ZIP en una carpeta antes de abrirlo. Si sigue fallando, pide a tu IA que lea docs/getting-started.md. Tus datos siguen guardados.","Stubbs Jobs",MessageBoxButtons.OK,MessageBoxIcon.Information);
             return;
         }
         try {

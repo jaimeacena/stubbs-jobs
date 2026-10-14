@@ -58,7 +58,7 @@ def synthetic_source(destination):
     names=['tools/'+name for name in SHARE['MODULES']]
     names+=['app/'+name for name in SHARE['APP_FILES']]+['app/assets/'+name for name in SHARE['APP_ASSETS']]
     names+=['distribution/'+name for name in SHARE['DOCUMENTS'] if name!='LICENSE']
-    names+=['APLICACION.md','Abrir Stubbs Jobs.exe','config/dependencies.json','config/retention.json','config/release.json']
+    names+=['docs/application-contract.md','Abrir Stubbs Jobs.exe','config/dependencies.json','config/retention.json','config/release.json']
     for name in names:
         target=destination/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(PROJECT/name,target)
     notice=(PROJECT/'distribution/LICENSE').read_text(encoding='utf-8')
@@ -165,7 +165,7 @@ class DistributionSafetyTests(unittest.TestCase):
             root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
             portable=root/'portable';BUILD(portable,runtime)
             source=root/'source';SOURCE['build'](portable,source)
-            for name in ('APLICACION.md','CLAUDE.md','perfil.md'):
+            for name in ('docs/application-contract.md','CLAUDE.md','private/profile.md'):
                 reading=source/'distribution'/name
                 with self.subTest(file=name):
                     self.assertNotIn(b'\r\r\n',reading.read_bytes())
@@ -290,11 +290,18 @@ class DistributionSafetyTests(unittest.TestCase):
             SOURCE['build'](portable,root/'source')
             provenance=json.loads((portable/'config/source-provenance.json').read_text())
             self.assertEqual(provenance,json.loads((root/'source/config/source-provenance.json').read_text()))
-            for name in ('AGENTE.md','SISTEMA.md','PLAN-SISTEMA.md','algoritmo-busqueda.md'):
+            for name in ('docs/agent-guide.md','docs/system-design.md','docs/work-plan.md','docs/job-discovery.md'):
                 self.assertEqual((portable/name).read_bytes(),(root/'source'/name).read_bytes())
-            interface=(PROJECT/'APLICACION.md').read_text(encoding='utf-8').split('## Detalles del contrato de interfaz',1)[1].split('## Contrato del agente',1)[0].replace('Jaime','la persona')
+            interface=(PROJECT/'docs/application-contract.md').read_text(encoding='utf-8').split('## Detalles del contrato de interfaz',1)[1].split('## Contrato del agente',1)[0];interface=SHARE['replace_private'](interface,'contract')
             for bundle in (portable,root/'source'):
-                contract=(bundle/'APLICACION.md').read_text(encoding='utf-8')
+                community={'CONTRIBUTING.md','SECURITY.md'} if bundle!=portable else set()
+                self.assertEqual({p.name for p in bundle.glob('*.md')},
+                                 {'README.md','README.es.md','AGENTS.md','CLAUDE.md','CHANGELOG.md'}|community)
+                self.assertIn('Your job search', (bundle/'README.md').read_text(encoding='utf-8'))
+                self.assertIn('Tu búsqueda de empleo', (bundle/'README.es.md').read_text(encoding='utf-8'))
+                self.assertTrue((bundle/'docs/development.md').is_file())
+                self.assertTrue((bundle/'docs/development.es.md').is_file())
+                contract=(bundle/'docs/application-contract.md').read_text(encoding='utf-8')
                 self.assertIn(interface,contract)
                 self.assertIn('## Estado común de las ofertas',contract)
                 self.assertIn('## Cierre y revisión de ofertas',contract)
@@ -311,6 +318,8 @@ class DistributionSafetyTests(unittest.TestCase):
                 for link in links:
                     if '://' not in link and not link.startswith('#'):
                         self.assertTrue((document.parent/link.split('#')[0]).is_file(),(name,link))
+            checker=runpy.run_path(str(root/'source/tools/check-docs.py'))
+            self.assertTrue(checker['check'](root/'source')['ok'])
 
     def test_source_change_during_copy_is_not_published_as_another_revision(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -331,8 +340,8 @@ class DistributionSafetyTests(unittest.TestCase):
 
     def test_initial_interview_instructions_match_portable_source(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual((root / 'INICIO.md').read_text(encoding='utf-8'),
-                         (root / 'distribution/INICIO.md').read_text(encoding='utf-8'))
+        self.assertEqual((root / 'docs/getting-started.md').read_text(encoding='utf-8'),
+                         (root / 'distribution/docs/getting-started.md').read_text(encoding='utf-8'))
 
     def test_existing_zip_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -386,11 +395,28 @@ class DistributionSafetyTests(unittest.TestCase):
             self.assertIn('share/app/redesign.css', names)
             self.assertIn('share/app/release.js', names)
             self.assertIn('share/LICENSE', names)
-            self.assertIn('share/LIMITES.md', names)
-            self.assertIn('share/perfil.md', names)
+            self.assertIn('share/docs/limits.md', names)
+            self.assertIn('share/private/profile.md', names)
             self.assertNotIn('share/app/app.css', names)
-            self.assertNotIn('share/profile-template.md', names)
+            self.assertNotIn('share/private/profile-template.md', names)
             self.assertFalse(any('[conflicted' in name for name in names))
+
+    def test_private_local_context_never_enters_the_empty_distribution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve();runtime=root/'runtime';runtime.mkdir()
+            source=synthetic_source(root/'source')
+            sentinel=b'TEST PRIVATE CONTEXT MUST NOT BE SHARED'
+            for name in ('private/profile.md','private/search-strategy.md','private/portal-accounts.md',
+                         'private/profile [conflicted].md','estrategia.md'):
+                path=source/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(sentinel)
+            with patch.dict(BUILD.__globals__,{'ROOT':source}):
+                archive=BUILD(root/'share',runtime)
+            with zipfile.ZipFile(archive) as zipped:
+                self.assertNotIn(sentinel,zipped.read('share/private/profile.md'))
+                for name in zipped.namelist():
+                    self.assertNotIn(sentinel,zipped.read(name),name)
+                self.assertNotIn('share/private/search-strategy.md',zipped.namelist())
+                self.assertNotIn('share/estrategia.md',zipped.namelist())
 
 
 if __name__ == '__main__':

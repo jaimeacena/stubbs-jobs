@@ -67,16 +67,19 @@ function conditionValue(key,value,details){
 }
 function work(model,{getJob,esc,date,conciseText}){
  const work=Workflow.work(model);
- if(!work.busy&&!work.blocked.length&&!work.failure)return '';
+ // Routine agent-owned blockers remain in the stored task and offer details.
+ // Keep help requests and uncertain effects visible without a separate routine warning.
+ const blocked=work.blocked.filter(request=>request.actionOwner!=='agent'||Workflow.task(request).delivery||request.status==='interrupted');
+ if(!work.busy&&!blocked.length&&!work.failure)return '';
  const company=request=>request.opportunityId?getJob(request.opportunityId)?.company:'';
  const task=request=>[Workflow.names[request.type]||'Trabajo guardado',company(request)].filter(Boolean).join(' · ');
  const waiting=work.queued.length?`${work.queued.length} ${work.queued.length===1?'tarea pendiente de iniciar':'tareas pendientes de iniciar'}`:'';
  const running=work.running[0],unconfirmed=work.unconfirmed.length&&work.unconfirmed.length===work.running.length;
  const ongoing={discovery:'Buscando ofertas',review:'Revisando solicitud',investigate:'Comprobando oferta',change:'Aplicando tus cambios',send:'Enviando solicitud'};
- const title=unconfirmed?'Actividad pendiente de confirmar':work.starting?'El agente se está iniciando':work.busy?running?[ongoing[running.type]||'El agente está trabajando',company(running)].filter(Boolean).join(' · '):'El agente está trabajando':work.blocked.length||work.failure?work.blocked.some(r=>r.actionOwner==='user')?work.blocked.some(r=>r.actionOwner==='agent')?'Acciones pendientes':'Necesita tu ayuda':'Comprobaciones pendientes del agente':waiting;
+ const title=unconfirmed?'Actividad pendiente de confirmar':work.starting?'El agente se está iniciando':work.busy?running?[ongoing[running.type]||'El agente está trabajando',company(running)].filter(Boolean).join(' · '):'El agente está trabajando':blocked.length||work.failure?blocked.some(r=>r.actionOwner==='user')?blocked.some(r=>r.actionOwner==='agent')?'Acciones pendientes':'Necesita tu ayuda':'Comprobaciones pendientes del agente':waiting;
  const at=running&&Workflow.taskAt(running)||model.execution?.updatedAt;
- const detail=unconfirmed?'Vuelve al chat del agente para comprobar el último paso.':work.busy?[at?'Último registro: '+date(at):'',waiting].filter(Boolean).join(' · '):work.blocked.length?waiting:work.failure?[model.execution.message,waiting].filter(Boolean).join(' · '):'Guardado para el agente. Para iniciar este trabajo, pídele que continúe en su chat.';
- const rows=[...work.blocked,...work.unconfirmed].map(request=>{
+ const detail=unconfirmed?'Vuelve al chat del agente para comprobar el último paso.':work.busy?[at?'Último registro: '+date(at):'',waiting].filter(Boolean).join(' · '):blocked.length?waiting:work.failure?[model.execution.message,waiting].filter(Boolean).join(' · '):'Guardado para el agente. Para iniciar este trabajo, pídele que continúe en su chat.';
+ const rows=[...blocked,...work.unconfirmed].map(request=>{
   const state=Workflow.task(request),action=state.delivery||state.stale?`data-copy-recovery="${esc(request.id)}"`:request.opportunityId?`data-job="${esc(request.opportunityId)}"`:'';
   const label=state.deliveryRecheckRequired?'Copiar petición para comprobar de nuevo':state.deliveryChecked?'Copiar petición para continuar':state.delivery?'Copiar petición de comprobación':state.stale?'Copiar petición para retomar':request.opportunityId?'Ver oferta':'Ver qué falta';
   return `<li><div><strong>${esc(task(request))}</strong>${request.actionOwner?`<small>${request.actionOwner==='user'?'Necesita una acción tuya':'Pendiente del agente'}</small>`:''}<p>${esc(conciseText(state.detail,240))}</p>${state.lastAt?`<small>Último registro: ${date(state.lastAt)}</small>`:''}${!action?'<p class="helper">Resuélvelo en el chat del agente.</p>':''}</div>${action?`<button class="link-button" ${action}>${label} ${icon('arrow-right')}</button>`:''}</li>`;

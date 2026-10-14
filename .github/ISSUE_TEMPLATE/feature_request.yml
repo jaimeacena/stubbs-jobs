@@ -1,0 +1,15 @@
+name: Propuesta / Feature request
+description: Una idea para mejorar Stubbs Jobs · An idea to improve Stubbs Jobs
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Qué necesitas y por qué · What you need and why
+      description: Describe tu situación (profesión, país, tipo de búsqueda) sin datos personales · Describe your situation without personal data
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Cómo podría funcionar · How it could work

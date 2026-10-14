@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Vulnerabilidad de seguridad · Security vulnerability
+    url: https://github.com/jaimeacena/stubbs-jobs/security/advisories/new
+    about: Informa en privado · Report privately
+  - name: Manual de uso · User guide
+    url: https://github.com/jaimeacena/stubbs-jobs/blob/main/docs/user-guide.md
+    about: Instalación, agente y uso diario · Installation, agent and daily use

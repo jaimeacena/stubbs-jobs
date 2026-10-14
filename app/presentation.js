@@ -9,7 +9,13 @@
     'País de residencia para el formulario':'País','Disponibilidad de incorporación para el formulario':'Disponibilidad',
     '¿Has solicitado antes esta oferta o han presentado ya tu perfil al mismo cliente?':'Solicitud o presentación previa',
     'Salario para formularios (€ brutos al año)':'Salario esperado (€ brutos/año)',
-    'Salario fijo mínimo anual':'Mínimo fijo (€ brutos/año)'
+    'Salario fijo mínimo anual':'Mínimo fijo (€ brutos/año)',
+    'He participado en competiciones de programación o hackathons':'Competiciones de programación o hackathons',
+    'Competiciones de programación o hackathons y resultados':'Competiciones o hackathons: detalle y resultados',
+    "Respuesta a 'Are you a legally protected status person?' (sin definición adicional)":'Estatus legalmente protegido',
+    'Autorizar tratar CV y datos de contacto para selección y conservarlos hasta 365 días':'Autorizo usar mi CV y contacto para selección y conservarlos hasta 365 días',
+    'Autorizar tratar CV y contacto para selección con centros fuera de la UE, aunque el aviso no indique plazo de conservación':'Autorizo usar mi CV y contacto con centros fuera de la UE, aunque no indiquen plazo de conservación',
+    'Autorizar conservar la respuesta Prefiero no responder en encuestas demográficas':'Autorizo guardar «Prefiero no responder» en encuestas demográficas'
   };
   const answerTitle=label=>conciseAnswerLabels[label]||label;
   const presentationVisible=material=>['form','email'].includes(material?.messageUsage)&&!!material?.message?.trim();
@@ -34,8 +40,14 @@
     return '';
   }
   const approved = job => job.packages.some(p => p.isCurrent && p.approvedAt && !p.revokedAt);
-  const offerMode = (job,unknown='Sin concretar') => ({Sí:'Remoto desde España',No:'No remoto desde España',Contradicción:'Datos contradictorios'})[job.conditions?.['Remoto España']]||unknown;
-  const day = (at = new Date()) => new Intl.DateTimeFormat('sv-SE', {timeZone:'Europe/Madrid'}).format(at);
+  // Personalized installations use the viewer's own timezone and describe the mode
+  // condition against their saved preference; the original edition keeps Spain.
+  let personalizedView = false;
+  const configure = ({personalized=false}={}) => { personalizedView = Boolean(personalized); };
+  const offerMode = (job,unknown='Sin concretar') => (personalizedView
+    ? {Sí:'Cumple tu modalidad',No:'No cumple tu modalidad',Contradicción:'Datos contradictorios'}
+    : {Sí:'Remoto desde España',No:'No remoto desde España',Contradicción:'Datos contradictorios'})[job.conditions?.['Remoto España']]||unknown;
+  const day = (at = new Date()) => new Intl.DateTimeFormat('sv-SE', personalizedView ? {} : {timeZone:'Europe/Madrid'}).format(at);
   const snoozed = (model, key, at = new Date()) => new Date(model.snoozes[key] || 0) > at;
   function flowStage(job) {
     if (job.historical || !active(job)) return 'historial';
@@ -43,7 +55,7 @@
     return job.selection?.selected ? 'solicitar' : 'elegir';
   }
   const offerStates=Object.freeze([
-    ['descartadas','Descartada','archive'],['sin-elegir','Por decidir','question'],['preparacion','En preparación','file'],
+    ['descartadas','Descartada','archive'],['sin-elegir','Por decidir','choice'],['preparacion','En preparación','file'],
     ['atencion','Por atender','bell'],['enviando','Enviando','send'],
     ['seguimiento','Siguiendo','check'],['cerradas','Cerrada','lock'],['rechazadas','Rechazada','close'],['logradas','Lograda','trophy']
   ].map(([key,label,icon])=>Object.freeze({key,label,icon})));
@@ -236,7 +248,7 @@
     const checks={sources:{total:model.publicSources?.length||sources.length,ok:sources.filter(h=>h.status==='ok').length,attemptAt:sources.map(h=>h.checkedAtUtc).filter(Boolean).sort().at(-1)||null}};
     return {busy:work.busy,label:work.unconfirmed.length||work.blocked.some(r=>Workflow.task(r).interruptionUnconfirmed)?'Actividad pendiente de confirmar':work.starting?'Iniciando el agente…':running?'El agente está trabajando':pending?'Hay tareas en cola':'Sin trabajo en curso',checks};
   }
-  const api={active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,nextCheck,recommendation,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
+  const api={configure,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,nextCheck,recommendation,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
   if (typeof module!=='undefined') module.exports=api;
   else window.StubbsJobsUI=api;
 })();

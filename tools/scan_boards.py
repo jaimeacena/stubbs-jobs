@@ -145,8 +145,37 @@ def geographic_queue_for_search(location,countries,regions):
         return bool(requested & {'MX','BR'})
     return True
 
+def word_stem(word):
+    """Join Spanish gender/number forms and simple plurals: enfermera/enfermeros -> enfermer."""
+    if len(word)>=6 and word.endswith(('os','as')):return word[:-2]
+    if len(word)>=6 and word.endswith('es') and word[-3] in 'lnrd':return word[:-2]
+    if len(word)>=5 and word.endswith('s') and not word.endswith('ss'):word=word[:-1]
+    if len(word)>=5 and word[-1] in 'oa':return word[:-1]
+    return word
+
+# Common occupations in Spanish mapped to an English canonical word. Matching is
+# still by shared words; this only lets equivalent titles in both languages meet.
+OCCUPATIONS={
+    'enfermero':'nurse','enfermeria':'nursing','auxiliar':'assistant','asistente':'assistant','ayudante':'assistant',
+    'camarero':'waiter','mesero':'waiter','cocinero':'cook','profesor':'teacher','maestro':'teacher','docente':'teacher',
+    'conductor':'driver','chofer':'driver','repartidor':'courier','vendedor':'salesperson','ventas':'sales','comercial':'sales',
+    'dependiente':'shop','cajero':'cashier','contable':'accountant','contador':'accountant','contabilidad':'accounting',
+    'abogado':'lawyer','medico':'doctor','electricista':'electrician','fontanero':'plumber','mecanico':'mechanic',
+    'limpieza':'cleaning','limpiador':'cleaner','recepcionista':'receptionist','administrativo':'administrative',
+    'almacen':'warehouse','operario':'operator','tecnico':'technician','soldador':'welder','carpintero':'carpenter',
+    'peluquero':'hairdresser','cuidador':'caregiver','farmaceutico':'pharmacist','psicologo':'psychologist',
+    'fisioterapeuta':'physiotherapist','disenador':'designer','arquitecto':'architect','gerente':'manager',
+    'jefe':'lead','jefa':'lead','responsable':'manager','consultor':'consultant','especialista':'specialist',
+    'atencion':'service','cliente':'customer','logistica':'logistics','marketing':'marketing','recursos':'resources',
+    'humanos':'human','seguridad':'security','vigilante':'guard','educador':'educator','traductor':'translator','cocina':'kitchen','ingles':'english','frances':'french',
+    'aleman':'german','espanol':'spanish','sala':'floor','primaria':'primary','secundaria':'secondary',
+}
+OCCUPATION_STEMS={word_stem(spanish):word_stem(english) for spanish,english in OCCUPATIONS.items()}
+GENDER_SUFFIX=re.compile(r'(\w)\s*(?:/|\(|\\)\s*(?:a|o|as|os|es|e)\b\)?')
+
 def role_tokens(value):
     plain=''.join(c for c in unicodedata.normalize('NFD',str(value).casefold()) if not unicodedata.combining(c))
+    plain=GENDER_SUFFIX.sub(r'\1',re.sub(r'(\w)@',r'\1o',plain))
     for phrase,canonical in (('business intelligence',' bi '),('inteligencia de negocio',' bi '),
                              ('back end','backend'),('front end','frontend'),
                              ('analista','analyst'),('datos','data'),('analitica','analytics'),
@@ -156,9 +185,10 @@ def role_tokens(value):
     words=set(re.findall(r'[a-z0-9]+',plain))-{'senior','junior','sr','jr','remote','remoto','remota','de','del','of','en','para'}
     if 'engineer' in words:words.remove('engineer');words.add('developer')
     if 'backend' in words or 'frontend' in words:words.add('software')
-    return words
+    return {OCCUPATION_STEMS.get(word_stem(word),word_stem(word)) for word in words}
 
-ROLE_WORDS={'analyst','developer','consultant','architect','specialist','manager','lead','director'}
+ROLE_WORDS={'analyst','developer','consultant','architect','specialist','manager','lead','director',
+            'assistant','technician','operator','worker','sale'}
 
 def role_match(title,description,target_roles):
     """Keep adjacent titles for review while requiring a shared subject area."""

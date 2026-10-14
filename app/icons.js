@@ -13,6 +13,7 @@
   check:'<path d="m5 12 4 4L19 6"/>',
   archive:'<rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v14h14V7M10 11h4"/>',
   question:'<path d="M8 7a4 4 0 0 1 8 0c0 3-4 3-4 6v2M12 19v1"/>',
+  choice:'<path d="M12 22V12L4 4m8 8 8-8M4 9V4h5m6 0h5v5"/>',
   bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
   lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
   trophy:'<path d="M8 3h8v6a4 4 0 0 1-8 0V3ZM8 5H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4M12 13v5m-4 3h8m-6-3h4v3h-4Z"/>',
@@ -31,6 +32,7 @@
  const solidShapes=Object.freeze({
   archive:'<path fill-rule="evenodd" d="M3 3h18v5H3V3Zm2 7h14v11H5V10Zm5 3v2h4v-2h-4Z"/>',
   question:'<path d="M12 2C7.9 2 5 4.6 5 8h4c0-1.5 1.2-2.5 3-2.5s3 1 3 2.5c0 1.1-.6 1.7-2.1 2.7C10.9 12 10 13.4 10 16h4c0-1.5.5-2.1 2.2-3.2C18.1 11.5 19 10 19 7.7 19 4.4 16.1 2 12 2ZM10 18h4v4h-4Z"/>',
+  choice:'<path d="M3 2h7v3H8.1L12 8.9 15.9 5H14V2h7v7h-3V7.1l-4.5 4.5V22h-3V11.6L6 7.1V9H3V2Z"/>',
   bell:'<path d="M12 2a7 7 0 0 1 7 7v5l3 4H2l3-4V9a7 7 0 0 1 7-7ZM9 20h6a3 3 0 0 1-6 0Z"/>',
   check:'<path d="m2 12 3-3 5 5L19 4l3 3-12 13-8-8Z"/>',
   lock:'<path fill-rule="evenodd" d="M7 10V7a5 5 0 0 1 10 0v3h2v12H5V10h2Zm3 0h4V7a2 2 0 0 0-4 0v3Z"/>',

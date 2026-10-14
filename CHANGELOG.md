@@ -1,5 +1,27 @@
 # Notas de cambios
 
+## Sin publicar · Preparación para más perfiles · 14/10/2026
+
+- El agente consume mucho menos contexto: `agent-status` lista por páginas de 20 las ofertas abiertas (primero las que tienen encargos o cambios pendientes), deja descartadas y cerradas para `--offers closed|all`, abrevia pruebas largas y, con más de 50 encargos en cola, conserva todos los IDs sin repetir su detalle. Con 66 ofertas reales pasa de 233 KB a 81 KB, y deja de crecer con el historial.
+- Lectura obligatoria más corta: AGENTS.md y CLAUDE.md indican qué secciones de la guía, la operación y el contrato leer según la petición, sin cargar el contrato completo por rutina.
+- Guardados mucho más rápidos con muchas ofertas: añadir 100 ofertas con 1.000 ya registradas baja de 73 s a 14 s.
+- Condiciones con nombres neutros para cualquier país: el agente ve y puede usar «Cumple modalidad», «Cumple contrato», «Cumple viajes» y «Cumple salario mínimo»; los registros existentes conservan sus claves.
+- Aviso sobre las condiciones de los portales: Auto-solicitud, el README, el manual y AGENTS.md explican que muchos portales prohíben el uso automatizado y cómo evitar el riesgo.
+- Captador automático válido para cualquier profesión: reconoce «Enfermero/a», «(a)», plurales y equivalentes en inglés de profesiones comunes («Camarera» ↔ «Waiter», «Contable» ↔ «Accountant»), sin abrir puestos no relacionados.
+- Historial del registro acotado: se conservan las 100 copias más recientes y una por día durante 90 días; nunca se retira una copia citada por el registro ni una copia en conflicto.
+- Vistas más rápidas con muchas ofertas: con 660 ofertas ficticias, la preparación del estado baja de 6,4 s a 1,4 s.
+- Zona horaria de la persona en plazos y «Hoy»; la modalidad se describe frente a tu preferencia («Cumple tu modalidad») en lugar de «Remoto desde España».
+- Aviso cuando la carpeta está dentro de OneDrive, Dropbox u otro servicio de sincronización.
+- Guía de inicio para personas no técnicas: qué agente usar, aviso de Windows sin firma, desbloqueo del ZIP y carpeta local. Preparación del perfil con menos lectura obligatoria para el agente y ayuda para salarios mensuales o por horas.
+- La construcción de la descarga y del código público se detiene si encuentra datos personales de la instalación; las sustituciones personales viven en private/.
+- Guía de contribución, política de seguridad y plantillas de incidencias para GitHub.
+
+## Sin publicar · Reorganización documental · 14/10/2026
+
+- Presentación en inglés y español, guías en docs/ con nombres en inglés e índice de lectura.
+- Documentos personales separados en private/, fuera de Git y de los insumos de construcción; compatibilidad de lectura y recuperación con nombres anteriores.
+- Enlaces, instrucciones de inicio y constructores de descarga/código actualizados. Comprobación de enlaces locales integrada en el control de calidad.
+
 ## Stubbs Jobs 1.0 · 1.0.0 · 2026-10-09
 
 - Primera publicación 1.0 para Windows x64, con descarga vacía y código genérico bajo la cuenta jaimeacena.
@@ -22,7 +44,7 @@
 - Recuperación fuera de la instalación original, con apertura disponible solo tras completar las comprobaciones; las copias incluyen también CV antiguos visibles sin uso registrado. Excel conserva campos de distintas filas, monedas acreditadas, fuentes originales y un solo primer hito por proceso/tipo. El código público incluye pruebas de estas correcciones y el contrato vigente de interfaz.
 - Revisión de producción: la interfaz se sirve con tipos de contenido fijos aunque Windows tenga otras asociaciones de archivos; cabeceras adicionales de aislamiento; nombres de empresa escapados en la edición conjunta; fallos inesperados del servicio registrados de forma acotada en data/app-server.log, sin contenido de las peticiones. El escritor rechaza tipos de dato que impedirían abrir la app (empresa, puesto, enlace, bloqueos e historial) y los informes toleran fechas incompletas. Sustitución de archivos con reintento breve en Windows, instantáneas nuevas del registro comprimidas y captación que respeta la codificación declarada por cada web. En la ficha, Condiciones reúne en una línea los datos no publicados; la tabla atenúa los datos ausentes, el título del formulario de solicitud se lee como título y el Resumen omite las direcciones técnicas de las incidencias.
 
-Las comprobaciones de esta entrega se detallan en [LIMITES.md](LIMITES.md). Los ejemplos visuales son ficticios; no acreditan trabajo real ni aceptación humana.
+Las comprobaciones de esta entrega se detallan en [limits.md](docs/limits.md). Los ejemplos visuales son ficticios; no acreditan trabajo real ni aceptación humana.
 
 ## Stubbs Jobs Beta 3 · 0.1.0-beta.3 · 02/10/2026
 
@@ -35,7 +57,7 @@ Las comprobaciones de esta entrega se detallan en [LIMITES.md](LIMITES.md). Los 
 - Modelo, guía, plan y algoritmo incluidos en la edición genérica; identidad y procedencia compartidas entre portable y código público.
 - Mejoras de presentación y advertencia de que las copias conservan datos guardados, no ediciones pendientes.
 
-Este incremento no publica por sí mismo la aplicación ni acredita aceptación humana, búsquedas/envíos reales o ahorro medido. Consulta [LIMITES.md](LIMITES.md).
+Este incremento no publica por sí mismo la aplicación ni acredita aceptación humana, búsquedas/envíos reales o ahorro medido. Consulta [limits.md](docs/limits.md).
 
 ## Stubbs Jobs Beta 2 · 0.1.0-beta.2 · 01/10/2026
 
@@ -53,4 +75,4 @@ Este incremento no publica por sí mismo la aplicación ni acredita aceptación 
 
 Esta entrega incorpora las mejoras de continuidad de Beta 2 y conserva el flujo de preparación de Beta 1. No migra ni importa automáticamente datos de otra persona. Los formatos internos conservan sus versiones propias.
 
-Consulta [LIMITES.md](LIMITES.md) para distinguir las verificaciones automáticas de las comprobaciones humanas aún pendientes.
+Consulta [limits.md](docs/limits.md) para distinguir las verificaciones automáticas de las comprobaciones humanas aún pendientes.

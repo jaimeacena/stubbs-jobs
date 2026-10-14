@@ -1,0 +1,37 @@
+name: Error / Bug
+description: Algo no funciona como se espera · Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **No incluyas datos personales** (CV, nombre, email, teléfono, registro o capturas con tus datos). Usa ejemplos ficticios.
+        **Do not include personal data** (CV, name, email, phone, registry or screenshots showing it). Use fictional examples.
+  - type: input
+    id: version
+    attributes:
+      label: Versión · Version
+      description: Aparece en Copias de seguridad · Shown in Copias de seguridad
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agente de IA · AI agent
+      options: [Claude Code, Codex, Otro · Other, No aplica · Not applicable]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Qué hiciste y qué pasó · What you did and what happened
+      placeholder: "1. ...\n2. ...\nEsperaba · Expected: ...\nOcurrió · Happened: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Mensaje de error (opcional) · Error message (optional)
+      description: Contenido de data/app-error.log, revisado para quitar datos personales · Content of data/app-error.log, reviewed to remove personal data
+      render: text

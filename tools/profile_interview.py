@@ -22,7 +22,7 @@ FIELDS = (
     ('linkedinUrl', 'LinkedIn (opcional)', 'sobre_mi', 'text'),
     ('websiteUrl', 'Web o portfolio (opcional)', 'sobre_mi', 'text'),
     ('gender', 'Género (opcional)', 'sobre_mi', 'text'),
-    ('demographicSurveyParticipation', 'Participar en encuestas demográficas (opcional)', 'sobre_mi', 'boolean'),
+    ('demographicSurveyParticipation', 'Encuestas demográficas (opcional)', 'sobre_mi', 'choice'),
     ('experience', 'Experiencia, formación y proyectos', 'sobre_mi', 'text'),
     ('languages', 'Idiomas y nivel', 'sobre_mi', 'text'),
     ('currentCity', 'Ciudad actual', 'sobre_mi', 'text'),
@@ -86,6 +86,9 @@ def has_value(answer):
 
 def fingerprint(data, draft, field):
     answer = value(data, draft, field)
+    if field['key']=='demographicSurveyParticipation' and type(answer) is bool:
+        # The new options retain the already confirmed legacy yes/no meaning.
+        field={**field,'label':'Participar en encuestas demográficas (opcional)','type':'boolean'}
     meaning = {}
     # A fixed amount in a different currency or a permit for a different
     # destination is a different answer, even when its stored value is unchanged.

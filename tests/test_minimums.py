@@ -266,3 +266,45 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
                     'proof': 'TEST ubicación explícita del anuncio.'})
         stored = next(r for r in self.data['sheets']['Oportunidades'] if r['ID'] == 'one')
         self.assertEqual(stored['Ubicación'], 'Villa Norte')
+
+
+class NeutralConditionNameTests(WorkflowFixture, unittest.TestCase):
+    """Any country's agent can record and read conditions without the first edition's names."""
+    def setUp(self):
+        super().setUp()
+        self.data['profile']['minimumFixed'] = 35000
+        self.data['app']['criteria'] = {'contract': 'Indefinido', 'location': 'España', 'maxTrips': 1}
+        self.data['app']['searchContext'] = {'workMode': '100 % remoto', 'currency': 'EUR'}
+        self.row['Estado'] = 'Investigar'
+        self.data.update(createdAt=jobs.now(), updatedAt=jobs.now())
+
+    def stored(self):
+        return next(r for r in self.data['sheets']['Oportunidades'] if r['ID'] == 'one')
+
+    def test_neutral_name_records_the_same_condition_as_the_stored_key(self):
+        MinimumsTests.evidence(self, 'Cumple salario mínimo', 'No', fixed=30000, fixedMax=34000)
+        self.assertEqual(self.stored()['Fijo ≥32 k€'], 'No')
+        self.assertEqual(self.stored()['Fijo mín. confirmado'], 30000)
+        self.assertEqual(self.data['sheets']['Evidencias'][-1]['Condición'], 'Fijo ≥32 k€')
+        self.assertEqual(offer_minimums.current_numbers(self.data, self.stored())['Fijo máx. confirmado'], 34000)
+        MinimumsTests.evidence(self, 'Cumple viajes', 'Sí', trips=0)
+        self.assertEqual(self.stored()['Viajes ≤1/mes'], 'Sí')
+        with self.assertRaises(ValueError):
+            MinimumsTests.evidence(self, 'Cumple otra cosa', 'Sí')
+
+    def test_agent_views_show_neutral_condition_names(self):
+        import agent_context
+        from unittest.mock import patch
+        import personalization, stubbs_jobs_app
+        (self.root/'config').mkdir()
+        (self.root/'config/sources.json').write_text('[]', encoding='utf-8')
+        for module in (agent_context, stubbs_jobs_app, personalization):
+            p = patch.object(module, 'ROOT', self.root); p.start(); self.addCleanup(p.stop)
+        MinimumsTests.evidence(self, 'Fijo ≥32 k€', 'No', fixed=30000, fixedMax=34000)
+        listed = agent_context.view(self.data, offers='all')['opportunities'][0]['minimums']
+        self.assertIn('Cumple salario mínimo', [v['key'] for v in listed['violations']])
+        case = agent_context.view(self.data, case='one')['case']
+        self.assertIn('Cumple salario mínimo', case['conditions'])
+        self.assertNotIn('Fijo ≥32 k€', case['conditions'])
+        self.assertEqual(case['evidence'][-1]['Condición'], 'Cumple salario mínimo')
+        self.assertEqual(self.stored()['Fijo ≥32 k€'], 'No')

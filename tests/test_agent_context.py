@@ -190,5 +190,60 @@ class AgentContextTests(unittest.TestCase):
         self.assertTrue(json.loads(output.getvalue())['viewOnly'])
         recovery.assert_not_called();locking.assert_not_called()
 
+    def add_offers(self, states):
+        for index, state in enumerate(states):
+            other = copy.deepcopy(self.row)
+            other.update(ID='extra-'+str(index), Empresa='TEST Empresa '+str(index), Estado=state,
+                         **{'Clave canónica': 'TEST:extra-'+str(index), 'URL original': 'https://example.org/jobs/extra-'+str(index)})
+            self.data['sheets']['Oportunidades'].append(other)
+
+    def test_general_listing_is_paged_and_leaves_closed_offers_for_explicit_queries(self):
+        self.add_offers(['Lista para revisión']*4+['Descartada', 'Cerrada'])
+        before = copy.deepcopy(self.data)
+        first = agent_context.view(self.data, page_size=2)
+        self.assertEqual(len(first['opportunities']), 2)
+        self.assertEqual(first['scope']['matchingOpportunities'], 5)
+        self.assertEqual(first['scope']['closedOpportunities'], 2)
+        self.assertEqual(first['scope']['pages'], 3)
+        self.assertEqual(first['scope']['nextPageCommand'], 'agent-status --offers open --page 2')
+        listed = [o['id'] for page in (1, 2, 3) for o in agent_context.view(self.data, page=page, page_size=2)['opportunities']]
+        self.assertEqual(sorted(listed), sorted(['one']+['extra-'+str(i) for i in range(4)]))
+        self.assertIsNone(agent_context.view(self.data, page=3, page_size=2)['scope']['nextPageCommand'])
+        closed = agent_context.view(self.data, offers='closed')
+        self.assertEqual(sorted(o['id'] for o in closed['opportunities']), ['extra-4', 'extra-5'])
+        self.assertEqual(len(agent_context.view(self.data, offers='all')['opportunities']), 7)
+        self.assertNotEqual(first['version'], agent_context.view(self.data, page=2, page_size=2)['version'])
+        for values in ({'page': 4, 'page_size': 2}, {'page': 0}, {'page_size': 101}, {'offers': 'todas'}):
+            with self.subTest(values), self.assertRaises(ValueError):
+                agent_context.view(self.data, **values)
+        self.assertEqual(agent_context.view(self.data, case='extra-5')['case']['id'], 'extra-5')
+        self.assertEqual(self.data, before)
+
+    def test_offers_with_active_requests_lead_the_listing_even_when_closed(self):
+        self.add_offers(['Lista para revisión']*3+['Descartada'])
+        self.data['app']['requests'].append({'id': 'TEST-uncertain', 'type': 'send', 'opportunityId': 'extra-3',
+            'status': 'running', 'executionId': 'TEST-other-owner', 'startedAt': now(), 'updatedAt': now(),
+            'packageId': 'TEST-package', 'result': 'TEST pendiente de conciliar'})
+        result = agent_context.view(self.data, page_size=1)
+        self.assertEqual(result['opportunities'][0]['id'], 'extra-3')
+        self.assertIn('TEST-uncertain', [r['id'] for r in result['requests']])
+
+    def test_long_queues_keep_every_snapshot_id_without_repeating_all_details(self):
+        for index in range(agent_context.QUEUED_DETAIL+5):
+            self.data['app']['requests'].append({'id': 'TEST-queued-'+str(index), 'type': 'investigate', 'opportunityId': 'one',
+                                                 'status': 'queued', 'createdAt': now(), 'updatedAt': now()})
+        result = agent_context.view(self.data)
+        self.assertEqual(len(result['queuedSnapshot']), agent_context.QUEUED_DETAIL+5)
+        self.assertEqual(result['scope']['queuedRequestsWithoutDetail'], 5)
+        self.assertEqual(len([r for r in result['requests'] if r['status'] == 'queued']), agent_context.QUEUED_DETAIL)
+        self.assertEqual(agent_context.view(self.data, request_id='TEST-queued-54')['request']['id'], 'TEST-queued-54')
+
+    def test_listing_abridges_long_notes_but_case_keeps_them(self):
+        self.row['Notas de seguimiento'] = 'TEST '+'x'*600
+        listed = agent_context.view(self.data)['opportunities'][0]
+        self.assertTrue(listed['abridged'])
+        self.assertLess(len(listed['notes']), 300)
+        self.assertEqual(agent_context.view(self.data, case='one')['opportunities'][0]['notes'], self.row['Notas de seguimiento'])
+
 
 if __name__=='__main__':unittest.main()

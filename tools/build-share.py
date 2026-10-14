@@ -13,9 +13,16 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 MODULES=('stubbs_jobs.py','stubbs_jobs_core.py','stubbs_jobs_app.py','window_icon.py','cv_usage.py','app_workflow.py','app_context.py','assistant_flow.py','agent_runner.py','agent_context.py','source_reviews.py','personalization.py','onboarding.py','profile_interview.py','runtime.py','maintenance.py','backup.py','request_workflow.py','offer_quality.py','view_cache.py','state_support.py','scan_boards.py','export-tracker.mjs')
 MODULES+=('offer_actions.py','offer_minimums.py','application_lifecycle.py','search_profiles.py','criteria_preview.py')
+MODULES+=('cv_retirement.py',)
 APP_FILES=('index.html','app.js','icons.js','client.js','formatting.js','activity.js','workflow.js','recovery.js','explanations.js','presentation.js','drafts.js','setup.js','theme.js','release.js','redesign.css','criteria.js')
 APP_ASSETS=('stubbs.png','stubbs.ico')
-DOCUMENTS=('AGENTS.md','estrategia.md','INICIO.md','OPERACION.md','profile-template.md','PROGRAMACION.md','README.md','TERCEROS.md','CHANGELOG.md','LIMITES.md','AUTORIA.md','RECUPERACION.md','SISTEMA.md','AGENTE.md','PLAN-SISTEMA.md','algoritmo-busqueda.md','LICENSE','DESARROLLO.md')
+DOCUMENTS=('AGENTS.md','README.en.md','README.es.md','CHANGELOG.md','LICENSE',
+           'docs/README.md','docs/search-strategy.md','docs/getting-started.md',
+           'docs/operations.md','private/profile-template.md','docs/scheduling.md',
+           'docs/user-guide.md','docs/third-party-notices.md','docs/limits.md',
+           'docs/authorship.md','docs/backup-and-recovery.md','docs/system-design.md',
+           'docs/agent-guide.md','docs/work-plan.md','docs/job-discovery.md',
+           'docs/development.md','docs/development.es.md')
 SOURCE_TESTS=('test_distribution.py','test_distribution_runtime.py','test_review_20261002.py','test_workflow_fresh_audit.py','test_window_icon.py','test_cv_usage.py','test_fresh_audit.py','test_export_tracker.py','test_client.cjs','test_recovery.cjs','test_activity.cjs','test_presentation.cjs','test_browser_flow.cjs','test_workflow.cjs','workflow_fixtures.py','test_profile_interview.py','test_delivery_recovery.py','test_request_continuity.py','test_system_contracts.py','test_backup.py','test_offer_quality.py','test_best_argument.py','test_agent_context.py','test_source_reviews.py','test_source_scan.py','quality_cases.json')
 SOURCE_TESTS+=('test_bulk_actions.py','test_minimums.py','test_profile_contacts.py','test_offer_display.py','test_review_corrections.py')
 SOURCE_TESTS+=('test_integral_corrections.py','test_preservation_edges.py','test_application_lifecycle.py','test_profile_demographics.py')
@@ -24,8 +31,11 @@ SOURCE_TESTS+=('test_broken_connections.py',)
 SOURCE_TESTS+=('test_review_edges_20261009.py',)
 SOURCE_TESTS+=('test_exhaustive_review_20261009.py','test_salary_review_20261009.cjs')
 SOURCE_TESTS+=('test_closing_flows_20261009.py',)
-SOURCE_BUILD_TOOLS=('build-share.py','build-source.py','check-quality.py','launcher.cs','build-launcher.ps1')
-SOURCE_PROJECT_FILES=('requirements.txt','.github/workflows/quality.yml')
+SOURCE_TESTS+=('test_cv_retirement.py',)
+SOURCE_TESTS+=('test_snapshot_retention.py','test_role_matching.py','test_publication_guard.py','test_install_location.py')
+SOURCE_BUILD_TOOLS=('build-share.py','build-source.py','check-quality.py','check-docs.py','launcher.cs','build-launcher.ps1')
+SOURCE_PROJECT_FILES=('requirements.txt','.github/workflows/quality.yml','CONTRIBUTING.md','SECURITY.md',
+                      '.github/ISSUE_TEMPLATE/bug_report.yml','.github/ISSUE_TEMPLATE/feature_request.yml','.github/ISSUE_TEMPLATE/config.yml','.github/pull_request_template.md')
 PORTABLE_PYTHON_VERSION='3.14.7'
 
 
@@ -41,17 +51,18 @@ def inspect_portable_runtime(runtime):
     except (OSError,ValueError,subprocess.TimeoutExpired) as exc:
         raise ValueError('No se pudo comprobar la identidad del runtime portátil') from exc
     if details!={'version':PORTABLE_PYTHON_VERSION,'platform':'win-amd64'}:
-        raise ValueError('El runtime debe coincidir con Python '+PORTABLE_PYTHON_VERSION+' Windows x64 declarado en TERCEROS.md')
+        raise ValueError('El runtime debe coincidir con Python '+PORTABLE_PYTHON_VERSION+' Windows x64 declarado en docs/third-party-notices.md')
     return details['version']
 
 
 def source_input_hashes():
     names=['tools/'+name for name in MODULES+SOURCE_BUILD_TOOLS]
-    names+=['app/'+name for name in APP_FILES]+['app/assets/'+name for name in APP_ASSETS]+['APLICACION.md','Abrir Stubbs Jobs.exe']
-    names+=['distribution/'+name for name in DOCUMENTS+('README-CODIGO.md',)]
+    names+=['app/'+name for name in APP_FILES]+['app/assets/'+name for name in APP_ASSETS]+['docs/application-contract.md','Abrir Stubbs Jobs.exe']
+    names+=['distribution/'+name for name in DOCUMENTS]
     names+=['config/'+name for name in ('dependencies.json','retention.json','release.json')]
     names+=['tests/'+name for name in SOURCE_TESTS]
     names+=list(SOURCE_PROJECT_FILES)
+    names+=['private/publication-replacements.json']
     # A portable-only input tree may omit public-source build inputs. Their absence
     # is part of its identity and cannot subsequently pass as the full source tree.
     return {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() if (ROOT/name).is_file() else None
@@ -81,16 +92,82 @@ def release_metadata(reader=None):
         raise ValueError('La versión visible no coincide con config/release.json')
     return info
 
-def render_document(text,info):
+def document_target(name):
+    return {'README.en.md':'README.md','private/profile-template.md':'private/profile.md'}.get(name,name)
+
+
+def render_document(text,info,template=False):
     for key,value in {'RELEASE_LABEL':info['label'],'RELEASE_VERSION':info['version'],'RELEASE_DATE':info['releaseDate']}.items():
         text=text.replace('{{'+key+'}}',value)
     if re.search(r'\{\{RELEASE_[A-Z]+\}\}',text):raise ValueError('Hay un dato de publicación sin resolver')
+    if not template:text=text.replace('README.en.md','README.md')
     return text
 
 def replace_function(text,name,replacement):
     function=next(node for node in ast.parse(text).body if isinstance(node,ast.FunctionDef) and node.name==name)
     lines=text.splitlines(keepends=True)
     return ''.join(lines[:function.lineno-1])+replacement+'\n'+''.join(lines[function.end_lineno:])
+
+PERSONAL_FIELDS=('email','phone','address','postalCode','linkedinUrl','websiteUrl')
+PUBLIC_IDENTITIES=('github.com/jaimeacena','[jaimeacena]','cuenta jaimeacena','jaimeacena/stubbs-jobs')
+
+
+def personal_terms(root=ROOT):
+    """Private values that must never reach a shared package.
+
+    Read from this installation's registry and the optional private/publication-denylist.txt
+    (one term per line). Values are used only for this local comparison."""
+    terms=set()
+    try:
+        data=json.loads((root/'data/registry.json').read_text(encoding='utf-8'))
+        profile=data.get('profile',{}) if isinstance(data,dict) else {}
+        for key in PERSONAL_FIELDS:
+            value=profile.get(key)
+            if isinstance(value,str) and len(value.strip())>=6:terms.add(value.strip())
+        name=data.get('app',{}).get('searchContext',{}).get('name','') if isinstance(data,dict) else ''
+        if isinstance(name,str):
+            terms.update(part for part in re.split(r'\s+',name.strip()) if len(part)>=4)
+    except (OSError,ValueError,AttributeError):pass
+    try:
+        for line in (root/'private/publication-denylist.txt').read_text(encoding='utf-8').splitlines():
+            if line.strip() and not line.lstrip().startswith('#'):terms.add(line.strip())
+    except OSError:pass
+    return sorted(terms)
+
+
+def assert_no_personal_data(destination,terms=None):
+    """Fail closed when any shared text file contains a private term."""
+    terms=personal_terms() if terms is None else terms
+    if not terms:return []
+    pattern=re.compile('|'.join(r'(?<!\w)'+re.escape(term)+r'(?!\w)' for term in terms),re.I)
+    found=[]
+    for path in sorted(Path(destination).rglob('*')):
+        relative=path.relative_to(destination).as_posix()
+        if not path.is_file() or relative.startswith('runtime/') or path.suffix.lower() in ('.exe','.png','.ico','.pdf','.dll','.pyd','.zip'):continue
+        text=path.read_text(encoding='utf-8',errors='ignore')
+        for identity in PUBLIC_IDENTITIES:text=text.replace(identity,'')
+        if pattern.search(text):found.append(relative)
+    if found:
+        raise ValueError('La copia compartida contiene datos personales de esta instalación; revisa: '+', '.join(found[:10]))
+    return found
+
+
+def private_replacements(root=ROOT):
+    """Optional private/publication-replacements.json turns a personal installation generic.
+
+    Format: {"tools": {"old": "new"}, "toolsExceptScanner": {...}, "app": {...}, "contract": {...}, "tests": {...}}.
+    Public source has no such file because it is already generic."""
+    try:value=json.loads((root/'private/publication-replacements.json').read_text(encoding='utf-8'))
+    except OSError:return {}
+    if not isinstance(value,dict) or any(not isinstance(v,dict) or any(not isinstance(a,str) or not isinstance(b,str) or not a for a,b in v.items()) for v in value.values()):
+        raise ValueError('private/publication-replacements.json no es válido')
+    return value
+
+
+def replace_private(text,scope,root=ROOT):
+    for old,new in private_replacements(root).get(scope,{}).items():text=text.replace(old,new)
+    return text
+
 
 def build(destination,runtime):
     destination=destination.resolve()
@@ -123,25 +200,29 @@ def build(destination,runtime):
             text=replace_function(text,'seed',"def seed(data):\n    app=state(data)\n    retire_mail(data)\n    automation(data)\n    app.setdefault('legacyImported',True)\n    for row in data['sheets']['Oportunidades']:draft(data,row['ID'])\n    return app")
         if name=='stubbs_jobs_core.py':
             text=re.sub(r"^WORKBOOK = ROOT / '[^']+'$","WORKBOOK = ROOT / 'outputs/busqueda-empleo.xlsx'",text,flags=re.M)
+        text=replace_private(text,'tools')
+        if name!='scan_boards.py':
             # City names in the scanner are geographic rules, not private profile data.
+            text=replace_private(text,'toolsExceptScanner')
         target=destination/'tools'/name;target.parent.mkdir(exist_ok=True);target.write_text(text,encoding='utf-8')
     for name in APP_FILES:
         target=destination/'app'/name;target.parent.mkdir(exist_ok=True)
-        target.write_text(source_text('app/'+name).replace('Jaime','Usuario'),encoding='utf-8')
+        target.write_text(replace_private(source_text('app/'+name),'app'),encoding='utf-8')
     for name in APP_ASSETS:
         target=destination/'app/assets'/name;target.parent.mkdir(parents=True,exist_ok=True)
         target.write_bytes(source_bytes('app/assets/'+name))
     for name in DOCUMENTS:
-        source=ROOT/'distribution'/name
-        target=destination/'perfil.md' if source.name=='profile-template.md' else destination/source.name
+        target=destination/document_target(name)
+        target.parent.mkdir(parents=True,exist_ok=True)
         target.write_text(render_document(source_text('distribution/'+name),info),encoding='utf-8')
-    application=source_text('APLICACION.md')
+    application=source_text('docs/application-contract.md')
     offer_states=application.split('## Estado común de las ofertas',1)[1].split('## Organización',1)[0]
     interface=application.split('## Detalles del contrato de interfaz',1)[1].split('## Contrato del agente',1)[0]
     contract=application.split('## Contrato del agente',1)[1].split('## Conservación y funcionamiento',1)[0]
     current_actions='## Selección múltiple en Ofertas'+application.split('## Selección múltiple en Ofertas',1)[1]
-    (destination/'APLICACION.md').write_text('# Contrato de Stubbs Jobs\n\nLee README.md para el uso cotidiano e INICIO.md para el primer inicio. La IA preselecciona ofertas y la persona elige cuáles solicitar. El agente trabaja desde su chat y consulta el estado actual antes de actuar; guardar en la app no inicia tareas. Si se desea una búsqueda diaria, se programa en ese agente. Al actualizar un encargo en curso mediante apply, usa su --execution-id propio.\n\n## Estado común de las ofertas\n'+offer_states.replace('Jaime','la persona')+'\n## Detalles del contrato de interfaz\n'+interface.replace('Jaime','la persona')+'\n## Contrato del agente\n'+contract.replace('Jaime','la persona')+'\n## Conservación y funcionamiento\n\nLos datos pertenecen a esta instalación. Conserva el registro, los CV y los paquetes; consulta OPERACION.md para el procedimiento.\n\n'+current_actions.replace('Jaime','la persona'),encoding='utf-8')
-    (destination/'CLAUDE.md').write_text('Lee AGENTS.md e INICIO.md antes de trabajar. Consulta tools/stubbs_jobs.py agent-status y amplía el caso, encargo o perfil antes de buscar, solicitar o atender cambios. La entrevista inicial guiada por la IA guarda el perfil en el mismo registro que muestra la app. Guardar en la app no inicia tareas.\n',encoding='utf-8')
+    person=lambda text:replace_private(text,'contract')
+    (destination/'docs/application-contract.md').write_text('# Contrato de Stubbs Jobs\n\nLee README.md para la presentación, docs/user-guide.md para el uso cotidiano y docs/getting-started.md para el primer inicio. La IA preselecciona ofertas y la persona elige cuáles solicitar. El agente trabaja desde su chat y consulta el estado actual antes de actuar; guardar en la app no inicia tareas. Si se desea una búsqueda diaria, se programa en ese agente. Al actualizar un encargo en curso mediante apply, usa su --execution-id propio.\n\n## Estado común de las ofertas\n'+person(offer_states)+'\n## Detalles del contrato de interfaz\n'+person(interface)+'\n## Contrato del agente\n'+person(contract)+'\n## Conservación y funcionamiento\n\nLos datos pertenecen a esta instalación. Conserva el registro, los CV y los paquetes; consulta docs/operations.md para el procedimiento.\n\n'+person(current_actions),encoding='utf-8')
+    (destination/'CLAUDE.md').write_text('Lee AGENTS.md antes de trabajar: indica qué secciones de docs/agent-guide.md, docs/operations.md y docs/application-contract.md leer según la petición, sin cargar documentos completos por rutina. Usa docs/getting-started.md solo para un perfil incompleto. Consulta tools/stubbs_jobs.py agent-status y amplía el caso, encargo o perfil. Trabajar en el producto no autoriza empleo; guardar en la app no inicia tareas.\n',encoding='utf-8')
     (destination/'config').mkdir()
     for name in ('dependencies.json','retention.json'):(destination/'config'/name).write_bytes(source_bytes('config/'+name))
     dependencies=json.loads((destination/'config/dependencies.json').read_text(encoding='utf-8'))
@@ -163,6 +244,7 @@ def build(destination,runtime):
             if file.is_file():file.unlink()
         scripts.rmdir()
     if source_identity()!=source_fingerprint:raise ValueError('El código cambió durante la construcción; conserva esta carpeta como diagnóstico y crea una copia nueva')
+    assert_no_personal_data(destination)
     manifest={str(p.relative_to(destination)).replace('\\','/'):hashlib.sha256(p.read_bytes()).hexdigest() for p in destination.rglob('*') if p.is_file()}
     (destination/'config/files.sha256.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
     forbidden=('registry.json','app-instance.json','agent-run.json')

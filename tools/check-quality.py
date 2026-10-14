@@ -3,6 +3,7 @@ import argparse
 import ast
 import json
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,8 @@ def check(output):
     output.mkdir(parents=True)
     registry = ROOT / 'data/registry.json'
     before = digest(registry.read_bytes()) if registry.is_file() else None
+    documentation = runpy.run_path(str(ROOT/'tools/check-docs.py'))['check'](ROOT)
+    (output/'documentacion.json').write_text(json.dumps(documentation, ensure_ascii=False, indent=2), encoding='utf-8')
     for path in (ROOT / 'tools').glob('*.py'):
         if 'conflict' not in path.name.lower():
             ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
@@ -43,8 +46,8 @@ def check(output):
             # disappears with the runner. The complete log remains on disk.
             print(log[-18000:], flush=True)
     after = digest(registry.read_bytes()) if registry.is_file() else None
-    report = {'at': now(), 'checks': results, 'registryUnchanged': before == after,
-              'ok': before == after and all(item['ok'] for item in results),
+    report = {'at': now(), 'checks': results, 'documentation': documentation, 'registryUnchanged': before == after,
+              'ok': before == after and documentation['ok'] and all(item['ok'] for item in results),
               'limits': ['Pruebas sintéticas; no acreditan una búsqueda ni un envío real.',
                          'Aceptación humana, otro ordenador y agentes reales pendientes.',
                          'Rendimiento con volumen y accesibilidad fuera del alcance de esta revisión.']}

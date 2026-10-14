@@ -1,4 +1,4 @@
-"""Transactional job-search register. See OPERACION.md for the supported commands."""
+"""Transactional job-search register. See docs/operations.md for the supported commands."""
 import argparse
 import copy
 import json
@@ -16,6 +16,13 @@ from stubbs_jobs_core import ROOT, DATA, STORE, WORKBOOK, now, digest, lock, ato
 from state_support import instant
 
 CONDITIONS={'Remoto España':'Remoto España','Indefinido':'Indefinido','Viajes ≤1/mes':'Viajes','Fijo ≥32 k€':'Fijo ≥32 k€'}
+# Neutral names for agents and any country. Stored keys keep the first edition's
+# names so existing registries, Excel views and retained batches remain valid.
+CONDITION_ALIASES={'Cumple modalidad':'Remoto España','Cumple contrato':'Indefinido','Cumple viajes':'Viajes ≤1/mes','Cumple salario mínimo':'Fijo ≥32 k€'}
+NEUTRAL_CONDITIONS={**{stored:neutral for neutral,stored in CONDITION_ALIASES.items()},'Viajes':'Cumple viajes'}
+
+def condition_key(name):
+    return CONDITION_ALIASES.get(name,name) if isinstance(name,str) else name
 STATES={'Investigar','Preparar','Lista para revisión','Pendiente de Usuario','Pendiente de empresa','Enviada','Entrevista','Oferta','Rechazada','Descartada','Cerrada'}
 STATES.update(('Pendiente de ti','Lograda'))
 EVENTS={'ready','sent','response','interview','offer','rejected','closed','work','note'}
@@ -232,7 +239,7 @@ def _apply_batch(data,batch):
             if not op.get('reason'): raise ValueError('Falta motivo')
             row['Estado']=op['state']; row['Motivo / comprobación']=op['reason']
         elif kind=='evidence':
-            row=get_op(data,op['id']); key=op['condition']; state=op['state']
+            row=get_op(data,op['id']); key=condition_key(op['condition']); state=op['state']
             if key not in CONDITIONS or state not in ('Sí','No','Pendiente','Contradicción'): raise ValueError('Condición inválida')
             if not op.get('proof') or not op.get('url') or not op.get('at'): raise ValueError('Evidencia incompleta')
             observed=instant(op.get('at'))
@@ -366,6 +373,8 @@ def _apply_batch(data,batch):
     return True
 
 def validate(data):
+    import cv_retirement
+    cv_retirement.validate(data)
     if 'searchProfiles' in data.get('app',{}):
         from search_profiles import validate_model
         validate_model(data)
@@ -476,7 +485,7 @@ def metrics(data):
     """Basic outcomes per process; no automatic comparisons of CV variants."""
     sent={e['opportunityId'] for e in data['events'] if e['type']=='sent'}
     response={e['opportunityId'] for e in data['events'] if e['type'] in ('response','interview','offer')}
-    interview={e['opportunityId'] for e in data['events'] if e['type'] in ('interview','offer')}
+    interview={e['opportunityId'] for e in data['events'] if e['type']=='interview'}
     offer={e['opportunityId'] for e in data['events'] if e['type']=='offer'}
     return {'sent':len(sent),'responses':len(sent & response),'interviews':len(sent & interview),'offers':len(sent & offer)}
 
@@ -595,6 +604,9 @@ def main():
     ap.add_argument('--search-profile',help='Perfil de agent-status o de una búsqueda autorizada con plan; no cambia el predeterminado')
     ap.add_argument('--history',action='store_true');ap.add_argument('--limit',type=int,default=20)
     ap.add_argument('--since',help='Versión de la consulta anterior')
+    ap.add_argument('--offers',choices=['open','all','closed'],default='open',help='Ofertas listadas por agent-status: abiertas (predeterminado), todas o cerradas')
+    ap.add_argument('--page',type=int,default=1,help='Página del listado general de agent-status')
+    ap.add_argument('--page-size',type=int,default=20,help='Ofertas por página en agent-status (1-100)')
     args=ap.parse_args()
     if args.search_profile and args.command not in ('agent-status','plan'):
         raise ValueError('--search-profile corresponde a agent-status o plan; el captador utiliza --request')
@@ -604,7 +616,8 @@ def main():
     if args.command=='agent-status':
         from agent_context import view as agent_view
         print(json.dumps(agent_view(read_store(),case=args.case,request_id=args.request,
-                                    history=args.history,limit=args.limit,since=args.since,profile_detail=args.profile,search_profile_id=args.search_profile),ensure_ascii=False))
+                                    history=args.history,limit=args.limit,since=args.since,profile_detail=args.profile,search_profile_id=args.search_profile,
+                                    offers=args.offers,page=args.page,page_size=args.page_size),ensure_ascii=False))
         return
     if args.command=='doctor':
         result=doctor(ROOT);print(json.dumps(result,ensure_ascii=False));return
@@ -703,6 +716,8 @@ def import_cv(data,name,content,actor='Usuario'):
         if not 1<=len(pdf)<=50:raise ValueError('El PDF debe tener entre 1 y 50 páginas')
     finally:pdf.close()
     key=digest(content);relative='outputs/cv/'+key+'.pdf'
+    from cv_retirement import retired
+    if retired(data,key):raise ValueError('Este CV está retirado. Recuperarlo requiere una decisión explícita; añadirlo otra vez no lo activa.')
     library=data.setdefault('app',{}).setdefault('cvLibrary',[])
     registered=next((item for item in library if item['id']==key),None)
     if registered:

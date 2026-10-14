@@ -12,14 +12,20 @@ from pathlib import Path, PurePosixPath
 from stubbs_jobs_core import atomic_bytes, digest, lock, now, parse_json, read_store
 from cv_usage import legacy_paths
 
-DOCUMENTS = ('perfil.md', 'estrategia.md', 'fuentes-y-empresas.md', 'portales-y-cuentas.md', 'respuestas-candidaturas.md')
+LEGACY_DOCUMENTS = ('perfil.md', 'estrategia.md', 'fuentes-y-empresas.md', 'portales-y-cuentas.md', 'respuestas-candidaturas.md', 'experimentos-busqueda.md')
+DOCUMENTS = (*LEGACY_DOCUMENTS, 'private/profile.md', 'private/search-strategy.md',
+             'private/sources-and-companies.md', 'private/portal-accounts.md',
+             'private/application-answers.md', 'private/search-experiments.md')
 ARCHIVES = ('packages', 'package-recovery', 'package-staging', 'snapshots', 'migration', 'workbook-backups')
 MAX_FILES = 20000
 MAX_BYTES = 1_000_000_000
 
 
 def personal_document(name):
-    return name in DOCUMENTS or any(name.startswith(Path(original).stem + ' [conflicted') and name.endswith('.md') for original in DOCUMENTS)
+    path = PurePosixPath(name)
+    return name in DOCUMENTS or any(path.parent == PurePosixPath(original).parent and
+            path.name.startswith(PurePosixPath(original).stem + ' [conflicted') and path.suffix == '.md'
+            for original in DOCUMENTS)
 
 
 def safe_name(name):
@@ -43,6 +49,8 @@ def source_file(root, relative):
 
 def references(data):
     files = {entry['path'] for entry in data.get('app', {}).get('cvLibrary', [])}
+    files.update(document['path'] for retirement in data.get('app', {}).get('retiredCVs', {}).values()
+                 for document in retirement['documents'])
     for row in data['sheets']['Oportunidades']:
         files.update(row[field] for field in ('CV preparado', 'CV usado') if row.get(field))
     for record in [*data.get('events', []), *data.get('historicalApplications', [])]:
@@ -63,7 +71,9 @@ def create(root):
         data = read_store(root / 'data/registry.json')
         files = {'data/registry.json', *references(data)}
         files.update(path.relative_to(root).as_posix() for path in legacy_paths(data, root))
-        files.update(path.name for path in root.glob('*.md') if path.is_file() and personal_document(path.name))
+        for folder in (root, root/'private'):
+            files.update(path.relative_to(root).as_posix() for path in folder.glob('*.md')
+                         if path.is_file() and personal_document(path.relative_to(root).as_posix()))
         files.update('config/' + name for name in ('sources.json', 'release.json') if (root / 'config' / name).is_file())
         for folder in ARCHIVES:
             base = root / 'data' / folder
@@ -154,7 +164,9 @@ def restore(root, archive_path, destination):
     destination.mkdir(parents=True)
     result = None
     try:
-        for folder in ('app', 'config'):
+        for folder in ('app', 'config', 'docs'):
+            if folder == 'docs' and not (root / folder).is_dir():
+                continue  # Older installations did not have a docs/ directory.
             shutil.copytree(root / folder, destination / folder, ignore=shutil.ignore_patterns('*conflict*', '__pycache__'))
         (destination / 'tools').mkdir()
         for path in (root / 'tools').glob('*'):
