@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 MODULES=('stubbs_jobs.py','stubbs_jobs_core.py','stubbs_jobs_app.py','window_icon.py','cv_usage.py','app_workflow.py','app_context.py','assistant_flow.py','agent_runner.py','agent_context.py','source_reviews.py','personalization.py','onboarding.py','profile_interview.py','runtime.py','maintenance.py','backup.py','request_workflow.py','offer_quality.py','view_cache.py','state_support.py','scan_boards.py','export-tracker.mjs')
 MODULES+=('offer_actions.py','offer_minimums.py','application_lifecycle.py','search_profiles.py','criteria_preview.py')
-MODULES+=('cv_retirement.py','user_submission.py','build_cv.py')
+MODULES+=('cv_retirement.py','user_submission.py','build_cv.py','pending_entries.py')
 APP_FILES=('index.html','app.js','icons.js','client.js','formatting.js','activity.js','workflow.js','recovery.js','explanations.js','presentation.js','drafts.js','setup.js','theme.js','release.js','redesign.css','criteria.js')
 APP_ASSETS=('stubbs.png','stubbs.ico')
 DOCUMENTS=('AGENTS.md','README.en.md','README.es.md','CHANGELOG.md','LICENSE',
