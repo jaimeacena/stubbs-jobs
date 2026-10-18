@@ -13,7 +13,7 @@ def offer_requirements(row):
 
 # Settings that belong to one search round. Languages, companies to avoid and
 # notice period describe the person and always follow their current value.
-ROUND_CONTEXT=('targetRoles','keywords','searchPriorities','regions','workMode','onsiteLocations','currency','searchNotes')
+ROUND_CONTEXT=('targetRoles','keywords','searchPriorities','requiredSchedule','regions','workMode','onsiteLocations','currency','searchNotes')
 
 def round_snapshot(data,op_id):
     """Criteria of the search that found the offer, unless the person moved it to the current ones."""
@@ -43,7 +43,7 @@ def scoped_search(data,op_id):
 def application_context(data,search=None):
     from personalization import context
     return {key:value for key,value in (context(data) if search is None else search).items() if key not in ('sourceUrls','platforms','checkMail')
-            and (key not in ('workMode','searchPriorities','onsiteLocations','searchNotes') or value)}
+            and (key not in ('workMode','searchPriorities','onsiteLocations','searchNotes','requiredSchedule') or value not in ('','none'))}
 
 @view_cache.cached(lambda data:id(data))
 def experience(data):

@@ -19,6 +19,7 @@
     const fact=item.activity||{},value=String(item.title||'');
     if(fact.kind==='followup')return followupTitles[fact.outcome]||'Estado comprobado';
     if(fact.kind==='availability')return availabilityTitles[fact.outcome]||'Anuncio comprobado';
+    if(fact.type==='sent'&&fact.reportedBy==='user')return fact.retracted?'Envío registrado por ti · deshecho':'Solicitud enviada por ti';
     if(/^(Envío confirmado|Solicitud enviada)$/.test(value))return 'Solicitud enviada';
     if(value==='Investigación solicitada')return 'Comprobación pedida';
     if(value==='Revisión solicitada')return 'Preparación pedida';
@@ -81,6 +82,18 @@
       sent.some(h=>h.opportunityId===item.opportunityId&&packageId(h)===packageId(item)&&
         Dates.tableTimestamp(h.at)!==null&&Dates.tableTimestamp(item.at)!==null&&Dates.tableTimestamp(h.at)>=Dates.tableTimestamp(item.at));
     return rows.filter(item=>relevant(item)&&!superseded(item)).reverse().slice(0,limit);
+  }
+  // The offer's timeline keeps only the milestones a person follows: found, chosen,
+  // ready, sent and the company's answer. Everything else stays under «Ver todo».
+  function milestone(item){
+    const fact=item.activity||{};
+    if(fact.kind==='followup')return ['reviewing','rejected','closed'].includes(fact.outcome);
+    if(fact.kind==='availability')return fact.outcome==='closed';
+    if(fact.kind==='event')return true;
+    return /^(?:Oferta (seleccionada|recibida|descartada|retirada)|Envío confirmado|Solicitud (enviada|lista|lograda)|Paquete listo|Respuesta|Entrevista|Proceso cerrado|Candidatura rechazada|Rechazo registrado por ti|Seguimiento cerrado|Autorización retirada)\b/.test(item.title||'');
+  }
+  function milestones(items,model,limit=4){
+    return recent(items,model,Infinity).filter(milestone).slice(0,limit);
   }
   function details(item,model){
     const fact=item.activity||{},job=(model.opportunities||[]).find(j=>j.id===item.opportunityId);
@@ -238,17 +251,6 @@
       return group;
     });
   }
-  function statistics(model){
-    const recorded=new Set((model.opportunities||[]).map(job=>job.canonicalKey||'current:'+job.id));
-    for(const job of model.historical||[])if(job.category!=='No laboral')recorded.add(job.canonicalKey||'historical:'+job.id);
-    const metric=key=>Number.isSafeInteger(model.metrics?.[key])&&model.metrics[key]>=0?model.metrics[key]:null;
-    return [
-      {key:'registered',label:'Ofertas registradas',value:recorded.size,note:'Todo tu historial de ofertas',icon:'search'},
-      {key:'sent',label:'Solicitudes enviadas',value:metric('sent'),note:'Envíos confirmados en la app',icon:'send'},
-      {key:'interviews',label:'Candidaturas con entrevista',value:metric('interviews'),note:'Procesos con envío registrado',icon:'clock'},
-      {key:'offers',label:'Puestos ofrecidos',value:metric('offers'),note:'Ofertas del puesto recibidas',icon:'trophy'}
-    ];
-  }
-  const api={coverage,chronological,newest,searchModel,searchTitle,completions,matchesCompletion,outcomes,entries,days,work,title,caseHistory,grouped,relevant,recent,details,dailyGroups,statistics};
+  const api={milestone,milestones,coverage,chronological,newest,searchModel,searchTitle,completions,matchesCompletion,outcomes,entries,days,work,title,caseHistory,grouped,relevant,recent,details,dailyGroups};
   if(typeof module!=='undefined')module.exports=api;else window.StubbsJobsActivity=api;
 })();

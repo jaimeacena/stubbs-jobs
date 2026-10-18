@@ -65,27 +65,34 @@ function conditionValue(key,value,details){
  const missing=['Sin concretar','Sin desglosar','—'].includes(value);
  return [missing?'':value,...unique].filter(Boolean).join('; ');
 }
+// Ofertas shows the work that belongs to no single offer (searches, profile tasks)
+// and agent failures. Each offer's own stops appear in that offer, under Por atender.
 function work(model,{getJob,esc,date,conciseText}){
- const work=Workflow.work(model);
- // Routine agent-owned blockers remain in the stored task and offer details.
- // Keep help requests and uncertain effects visible without a separate routine warning.
- const blocked=work.blocked.filter(request=>request.actionOwner!=='agent'||Workflow.task(request).delivery||request.status==='interrupted');
- if(!work.busy&&!blocked.length&&!work.failure)return '';
+ const work=Workflow.work(model),general=request=>!request.opportunityId;
+ // Help requests and uncertain effects come first. Stops the agent cannot resolve
+ // alone follow, each with a way out: another attempt or cancelling the task.
+ const stopped=request=>request.actionOwner==='agent'&&!Workflow.task(request).delivery&&request.status!=='interrupted';
+ const blocked=[...work.blocked.filter(request=>general(request)&&!stopped(request)),...work.blocked.filter(request=>general(request)&&stopped(request))];
+ const unconfirmedRows=work.unconfirmed.filter(general);
+ if(!blocked.length&&!unconfirmedRows.length&&!work.failure)return '';
+ const profileName=request=>[...(model.searchProfiles||[]),...(model.deletedSearchProfiles||[])].find(p=>p.id===request.searchProfileId)?.name||request.round?.searchProfileName||'';
  const company=request=>request.opportunityId?getJob(request.opportunityId)?.company:'';
- const task=request=>[Workflow.names[request.type]||'Trabajo guardado',company(request)].filter(Boolean).join(' · ');
- const waiting=work.queued.length?`${work.queued.length} ${work.queued.length===1?'tarea pendiente de iniciar':'tareas pendientes de iniciar'}`:'';
- const running=work.running[0],unconfirmed=work.unconfirmed.length&&work.unconfirmed.length===work.running.length;
- const ongoing={discovery:'Buscando ofertas',review:'Revisando solicitud',investigate:'Comprobando oferta',change:'Aplicando tus cambios',send:'Enviando solicitud'};
- const title=unconfirmed?'Actividad pendiente de confirmar':work.starting?'El agente se está iniciando':work.busy?running?[ongoing[running.type]||'El agente está trabajando',company(running)].filter(Boolean).join(' · '):'El agente está trabajando':blocked.length||work.failure?blocked.some(r=>r.actionOwner==='user')?blocked.some(r=>r.actionOwner==='agent')?'Acciones pendientes':'Necesita tu ayuda':'Comprobaciones pendientes del agente':waiting;
- const at=running&&Workflow.taskAt(running)||model.execution?.updatedAt;
- const detail=unconfirmed?'Vuelve al chat del agente para comprobar el último paso.':work.busy?[at?'Último registro: '+date(at):'',waiting].filter(Boolean).join(' · '):blocked.length?waiting:work.failure?[model.execution.message,waiting].filter(Boolean).join(' · '):'Guardado para el agente. Para iniciar este trabajo, pídele que continúe en su chat.';
- const rows=[...blocked,...work.unconfirmed].map(request=>{
+ const task=request=>request.type==='discovery'?['Búsqueda',profileName(request)?'«'+profileName(request)+'»':''].filter(Boolean).join(' '):[Workflow.names[request.type]||'Tarea',company(request)].filter(Boolean).join(' · ');
+ // One line per task saying what happened; the agent's explanation stays folded.
+ const line=(request,state)=>state.delivery?'envío sin confirmar':state.stale?'sin confirmar si sigue en curso':stopped(request)?'se detuvo':request.actionOwner==='user'?'necesita tu ayuda':'detenida';
+ const folded=(summary,text,lastAt)=>`<details class="activity-work-detail"><summary>${summary}<span class="activity-work-more">Ver detalle</span></summary>${text?`<p>${esc(conciseText(text,240))}</p>`:''}${lastAt?`<small>Último registro: ${date(lastAt)}</small>`:''}${!text&&!lastAt?'<p>Resuélvelo en el chat del agente.</p>':''}</details>`;
+ const rows=[...blocked,...unconfirmedRows].map(request=>{
   const state=Workflow.task(request),action=state.delivery||state.stale?`data-copy-recovery="${esc(request.id)}"`:request.opportunityId?`data-job="${esc(request.opportunityId)}"`:'';
   const label=state.deliveryRecheckRequired?'Copiar petición para comprobar de nuevo':state.deliveryChecked?'Copiar petición para continuar':state.delivery?'Copiar petición de comprobación':state.stale?'Copiar petición para retomar':request.opportunityId?'Ver oferta':'Ver qué falta';
-  return `<li><div><strong>${esc(task(request))}</strong>${request.actionOwner?`<small>${request.actionOwner==='user'?'Necesita una acción tuya':'Pendiente del agente'}</small>`:''}<p>${esc(conciseText(state.detail,240))}</p>${state.lastAt?`<small>Último registro: ${date(state.lastAt)}</small>`:''}${!action?'<p class="helper">Resuélvelo en el chat del agente.</p>':''}</div>${action?`<button class="link-button" ${action}>${label} ${icon('arrow-right')}</button>`:''}</li>`;
+  // Without an offer (a search), the task itself offers the way out.
+  const retry=!state.delivery&&!state.stale&&state.canRetry&&request.type!=='send'&&(stopped(request)||!request.opportunityId)?`<button class="link-button" data-retry="${esc(request.id)}">${request.need==='access'?'Ya he completado el acceso':'Pedir otro intento'}</button>`:'';
+  const cancel=!request.opportunityId&&state.canCancel?`<button class="link-button" data-cancel="${esc(request.id)}">Cancelar ${request.type==='discovery'?'búsqueda':'tarea'}</button>`:'';
+  const buttons=[retry,action?`<button class="link-button" ${action}>${label} ${icon('arrow-right')}</button>`:'',cancel].filter(Boolean).join('');
+  return `<li>${folded(`<strong>${esc(task(request))}</strong> <span>${esc(line(request,state))}</span>`,state.detail,state.lastAt)}${buttons?`<div class="activity-work-actions">${buttons}</div>`:''}</li>`;
  }).join('');
- const button=work.failure?'<p class="helper">Vuelve al chat del agente para revisar este problema.</p>':'';
- return `<section class="activity-work" data-state="${unconfirmed?'unconfirmed':work.busy?'running':'blocked'}" aria-label="Trabajo pendiente"><div class="activity-work-heading"><div><h2>${esc(title)}</h2>${detail?`<p>${esc(detail)}</p>`:''}</div>${button}</div>${rows?`<ul class="activity-work-blockers">${rows}</ul>`:''}</section>`;
+ const unconfirmed=unconfirmedRows.length&&!blocked.length;
+ const failure=!rows&&work.failure?`<li>${folded('<strong>El agente se detuvo</strong>',[work.failure.message,'Vuelve al chat del agente para revisarlo.'].filter(Boolean).join(' '),null)}</li>`:'';
+ return `<section class="activity-work" data-state="${unconfirmed?'unconfirmed':'blocked'}" aria-label="Tareas del agente sin oferta"><ul class="activity-work-blockers">${rows||failure}</ul></section>`;
 }
 function assessmentSummary(job){
  // Legacy copy can contain routine context. Remove only complete, known repetitions;
@@ -104,20 +111,22 @@ function assessmentSummary(job){
   return text;
  }).join(' ');
 }
-function assessment(job,{esc}){
+function assessment(job,{esc,basis=''}){
  if(job.archivedAt||job.archiveOutcome==='achieved'||['Cerrada','Rechazada','Descartada','Lograda','Oferta'].includes(job.state))return '';
  const assessment=job.assessment;
  if(!assessment)return '';
- if(!assessment.isCurrent)return '<section class="case-section offer-assessment"><h2>Encaje contigo</h2><p>Esta valoración necesita actualizarse porque han cambiado la oferta, tus preferencias o tu experiencia.</p></section>';
+ const basisLine=basis?`<p class="helper offer-criteria-basis">${esc(basis)}</p>`:'';
+ if(!assessment.isCurrent)return `<section class="case-section offer-assessment"><h2>Encaje contigo</h2><p>Valoración pendiente de actualizar: desde entonces cambió la oferta o tu perfil.</p>${basisLine}</section>`;
  const summary=assessmentSummary(job);
  if(!summary)return '';
  const urls=[...new Set(sourceDetails(job).references.map(reference=>reference.url).filter(url=>/^https?:\/\//i.test(url||'')))];
- const sources=urls.map((url,index)=>`<a href="${esc(url)}" target="_blank" rel="noopener"${index?` aria-label="Fuente consultada ${index+1}"`:''}>${index?`fuente ${index+1}`:'Fuentes consultadas'}</a>`).join(', ');
+ // One line: when it was checked, where, and with which search profile.
+ const link=(url,label,aria='')=>`<a href="${esc(url)}" target="_blank" rel="noopener"${aria?` aria-label="${aria}"`:''}>${label}</a>`;
+ const sources=urls.length===1?link(urls[0],'Ver fuente'):urls.length?'Fuentes: '+urls.map((url,index)=>link(url,index+1,'Fuente '+(index+1))).join(', '):'';
  const at=assessment.observedAt||assessment.at;
- const stamp=at&&!Number.isNaN(Date.parse(at))?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short'}).format(new Date(at)):'';
- const consulted=sources||(assessment.observedAt?'Fuentes consultadas':'');
- const stampText=stamp?assessment.observedAt?`${consulted?': ':''}${esc(stamp)}`:`${consulted?' · ':''}Valoración registrada: ${esc(stamp)}`:'';
- return `<section class="case-section offer-assessment"><h2>Encaje contigo</h2><p>${esc(summary)}</p>${consulted||stamp?`<p class="helper">${consulted}${stampText}</p>`:''}${assessment.fresh===false?'<p class="helper">Consulta antigua: el agente debe comprobar de nuevo la disponibilidad antes de solicitar.</p>':''}</section>`;
+ const stamp=at&&!Number.isNaN(Date.parse(at))?new Intl.DateTimeFormat('es-ES',{dateStyle:'medium'}).format(new Date(at)):'';
+ const line=[stamp?esc((assessment.observedAt?'Comprobado el ':'Valorado el ')+stamp):'',sources,esc(basis)].filter(Boolean).join(' · ');
+ return `<section class="case-section offer-assessment"><h2>Encaje contigo</h2><p>${esc(summary)}</p>${line?`<p class="helper offer-criteria-basis">${line}</p>`:''}${assessment.fresh===false?'<p class="helper">Comprobación antigua: el agente volverá a mirar si la oferta sigue abierta antes de solicitar.</p>':''}</section>`;
 }
 function recovery(model,backupResult,{esc,pendingDrafts=[]}){
  const warning=pendingDrafts.length?`<div class="notice" role="status"><p>Hay borradores sin guardar. No se incluirán en la copia y permanecerán en este navegador. Puedes revisarlos y guardarlos primero:</p><ul>${pendingDrafts.map(draft=>`<li>${draft.page?`<button class="link-button" data-backup-draft="${esc(draft.key)}">${esc(draft.label)}</button>`:draft.content?`<details><summary>${esc(draft.label)}</summary><dl>${draft.content.map(([label,value])=>`<div><dt>${esc(label)}</dt><dd class="note-text">${esc(value)}</dd></div>`).join('')}</dl><p>Puedes copiar estos datos y revisarlos con tu agente antes de incorporarlos a Mi perfil. Copiar no los guarda.</p><button class="link-button" data-copy-backup-draft="${esc(draft.key)}">Copiar datos del borrador</button></details>`:esc(draft.label)}</li>`).join('')}</ul></div>`:'';

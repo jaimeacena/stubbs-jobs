@@ -31,7 +31,8 @@ def plan(data,search_profile_id=None):
         if not slots: break
         choice = w.selection(data,key)
         if not choice or not choice.get('selected'): continue
-        if row['Estado'] in (*w.CLOSED, 'Entrevista', 'Oferta') or row.get('Prioridad') not in ('A', 'B'): continue
+        # The person's choice decides; priority only orders the available slots.
+        if row['Estado'] in (*w.CLOSED, 'Entrevista', 'Oferta'): continue
         if any(e['opportunityId'] == key and e['type'] == 'sent' for e in data['events']): continue
         if any(r.get('opportunityId') == key for r in pending): continue
         if j.conditions(data, row)[0] == 'No': continue

@@ -2,6 +2,7 @@
 // Shared decisions for the list, detail and inbox. No DOM or stored mutations.
 (() => {
   const Workflow=typeof module!=='undefined'?require('./workflow.js'):window.StubbsJobsWorkflow;
+  const Dates=typeof module!=='undefined'?require('./formatting.js'):window.StubbsJobsFormatting;
   const active = job => !job.archivedAt&&job.archiveOutcome!=='achieved'&&!['Cerrada','Descartada','Rechazada','Oferta','Lograda'].includes(job.state);
   const conciseAnswerLabels={
     'Nombre para el formulario':'Nombre','Apellidos para el formulario':'Apellidos',
@@ -33,10 +34,18 @@
   function nextAction(job){
     if(job.sent)return '';
     const sending=(job.requests||[]).some(r=>r.type==='send'&&r.status==='running');
-    if(sending)return approved(job)?'El agente tiene un envío iniciado. Puedes retirar el permiso; después deberá comprobar su resultado.':'Permiso retirado. Pide al agente que detenga el paso en curso y compruebe si llegó a enviarse.';
-    if((job.requests||[]).some(r=>r.type==='send'&&r.status==='queued')&&approved(job))return 'Envío autorizado para esta versión. El envío aún no está confirmado. Pide «Continúa con Stubbs Jobs» en el chat del agente para iniciarlo.';
-    if(job.selection?.selected&&(job.requests||[]).some(r=>r.status==='queued'))return (job.selection.mode==='auto'?'Permites enviar esta oferta tras revisar el paquete exacto. ':'Tendrás que aprobar el paquete final antes del envío. ')+'La tarea está guardada. Pide «Continúa con Stubbs Jobs» en el chat del agente para iniciarla.';
-    if(canChoose(job))return 'Con revisión: apruebas el paquete final. Automática: permites enviar esta oferta tras las comprobaciones. Después de elegir, continúa en el chat del agente.';
+    if(sending)return approved(job)?'El agente está enviando la solicitud. Si retiras el permiso, tendrá que comprobar si llegó a enviarse.':'Permiso retirado. En el chat del agente, pídele que pare y compruebe si llegó a enviarse.';
+    if((job.requests||[]).some(r=>r.type==='send'&&r.status==='queued')&&approved(job))return 'Envío autorizado, aún no enviado. Pide «Continúa con Stubbs Jobs» en el chat del agente para enviarla.';
+    if(job.selection?.selected&&(job.requests||[]).some(r=>r.status==='queued'))return (job.selection.mode==='auto'?'El agente la enviará cuando la tenga lista. ':'Revisarás la solicitud antes de que se envíe. ')+'Pide «Continúa con Stubbs Jobs» en el chat del agente para empezar.';
+    if(canChoose(job))return 'Con revisión, apruebas la solicitud antes de enviarla. Con auto-solicitud, el agente la envía sin esperar tu aprobación.';
+    return '';
+  }
+  // Says where the next step happens when it is outside the app.
+  function actionPlace(job,current=step(job)){
+    if(job.sent||job.historical)return '';
+    if(current.action==='recovery')return 'Pega la petición copiada en el chat del agente.';
+    if(current.retryRequestId&&current.action==='resolve')return 'Complétalo en la ventana del navegador que usa el agente. Después pulsa el botón y pide «Continúa con Stubbs Jobs» en su chat.';
+    if(current.retryRequestId)return 'Después, el agente lo intentará de nuevo cuando le pidas «Continúa con Stubbs Jobs» en su chat.';
     return '';
   }
   const approved = job => job.packages.some(p => p.isCurrent && p.approvedAt && !p.revokedAt);
@@ -86,6 +95,23 @@
       return stateByKey.preparacion;
     }
     return stateByKey['sin-elegir'];
+  }
+  // Resumen shows four totals: every application sent and how those ended.
+  // Closed, rejected and achieved reuse the Ofertas states, names and colours.
+  const outcomeKeys=['seguimiento','cerradas','rechazadas','logradas'];
+  function stateCounts(jobs,at=Date.now()){
+    const counts={enviadas:0,cerradas:0,rechazadas:0,logradas:0};
+    for(const job of jobs){
+      const key=offerState(job,at).key;
+      if(job.sent||outcomeKeys.includes(key))counts.enviadas++;
+      if(key in counts)counts[key]++;
+    }
+    return [
+      {key:'enviadas',state:'seguimiento',filter:'todas',label:'Enviadas',icon:'send',note:'Solicitudes enviadas en total'},
+      {...stateByKey.cerradas,state:'cerradas',filter:'cerradas',label:'Cerradas',note:'Procesos terminados sin respuesta final'},
+      {...stateByKey.rechazadas,state:'rechazadas',filter:'rechazadas',label:'Rechazadas',note:'La empresa no siguió adelante'},
+      {...stateByKey.logradas,state:'logradas',filter:'logradas',label:'Logradas',note:'Te han ofrecido el puesto'}
+    ].map(stat=>({...stat,value:counts[stat.key]}));
   }
   function canChoose(job) {
     if (flowStage(job)!=='elegir' || !['Sí','Sí, aclarar'].includes(job.apply)) return false;
@@ -139,12 +165,17 @@
     if(!job.selection?.selected && job.apply==='No')return {...s,detail:'La oferta no cumple una condición de tu búsqueda. Abre la ficha para ver qué se comprobó.',cta:'Ver motivo',action:'open'};
     if(['Entrevista','Oferta'].includes(job.state))return {...s,detail:job.next||'Consulta el siguiente paso',cta:'Ver siguiente paso',action:'open'};
     if(job.questions.length&&!job.sent)return {...s,detail:job.questions.map(q=>q.label).join(' · '),cta:'Responder',action:'answers'};
-    if(s.warning&&r?.actionOwner==='agent')return {...s,owner:'agent',detail:r.summary||'El agente debe comprobar lo pendiente.',cta:'Ver ficha',action:'open'};
-    if(s.warning)return {...s,owner:'you',detail:r?.summary||job.next||'El agente necesita un dato o acceso para continuar.',cta:({contact:'Aclarar contacto',access:'Aclarar acceso',answers:'Aportar respuesta',decision:'Aclarar decisión',other:'Ver qué falta'})[r?.need]||'Ver qué falta',action:'resolve'};
-    if(s.blockedPending)return {...s,detail:(job.requests.some(r=>r.type==='change'&&r.status==='running')?'La IA está comprobando tu aclaración.':'Tu aclaración está en cola para la IA.')+' El bloqueo sigue vigente hasta que se compruebe.',cta:null};
-    if(s.pendingChange)return {...s,detail:'El agente debe comprobar los cambios del perfil o de esta solicitud antes de autorizar el envío.',cta:null};
-    if(!job.sent&&!job.missing.length&&!approved(job)&&s.owner==='you')return {...s,detail:'Solicitud revisada. Falta tu permiso de envío.',cta:'Revisar solicitud',action:'review'};
-    return {...s,detail:job.sent?'Envío confirmado. Esperando novedades.':s.label==='Cambios recibidos'?'Tu petición está guardada para la IA.':s.label==='Revisando tus cambios'?'La IA está atendiendo tu petición.':s.label==='Preparando'?'La IA está comprobando los documentos y la oferta.':approved(job)?'La IA tiene permiso para enviar esta solicitud. El envío aún no está confirmado.':s.label==='Tarea en cola'?'El agente aún no ha comenzado esta tarea.':job.selection?.selected?job.selection.mode==='auto'?'Has seleccionado esta oferta. La IA preparará la solicitud y podrá continuar con su envío tras comprobarla.':'Has seleccionado esta oferta. La IA preparará la solicitud.':canChoose(job)?'Puedes seleccionar esta oferta para que la IA prepare la solicitud.':'El agente debe comprobar las condiciones de esta oferta.',cta:null};
+    // The agent cannot continue alone: the person may ask for another attempt (or discard the offer in Más acciones).
+    if(s.warning&&r?.actionOwner==='agent')return {...s,owner:'agent',detail:r.summary||'El agente no pudo continuar.',cta:'Ver ficha',action:'open',
+      retryRequestId:r.type!=='send'&&Workflow.task(r).canRetry?r.id:null};
+    // After completing a portal step in the browser (login, CAPTCHA), the person can put the
+    // same task back in the queue; the agent still checks the portal before repeating anything.
+    if(s.warning)return {...s,owner:'you',detail:r?.summary||job.next||'El agente necesita un dato o un acceso para continuar.',cta:({contact:'Indicar contacto',access:'Explicar el acceso',answers:'Responder',decision:'Decidir',other:'Responder al agente'})[r?.need]||'Responder al agente',action:'resolve',
+      retryRequestId:r&&r.type!=='send'&&r.need==='access'&&Workflow.task(r).canRetry?r.id:null};
+    if(s.blockedPending)return {...s,detail:job.requests.some(r=>r.type==='change'&&r.status==='running')?'El agente está revisando tu aclaración.':'Tu aclaración está guardada. Pide «Continúa con Stubbs Jobs» en el chat del agente para que la revise.',cta:null};
+    if(s.pendingChange)return {...s,detail:'Cambiaron tu perfil o esta solicitud. El agente debe revisarlos antes de que autorices el envío.',cta:null};
+    if(!job.sent&&!job.missing.length&&!approved(job)&&s.owner==='you')return {...s,detail:'La solicitud está lista. Revísala y autoriza el envío.',cta:'Revisar solicitud',action:'review'};
+    return {...s,detail:job.sent?(job.sent.reportedBy==='user'?'Enviada por ti. Esperando novedades.':'Envío confirmado. Esperando novedades.'):s.label==='Cambios recibidos'?'Tu petición está guardada. Pide «Continúa con Stubbs Jobs» en el chat del agente.':s.label==='Revisando tus cambios'?'El agente está atendiendo tu petición.':s.label==='Preparando'?'El agente está preparando la solicitud.':approved(job)?'Envío autorizado. El agente aún no lo ha confirmado.':s.label==='Tarea en cola'?'Tarea guardada. Pide «Continúa con Stubbs Jobs» en el chat del agente.':job.selection?.selected?job.selection.mode==='auto'?'El agente preparará la solicitud y la enviará cuando esté lista.':'El agente preparará la solicitud para que la revises.':canChoose(job)?'Puedes solicitarla: el agente preparará la solicitud.':'El agente debe comprobar las condiciones de esta oferta.',cta:null};
   }
   function rank(job,at=new Date()){
     const s=step(job);
@@ -169,12 +200,12 @@
     if(state.key==='atencion'){
       const request=(job.requests||[]).find(r=>!Workflow.task(r).superseded&&
         (Workflow.task(r).stale||Workflow.task(r).delivery||['blocked','interrupted'].includes(r.status)));
-      if(request)return Workflow.task(request).detail||'Revisa el último paso con el agente para continuar.';
+      if(request)return Workflow.task(request).detail||'Revisa el último paso en el chat del agente.';
       if(job.state==='Enviada'&&!job.sent)return 'No consta una confirmación del envío. El agente debe comprobar qué ocurrió antes de repetir la solicitud.';
       if(['Pendiente de ti','Pendiente de Usuario'].includes(job.state))return job.selection?.selected?
-        'Hay una aclaración pendiente. Revísala con el agente para continuar la solicitud.':
-        'Antes de elegir esta oferta, revisa su encaje con el agente.';
-      return job.integrityError?'Revisa el problema del documento indicado abajo.':'El agente debe comprobar lo pendiente antes de continuar.';
+        'Hay una duda pendiente. Resuélvela en el chat del agente para seguir con la solicitud.':
+        'Antes de elegirla, revisa el encaje con el agente en su chat.';
+      return job.integrityError?'Hay un problema con un documento: lo verás abajo.':'El agente debe revisar lo pendiente antes de continuar.';
     }
     if(state.key==='seguimiento'){
       if(job.state==='Entrevista')return 'Entrevista: '+(job.next||'consulta el siguiente paso con la empresa.');
@@ -182,24 +213,6 @@
       return job.lifecycle?.label||'Sin respuesta conocida de la empresa.';
     }
     return '';
-  }
-
-  // The agent orders the checked assessment's doubts; this view adds no facts or work.
-  function nextCheck(job){
-    if(!job.assessment?.isCurrent||flowStage(job)!=='elegir'||job.questions?.length||
-      job.apply==='No'||(job.requests||[]).some(request=>!Workflow.task(request).superseded&&
-        (['queued','running','blocked','interrupted'].includes(request.status)||Workflow.task(request).delivery)))return '';
-    return (job.assessment.unknowns||[]).find(text=>typeof text==='string'&&text.trim())?.replace(/\s+/g,' ').trim()||'';
-  }
-  function recommendation(model,at=new Date()){
-    const choices=model.opportunities.filter(job=>nextCheck(job)&&!job.integrityError&&!snoozed(model,job.id,at));
-    if(!choices.length)return null;
-    const work=Workflow.work(model);
-    if(work.busy||work.blocked.length||work.failure||decisions(model,at).length)return null;
-    const urgent=job=>job.externalDeadline&&job.externalDeadline.slice(0,10)<=day(at)?0:1;
-    const priority=job=>({A:0,B:1,C:2})[job.priority]??3;
-    return choices.sort((a,b)=>urgent(a)-urgent(b)||priority(a)-priority(b)||
-      (a.externalDeadline||'9999').localeCompare(b.externalDeadline||'9999')||a.id.localeCompare(b.id))[0]||null;
   }
 
   function inbox(model, at = new Date()) {
@@ -248,7 +261,35 @@
     const checks={sources:{total:model.publicSources?.length||sources.length,ok:sources.filter(h=>h.status==='ok').length,attemptAt:sources.map(h=>h.checkedAtUtc).filter(Boolean).sort().at(-1)||null}};
     return {busy:work.busy,label:work.unconfirmed.length||work.blocked.some(r=>Workflow.task(r).interruptionUnconfirmed)?'Actividad pendiente de confirmar':work.starting?'Iniciando el agente…':running?'El agente está trabajando':pending?'Hay tareas en cola':'Sin trabajo en curso',checks};
   }
-  const api={configure,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,nextCheck,recommendation,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
+  // The person's own send: dialog choices and the writer operation. It records what
+  // she declares, never a portal receipt, and grants no permission or work.
+  function userSentChoices(job,library=[]){
+    const report=job?.selfReport;
+    if(!report?.available||job.sent)return null;
+    const options=[];
+    if(report.packageCv)options.push({value:'package:'+report.packageCv.packageId,label:'CV preparado para esta oferta · '+report.packageCv.name,
+      cv:{source:'package',packageId:report.packageCv.packageId}});
+    for(const cv of library||[])if(cv?.path&&cv.available!==false&&/^[a-f0-9]{64}$/.test(cv.fingerprint||''))
+      options.push({value:'library:'+cv.fingerprint+':'+cv.path,label:'Currículums · '+cv.name,cv:{source:'library',path:cv.path,fingerprint:cv.fingerprint}});
+    const warnings=[];
+    if(report.uncertainAttempts)warnings.push('El agente empezó a enviar esta solicitud y no consta si llegó. Comprueba en el portal que solo figure una solicitud tuya.');
+    if(report.pendingSends)warnings.push('Se cancelará el envío pendiente del agente y se retirará su permiso.');
+    if(report.historical?.length)warnings.push('Ya consta una candidatura anterior a esta vacante. Regístralo solo si es una solicitud nueva.');
+    return {options,warnings,reapplication:!!report.historical?.length,conciliation:report.conciliation};
+  }
+  function userSentOperation(job,choices,values,at=Date.now()){
+    const option=choices?.options.find(item=>item.value===values.cv);
+    if(!option)return {error:'Elige el CV que enviaste.'};
+    const sentAt=Dates.zonedInstant(values.sentAt);
+    if(!sentAt)return {error:'Indica la fecha y hora del envío.'};
+    if(Date.parse(sentAt)>at+5*60000)return {error:'La fecha del envío no puede ser futura.'};
+    if(values.duplicatesChecked!==true)return {error:'Confirma que es tu única solicitud a esta vacante.'};
+    if(choices.reapplication&&values.reapplication!==true)return {error:'Confirma que es una solicitud nueva, distinta de la anterior.'};
+    const note=String(values.note||'').trim();
+    return {operation:{kind:'ui-user-sent',opportunityId:job.id,sentAt,cv:option.cv,...(note?{note}:{}),duplicatesChecked:true,
+      ...(choices.reapplication?{reapplication:true}:{}),expected:choices.conciliation}};
+  }
+  const api={actionPlace,stateCounts,userSentChoices,userSentOperation,configure,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
   if (typeof module!=='undefined') module.exports=api;
   else window.StubbsJobsUI=api;
 })();

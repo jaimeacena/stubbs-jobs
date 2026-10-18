@@ -2,6 +2,7 @@
 import copy
 
 import app_workflow as workflow
+import pending_entries
 from state_support import instant
 from stubbs_jobs_core import ROOT, digest
 
@@ -88,7 +89,7 @@ def knowledge_history(data, case, limit=20):
 
 
 def view(data, case=None, request_id=None, history=False, limit=20, since=None,profile_detail=False,search_profile_id=None,
-         offers='open', page=1, page_size=PAGE_SIZE):
+         offers='open', page=1, page_size=PAGE_SIZE, entries=False):
     from stubbs_jobs_app import state_view
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError('Usa un límite de historial entre 1 y 100')
@@ -107,8 +108,10 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
     detail_case = requested_case if any(row['ID']==requested_case for row in data['sheets']['Oportunidades']) else None
     scoped = bool(case or request_id or profile_detail or search_profile_id)
     state = state_view(data, brief=True, case=detail_case,pure=True)
+    if entries and (case or request_id or profile_detail):
+        raise ValueError('Consulta los anuncios sin revisar por separado de una oferta, encargo o perfil')
     version = digest([state['version'], case, request_id, history, limit,profile_detail,search_profile_id,workflow.execution_id(),
-                      None if scoped else [offers, page, page_size]])
+                      None if scoped else [offers, page, page_size], entries and [page, page_size]])
     if since == version:
         return {'unchanged': True, 'version': version}
     uncertain_ids={r['id'] for r in workflow.unresolved_sends(data)}
@@ -151,13 +154,18 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         attention = set(request_offers)
         attention |= {row['id'] for row in state['opportunities'] if row.get('pendingChange')}
         listed, matching, pages, closed_count = offer_page(state['opportunities'], attention, offers, page, page_size)
+    from personalization import cv_file_name
     for row in listed:
         item = {k: copy.deepcopy(row.get(k)) for k in (
             'id', 'company', 'title', 'state', 'archivedAt', 'archiveReason', 'minimums', 'priority', 'selection', 'apply',
             'missing', 'integrityError', 'pendingChange', 'fingerprint', 'fitFingerprint',
-            'assessmentFingerprint', 'cvFingerprint','notes','lifecycle')}
+            'assessmentFingerprint', 'cvFingerprint','notes','lifecycle',
+            'searchProfileId','searchProfileName','displaySearchProfileId','displaySearchProfileName')}
         item['minimums'] = neutral_minimums(item['minimums'])
         item['sent'] = bool(row.get('sent'))
+        if (row.get('sent') or {}).get('reportedBy') == 'user':
+            # Sent by the person herself: no portal receipt recorded and no agent delivery.
+            item['sentBy'] = 'user'
         current = next((p for p in row['packages'] if p.get('isCurrent')), None)
         item['authorization'] = ({k: current.get(k) for k in
                                   ('id', 'approvedAt', 'revokedAt', 'approvalSource')}
@@ -168,6 +176,8 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         if row.get('assessment', {}) and row['assessment']['isCurrent'] and row['assessment'].get('bestArgument'):
             item['assessment']['bestArgument'] = copy.deepcopy(row['assessment']['bestArgument'])
         item['detailCommand'] = 'agent-status --case '+row['id']
+        # Name for the temporary copy attached to this offer: «CV Nombre - Empresa.pdf».
+        item['cvUploadName'] = cv_file_name(data, row.get('company'))
         if not scoped:
             cut = False
             for key in ('lifecycle', 'notes'):
@@ -177,11 +187,14 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
                 item['abridged'] = True
         opportunities.append(item)
     execution = state['execution']
+    from personalization import cv_file_name
     result = {'schemaVersion': 1, 'version': version, 'revision': state['revision'],
               'updatedAt': state['updatedAt'], 'workspaceId': state['workspaceId'],
               'workspacePath': str(ROOT), 'viewOnly': True,
               'mandate': 'El alcance procede de la petición humana actual; esta consulta no inicia trabajo ni concede permisos.',
               'setupComplete': state['setupComplete'],
+              # Name without company; each offer's cvUploadName adds « - Empresa».
+              'cvUploadName': cv_file_name(data),
               'profile': {k:v for k,v in state['profile'].items() if k!='minimumFixed' or 'searchProfiles' not in data.get('app',{})}, 'preferences': state['preferences'],
               'searchProfiles':[{k:p.get(k) for k in ('id','name','revision','archivedAt')} for p in state['searchProfiles']],
               'deletedSearchProfiles':copy.deepcopy(state.get('deletedSearchProfiles',[])),
@@ -220,7 +233,8 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
                         'generalCommand':'agent-status', 'globalGuardsRetained':True},
               'globalBlocks': [copy.deepcopy(b) for b in data.get('blocks', [])
                                if b.get('status') == 'open' and not b.get('opportunityId')],
-              'sourceConfigurationError': state.get('sourceConfigurationError')}
+              'sourceConfigurationError': state.get('sourceConfigurationError'),
+              'pendingEntries': pending_entries.summary(data)}
     if detail_case:
         import app_context
         result['searchContext']=app_context.scoped_search(data,detail_case)
@@ -239,6 +253,7 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         result['request'] = application_lifecycle.request_view(data,next(r for r in data['app']['requests'] if r['id'] == request_id),workflow)
         if requested.get('type')=='discovery' and requested.get('round'):
             import search_profiles, personalization, app_context
+            result['pendingEntries']=pending_entries.summary(data,requested['round'].get('searchProfileId'))
             effective=search_profiles.discovery_data(data,requested)
             result['searchContext']=personalization.context(effective)
             result['preferences']=app_context.criteria(effective)
@@ -249,6 +264,16 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         import onboarding
         result['searchContext']=state['searchContext']
         result['onboarding']=copy.deepcopy(onboarding.view(data,ROOT))
+    if entries:
+        if search_profile_id:
+            import search_profiles
+            search_profiles.get(data, search_profile_id)
+        listing = pending_entries.page(data, search_profile_id, page, page_size)
+        result['entries'] = listing['entries']
+        result['opportunities'] = []
+        result['scope'] = {**listing['scope'], 'generalCommand': 'agent-status', 'globalGuardsRetained': True}
+        result['pendingEntries'] = pending_entries.summary(data, search_profile_id)
+        return result
     if search_profile_id:
         if case or request_id:raise ValueError('Consulta el perfil por separado de una oferta o encargo')
         import search_profiles, personalization, app_context

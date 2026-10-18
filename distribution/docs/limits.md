@@ -30,7 +30,7 @@ Estas pruebas no acreditan búsquedas o solicitudes reales, resultados laborales
 - No hay servicio en la nube, sincronización entre equipos ni actualizaciones automáticas. Crea una copia comprobada desde Copias de seguridad; docs/backup-and-recovery.md explica la actualización manual y la comparación de cambios.
 - El ejecutable de apertura no tiene firma digital: Windows puede mostrar «Windows protegió su PC» la primera vez. Su apertura en un ordenador distinto no está acreditada.
 - La interfaz está en español. El salario se guarda bruto anual; el agente ayuda a calcular el equivalente de un salario mensual, semanal o por horas.
-- El captador automático solo lee webs con formato compatible (Greenhouse, Ashby y listados HTML simples) y reconoce variantes de género, plurales y equivalentes en inglés de profesiones comunes; el resto de la búsqueda la hace el agente con su navegador.
+- El captador automático solo lee webs con formato compatible (Greenhouse, Ashby, Lever, Workable, Personio, SmartRecruiters, Recruitee y listados HTML simples) y reconoce variantes de género, plurales y equivalentes en inglés de profesiones comunes; el resto de la búsqueda la hace el agente con su navegador.
 - Las carpetas sincronizadas (OneDrive, Dropbox, Google Drive) pueden crear copias en conflicto del registro; la app avisa al detectarlas.
 - Mac y Linux no forman parte de esta distribución. Una vista estrecha en el navegador no acredita compatibilidad con un teléfono físico.
 - Las exportaciones son opcionales y se generan por petición; el ZIP incluye CSV, pero no las herramientas opcionales de XLSX.

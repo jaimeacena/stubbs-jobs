@@ -165,7 +165,8 @@ def handle(data, operation, workflow):
         if action.startswith('select-') or action == 'unselect':
             workflow.handle(data, {'kind': 'ui-select-opportunity', 'opportunityId': key,
                                   'selected': action != 'unselect', 'mode': action.removeprefix('select-'),
-                                  'expected': copy.deepcopy(workflow.selection(data, key)), 'actor': actor})
+                                  'expected': copy.deepcopy(workflow.selection(data, key)), 'actor': actor,
+                                  **({'mandate': operation['mandate']} if operation.get('mandate') is not None else {})})
         elif action == 'investigate':
             workflow.handle(data, {'kind': 'ui-request', 'opportunityId': key, 'type': 'investigate', 'actor': actor})
         elif action == 'approve':

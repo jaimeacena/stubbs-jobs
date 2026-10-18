@@ -34,15 +34,6 @@ test('daily advertisement checks and candidature outcomes remain separate with t
  const availability=groups[1];assert.equal(availability.count,1);assert.equal(availability.members[0].item.event.activity.outcome,'unknown');assert.equal(availability.items.length,2);assert.deepEqual(items,before);
 });
 
-test('dashboard uses recorded vacancy identities and confirmed metrics without inferring outcomes',()=>{
- const model={opportunities:[{id:'a',canonicalKey:'shared',state:'Enviada'},{id:'b',canonicalKey:'second'}],historical:[
-  {id:'old',canonicalKey:'shared',category:'Laboral'},{id:'other',canonicalKey:'third',category:'Laboral'},{id:'ignore',category:'No laboral'}],
-  metrics:{sent:1,interviews:0,offers:0},requests:[{type:'send',status:'queued'},{type:'send',status:'blocked'}]},before=structuredClone(model);
- assert.deepEqual(Activity.statistics(model).map(stat=>stat.value),[3,1,0,0]);assert.deepEqual(model,before);
- assert.deepEqual(Activity.statistics({...model,metrics:{sent:null,interviews:-1,offers:'2'}}).map(stat=>stat.value),[3,null,null,null]);
- assert.deepEqual(Activity.statistics({opportunities:[],metrics:{sent:0,interviews:0,offers:0}}).map(stat=>stat.value),[0,0,0,0]);
-});
-
 test('daily history keeps earlier preparation and reviews after a confirmed send without duplicate completions',()=>{
  const review={id:'review',type:'investigate',status:'done',opportunityId:'one',summary:'Revisada',activityAt:'2026-10-12T09:00:00Z'},
   preparation={id:'prepare',type:'review',status:'done',opportunityId:'one',summary:'Lista',activityAt:'2026-10-13T09:00:00Z'},

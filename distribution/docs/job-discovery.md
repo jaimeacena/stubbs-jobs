@@ -20,11 +20,11 @@ El encargo, inicio real, dueño y tanda siguen OPERACION. La lectura del método
 
 ## Primera pasada: detectar sin reconstruir todo
 
-Usar tools/scan_boards.py para captación pública autorizada y herramientas de navegador cuando correspondan. Leer alcance, método, páginas, cobertura, errores y último éxito. Acceso a portal, fuente configurada y listado recibido no acreditan revisión de todas sus vacantes.
+Usar tools/scan_boards.py para captación pública autorizada y herramientas de navegador cuando correspondan. Leer alcance, método, páginas, cobertura, errores y último éxito. Acceso a portal, fuente configurada y listado recibido no acreditan revisión de todas sus vacantes. Con un perfil 100 % remoto, el captador omite los anuncios cuyo propio título o ubicación publican solo trabajo híbrido o presencial, con la misma lectura que los mínimos (16/10/2026); el silencio, un porcentaje de teletrabajo o una alternativa remota se conservan para revisión.
 
 Con perfiles guardados, pasar `--request ID` al captador. Registrar apariciones de una vacante en varias búsquedas sin duplicar su candidatura ni copiar permisos. Su primera base de evaluación permanece hasta ui-criteria-scope explícito; ampliar por --case antes de valorarla o preparar material.
 
-Guardar hallazgos en Entradas mediante las operaciones oficiales. Comparar identidad de vacante, URLs y antecedentes antes de crear un caso nuevo. Alias de LinkedIn con el mismo ID numérico no crean otra oferta. Textos similares de intermediarios pueden ser un duplicado; sin identidad suficiente, conservar la duda.
+Antes de captar, revisar los anuncios pendientes de esa búsqueda (`pendingEntries` de `agent-status --request ID` y `agent-status --entries --search-profile ID`): promover los pertinentes con promote o cerrarlos con entry y motivo. Con el perfil predeterminado se incluyen también los anuncios sin perfil, anteriores a los perfiles: contrastarlos con todos los perfiles visibles antes de cerrarlos. Una entrada Nueva ya conocida no vuelve a aparecer como nueva en otra captación, así que dejarla sin revisar la oculta. Guardar hallazgos en Entradas mediante las operaciones oficiales. Comparar identidad de vacante, URLs y antecedentes antes de crear un caso nuevo. Alias de LinkedIn con el mismo ID numérico no crean otra oferta. Textos similares de intermediarios pueden ser un duplicado; sin identidad suficiente, conservar la duda.
 
 Cribar por contenido del trabajo y criterios confirmados. Títulos, idiomas y etiquetas comerciales orientan, sin demostrar contrato, modalidad, país, requisitos o experiencia. Un requisito deseable ausente o una brecha técnica disminuyen el consejo de prioridad, no convierten por sí solos la oferta en incumplimiento de mínimos.
 
@@ -45,7 +45,7 @@ No repetir bloqueos sin información nueva. Cliente final desconocido puede afec
 
 ## Condiciones, mínimos y elección
 
-Mantener Sí, No, Pendiente y Contradicción con pruebas. Separar modalidad anunciada y contratación desde la zona buscada; contrato y jornada; salario publicado, fijo comprobado y respuesta personal para formularios; horario preferido y horario real.
+Mantener Sí, No, Pendiente y Contradicción con pruebas. Registrar el horario publicado en «Horario real» con proof: con `requiredSchedule`, un horario incompatible es incumplimiento de mínimos y su ausencia queda por concretar. Separar modalidad anunciada y contratación desde la zona buscada; contrato y jornada; salario publicado, fijo comprobado y respuesta personal para formularios; horario preferido y horario real.
 
 Ausencia de sueldo, contrato o viajes no es cumplimiento ni incompatibilidad. Un híbrido/presencial explícito incumple 100 % remoto; contrato explícitamente incompatible incumple su criterio. Una banda fija que alcanza el mínimo permite negociar, sin confirmar fijo final; banda total con variable no acredita fijo. Conservar moneda y periodo, sin convertirlos por suposición.
 

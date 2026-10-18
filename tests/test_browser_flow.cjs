@@ -61,10 +61,10 @@ test('final offers hide current and stale fit while active sent offers retain it
  t.model.opportunities=[job];t.a.setSelected(job.id);
  for(const state of ['Cerrada','Rechazada','Descartada','Oferta','Lograda'])for(const isCurrent of [false,true]){
   job.state=state;job.assessment.isCurrent=isCurrent;const before=structuredClone(job),html=t.a.detail();
-  assert.doesNotMatch(html,/Encaje contigo|TEST: encaje guardado|Esta valoración necesita actualizarse/);assert.deepEqual(job,before);
+  assert.doesNotMatch(html,/Encaje contigo|TEST: encaje guardado|Valoración pendiente de actualizar/);assert.deepEqual(job,before);
  }
  job.state='Enviada';job.sent={at:'2026-10-01'};job.lifecycle={availability:{outcome:'closed'}};job.assessment.isCurrent=false;
- assert.match(t.a.detail(),/Esta valoración necesita actualizarse/);job.assessment.isCurrent=true;assert.match(t.a.detail(),/TEST: encaje guardado/);
+ assert.match(t.a.detail(),/Valoración pendiente de actualizar/);job.assessment.isCurrent=true;assert.match(t.a.detail(),/TEST: encaje guardado/);
 });
 
 test('brief activity uses relative times and full history retains exact dates in the same format',()=>{
@@ -113,7 +113,7 @@ test('follow-up fits in status and activity while keeping ad closure separate fr
  t.a.setSelected('one');const before=structuredClone(t.model),html=t.a.detail(),status=html.match(/<section[^>]*data-offer-section="status"[\s\S]*?<\/section>/)[0];
  assert.match(status,/Siguiendo/);assert.match(status,/Sin respuesta conocida/);assert.match(status,/Enviada: <time[^>]*datetime="2026-10-01T10:00:00Z"/);assert.match(status,/Última comprobación: <time[^>]*datetime="2026-10-06T10:00:00Z"/);assert.match(status,/En revisión según el portal/);assert.match(status,/El anuncio ya no acepta nuevas solicitudes/);
  assert.match(status,/data-followup-check="one">Pedir comprobación/);assert.match(status,/Registrar resultado/);assert.match(status,/data-offer-outcome="close"[^>]*>Cerrada/);
- const activity=html.match(/<section[^>]*data-offer-section="activity"[\s\S]*?<\/section>/)[0];assert.match(activity,/<ol class="timeline">/);assert.match(activity,/<li><strong><button[^>]*>Estado comprobado: en revisión<\/button><\/strong><small>/);assert.match(activity,/<li><strong><button[^>]*>El anuncio ya no acepta solicitudes<\/button><\/strong><small>/);assert.match(activity,/<li><strong>Solicitud enviada<\/strong><small>/);assert.match(activity,/>Ver historial completo<\/button>/);assert.doesNotMatch(activity,/<details|offer-receipt|offer-check-evidence|Constancia del envío|Detalles de las comprobaciones/);
+ const activity=html.match(/<section[^>]*data-offer-section="activity"[\s\S]*?<\/section>/)[0];assert.match(activity,/<ol class="offer-timeline-steps">/);assert.match(activity,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong><button[^>]*>Estado comprobado: en revisión<\/button><\/strong><small>/);assert.match(activity,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong><button[^>]*>El anuncio ya no acepta solicitudes<\/button><\/strong><small>/);assert.match(activity,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong>Solicitud enviada<\/strong><small>/);assert.match(activity,/>Ver todo /);assert.doesNotMatch(activity,/<details|offer-receipt|offer-check-evidence|Constancia del envío|Detalles de las comprobaciones/);
  assert.doesNotMatch(html,/data-offer-section="followup"|data-followup-(?:plan|date)|Próxima revisión|Guardar fecha|no hay vigilancia automática|data-offer-outcome="reject"/);assert.deepEqual(t.model,before);
 });
 
@@ -129,7 +129,7 @@ test('requesting a candidature check saves only an explicit pending task and doe
  t.model.opportunities=[job];t.a.setSelected('one');const calls=[];
  t.env.fetch=async(path,options)=>{calls.push({path,body:options?.body?JSON.parse(options.body):null});return {ok:true,json:async()=>({state:t.model})};};
  await t.click({dataset:{followupCheck:'one'}});
- assert.equal(calls.length,1);assert.equal(calls[0].path,'/api/action');assert.equal(calls[0].body.operation.kind,'ui-request');assert.equal(calls[0].body.operation.type,'investigate');assert.equal(calls[0].body.operation.purpose,'followup');assert.equal(calls[0].body.operation.opportunityId,'one');
+ assert.equal(calls.length,1);assert.match(calls[0].path,/^\/api\/action\?brief=1&case=one&history=1$/);assert.equal(calls[0].body.operation.kind,'ui-request');assert.equal(calls[0].body.operation.type,'investigate');assert.equal(calls[0].body.operation.purpose,'followup');assert.equal(calls[0].body.operation.opportunityId,'one');
  assert.match(t.env.document.querySelector('#toast').innerHTML,/guardada para el agente; aún no ha consultado el portal/);
  for(const status of ['queued','running','blocked','interrupted']){
   job.requests=[{id:'check',purpose:'followup',type:'investigate',status,summary:'Comprobar el portal'}];const html=t.a.detail();assert.match(html,/data-followup-check="one" disabled/);assert.match(html,status==='running'?/Comprobación en curso/:/Comprobación pendiente/);
@@ -138,7 +138,7 @@ test('requesting a candidature check saves only an explicit pending task and doe
 
 test('closed follow-up preserves the receipt and a new response can be reopened from existing actions',()=>{
  const t=setup();t.model.opportunities=[{id:'one',company:'Empresa ficticia',state:'Cerrada',sent:{at:'2026-10-01T10:00:00Z',confirmation:'Recibo ficticio conservado'},requests:[],packages:[],questions:[],missing:[],draft:{},answers:{},lifecycle:{closure:{label:'Seguimiento cerrado por ti'},canReopen:true}}];
- t.a.setSelected('one');const before=structuredClone(t.model),html=t.a.detail();assert.match(html,/<li><strong>Solicitud enviada<\/strong><small>/);assert.match(html,/data-offer-outcome="reopen-followup"/);assert.doesNotMatch(html,/data-followup-check=|data-offer-section="followup"|offer-receipt/);assert.deepEqual(t.model,before);assert.equal(t.model.opportunities[0].sent.confirmation,'Recibo ficticio conservado');
+ t.a.setSelected('one');const before=structuredClone(t.model),html=t.a.detail();assert.match(html,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong>Solicitud enviada<\/strong><small>/);assert.match(html,/data-offer-outcome="reopen-followup"/);assert.doesNotMatch(html,/data-followup-check=|data-offer-section="followup"|offer-receipt/);assert.deepEqual(t.model,before);assert.equal(t.model.opportunities[0].sent.confirmation,'Recibo ficticio conservado');
 });
 
 test('the same timeline format keeps known receipts and checks without duplicating matching history',()=>{
@@ -147,26 +147,33 @@ test('the same timeline format keeps known receipts and checks without duplicati
   {id:'check-real',title:'Seguimiento comprobado',opportunityId:'one',at:'2026-10-06T10:00:10Z',actor:'Agente',detail:'Prueba de consulta'},
   {id:'other',title:'Nota guardada',opportunityId:'other',at:'2026-10-07T10:00:00Z',actor:'Tú'}];
  t.a.setSelected('one');const before=structuredClone(t.model),html=t.a.detail(),activity=html.match(/<section[^>]*data-offer-section="activity"[\s\S]*?<\/section>/)[0];
- assert.equal((activity.match(/<li>/g)||[]).length,2);assert.equal((activity.match(/>Estado comprobado: sin novedades</g)||[]).length,1);assert.equal((activity.match(/>Solicitud enviada</g)||[]).length,1);assert.doesNotMatch(activity,/Nota guardada|<details|offer-receipt/);
+ assert.equal((activity.match(/<li class="offer-timeline-step"/g)||[]).length,1);assert.doesNotMatch(activity,/sin novedades/);assert.equal((activity.match(/>Solicitud enviada</g)||[]).length,1);assert.doesNotMatch(activity,/Nota guardada|<details|offer-receipt/);
  const all=t.a.history();assert.equal((all.match(/>Estado comprobado: sin novedades</g)||[]).length,1);assert.equal((all.match(/>Solicitud enviada</g)||[]).length,1);assert.deepEqual(t.model,before);
  t.model.history=[];assert.match(t.a.history(),/Solicitud enviada/);assert.match(t.a.history(),/Estado comprobado: sin novedades/);assert.equal(t.model.history.length,0);
 });
 
-test('routine agent blockers stay recorded without a separate summary warning',()=>{
+test('agent stops appear in the summary with a way out instead of staying hidden',()=>{
  for(const type of ['discovery','investigate','review','change']){
   const t=setup();t.model.requests=[{id:'one',type,status:'blocked',actionOwner:'agent',need:'other',summary:'Verificar si el enlace sigue disponible.',updatedAt:'2026-10-07T10:07:00Z'}];
-  const before=structuredClone(t.model),html=t.a.agentPage();
-  assert.equal(t.a.activityWork(),'');assert.doesNotMatch(html,/Comprobaciones pendientes del agente|Resuélvelo en el chat del agente/);
-  assert.doesNotMatch(html,/activity-work/);assert.deepEqual(t.model,before);
+  const before=structuredClone(t.model),html=t.a.agentPage(),work=t.a.activityWork();
+  assert.match(work,/se detuvo/);assert.doesNotMatch(work,/<h2>/);assert.match(t.a.applyPage(),/activity-work/);assert.doesNotMatch(html,/activity-work/);assert.match(work,/Ver detalle/);assert.match(work,/Verificar si el enlace sigue disponible/);
+  assert.match(work,/data-retry="one">Pedir otro intento</);assert.match(work,/data-cancel="one">Cancelar (búsqueda|tarea)</);
+  assert.doesNotMatch(html,/Resuélvelo en el chat del agente/);assert.deepEqual(t.model,before);
  }
+ const t=setup();t.model.opportunities=[{id:'job',company:'Empresa ficticia',title:'Puesto',state:'Investigar',requests:[],packages:[],questions:[],missing:[]}];
+ t.model.requests=[{id:'task',type:'investigate',opportunityId:'job',status:'blocked',actionOwner:'agent',need:'other',summary:'La vacante cambió de portal.'}];
+ // A stop tied to an offer is handled in that offer (Por atender), not in a general list.
+ assert.equal(t.a.activityWork(),'');t.model.opportunities[0].requests=t.model.requests;t.a.setSelected('job');const detail=t.a.detail();assert.match(detail,/data-retry="task"[^>]*>Pedir otro intento</);assert.doesNotMatch(detail,/data-cancel=/);
 });
-test('hiding routine agent warnings keeps personal help and uncertain deliveries visible',()=>{
- const t=setup(),agent={id:'agent',type:'discovery',status:'blocked',actionOwner:'agent',summary:'INTERNAL ROUTINE BLOCKER'};
- const user={id:'user',type:'discovery',status:'blocked',actionOwner:'user',summary:'Inicia sesión en el portal.'};
+test('personal help and uncertain deliveries come before agent stops',()=>{
+ const t=setup(),agent={id:'agent',type:'discovery',status:'blocked',actionOwner:'agent',summary:'AGENT STOP'};
+ const user={id:'user',type:'discovery',status:'blocked',actionOwner:'user',need:'access',summary:'Inicia sesión en el portal.'};
  t.model.requests=[agent,user];let html=t.a.activityWork();
- assert.match(html,/Necesita tu ayuda|Inicia sesión en el portal/);assert.doesNotMatch(html,/INTERNAL ROUTINE BLOCKER/);
+ assert.match(html,/necesita tu ayuda/);assert(html.indexOf('Inicia sesión en el portal')<html.indexOf('AGENT STOP'),'personal help first');
+ assert.match(html,/data-retry="user">Ya he completado el acceso</);
  const delivery={id:'send',type:'send',status:'blocked',actionOwner:'agent',startedAt:'2026-10-07T10:00:00Z',updatedAt:'2026-10-07T10:07:00Z'};
- t.model.requests=[agent,delivery];html=t.a.activityWork();assert.match(html,/data-copy-recovery="send"/);assert.match(html,/El envío quedó sin confirmar/);assert.doesNotMatch(html,/INTERNAL ROUTINE BLOCKER/);
+ t.model.requests=[agent,delivery];html=t.a.activityWork();assert.match(html,/data-copy-recovery="send"/);assert.match(html,/El envío quedó sin confirmar/);
+ assert(html.indexOf('El envío quedó sin confirmar')<html.indexOf('AGENT STOP'),'uncertain delivery first');assert.doesNotMatch(html,/data-retry="send"/);
 });
 test('a poll started before a save cannot roll the screen back',async()=>{
  const t=setup();t.model.revision=5;t.a.setDirty(true);
@@ -317,6 +324,18 @@ test('a clipboard failure keeps the visible message available for manual copying
  await t.click({dataset:{copySetup:'1'}});assert.equal(message.focused,true);assert.deepEqual(t.model,before);
  assert.match(t.env.document.querySelector('#toast').innerHTML,/Selecciona el mensaje visible/);
  assert.doesNotMatch(t.a.setupForm(),/<details|<select/);
+});
+test('review says whether the CV was tailored to the offer and why',()=>{
+ const t=setup(),base={recipient:'https://example.org/apply',messageUsage:'unused',answers:{},formAnswerKeys:[]};
+ const job=material=>({id:'one',company:'Test',title:'Analista',state:'Preparar',requests:[],missing:[],selection:{selected:true,mode:'review'},fingerprint:'version',cvLabel:'CV.pdf',draft:{},fieldDefinitions:{},packages:[{id:'version',isCurrent:true,cvUrl:'/api/document?id=version',payload:material}]});
+ t.model.labels={};
+ for(const [material,pattern] of [[{...base,cvAdaptation:'reused',cvReason:'El CV general ficticio ya cubre los requisitos.'},/CV general, sin adaptar a esta oferta\.<\/strong> El CV general ficticio ya cubre los requisitos\./],
+   [{...base,cvAdaptation:'adapted',cvReason:'Resumen orientado a Power BI.'},/Adaptado a esta oferta\.<\/strong> Resumen orientado a Power BI\./]]){
+  const j=job(material);t.model.opportunities=[j];t.a.setSelected('one');t.a.setReviewSnapshot(j);
+  assert.match(t.a.reviewPage(),pattern);
+ }
+ const legacy=job({...base,cvReason:'Texto antiguo'});t.model.opportunities=[legacy];t.a.setReviewSnapshot(legacy);
+ assert.doesNotMatch(t.a.reviewPage(),/cv-adaptation|Texto antiguo/);
 });
 test('review shows actual form responses, hides unused presentation and groups authorization actions',()=>{
  const t=setup(),material={recipient:'https://example.org/apply',message:'Hola, me interesa el puesto.',messageUsage:'unused',answers:{custom_email:'persona@example.org',minimumFixed:35000,custom_solicitud_previa:false},formAnswerKeys:['custom_email']};
@@ -520,18 +539,18 @@ test('legacy local schedule does not add a message or a control',()=>{
  const t=setup();t.model.automation={scheduleEnabled:true,searchFrequency:'daily'};
  const html=t.a.searchSettingsPanels();assert.doesNotMatch(html,/programación local|data-schedule-check|data-search-time|Iniciar Codex aquí/);
 });
-test('ordinary requests use the agent chat while actual pending work stays visible in Summary',()=>{
+test('ordinary requests use the agent chat while stopped work without an offer stays visible in Ofertas',()=>{
  const t=setup();t.model.searchContext={targetRoles:'Analista'};t.model.preferences={location:'España'};
  assert.equal(t.a.activityWork(),'');assert.doesNotMatch(t.a.applyPage(),/data-copy-agent-command|Copia la petición/);assert.match(t.a.setupReady(),/Busca ofertas nuevas/);
- t.model.requests=[{status:'queued',type:'review'}];assert.match(t.a.agentPage(),/Pendiente de iniciar/);assert.equal(t.a.activityWork(),'');assert.doesNotMatch(t.a.agentPage(),/activity-work|pídele que continúe en su chat|data-copy-agent-command/);
+ t.model.requests=[{status:'queued',type:'review'}];assert.match(t.a.agentPage(),/Pendiente de iniciar/);assert.match(t.a.agentPage(),/Para iniciar esta tarea, pide «Continúa con Stubbs Jobs» en el chat de tu agente/);assert.equal(t.a.activityWork(),'');assert.doesNotMatch(t.a.agentPage(),/activity-work|pídele que continúe en su chat|data-copy-agent-command/);
  t.model.requests=[{status:'blocked',type:'investigate',summary:'Inicia sesión en el portal'}];assert.match(t.a.activityWork(),/Inicia sesión en el portal/);assert.doesNotMatch(t.a.activityWork(),/data-copy-agent-command/);
- t.model.requests=[{status:'running',type:'review',updatedAt:new Date().toISOString()}];assert.match(t.a.activityWork(),/Revisando solicitud/);assert.doesNotMatch(t.a.applyPage(),/data-copy-agent-command/);
+ t.model.requests=[{status:'running',type:'review',updatedAt:new Date().toISOString()}];assert.equal(t.a.activityWork(),'');assert.doesNotMatch(t.a.applyPage(),/data-copy-agent-command/);
  t.model.requests=[];assert.equal(t.a.activityWork(),'');
 });
 
 test('work can start without showing missing search criteria as a global notice',()=>{
  const t=setup();t.model.searchContext={targetRoles:''};t.model.execution={status:'starting'};
- assert.match(t.a.agentPage(),/El agente se está iniciando/);assert.doesNotMatch(t.a.agentPage(),/El agente está trabajando|data-copy-agent-command/);
+ assert.doesNotMatch(t.a.agentPage(),/activity-work|El agente está trabajando|data-copy-agent-command/);assert.equal(t.a.activityWork(),'');
  t.model.execution={status:'idle'};t.model.requests=[{status:'queued',type:'change'}];assert.match(t.a.agentPage(),/Pendiente de iniciar/);assert.equal(t.a.activityWork(),'');
 });
 
@@ -542,7 +561,7 @@ test('an agent-owned deadline does not become a personal decision',()=>{
 });
 test('Activity gives the concrete blocker and distinguishes tasks still waiting',()=>{
  const t=setup();t.model.requests=[{status:'queued',type:'change'},{status:'blocked',type:'discovery',need:'access',actionOwner:'user',summary:'Inicia sesión en el portal.'}];
- const html=t.a.agentPage();assert.match(html,/Necesita tu ayuda/);assert.match(html,/Inicia sesión en el portal/);assert.doesNotMatch(html,/data-checks=/);assert.match(html,/Resuélvelo en el chat del agente/);assert.match(html,/1 tarea pendiente de iniciar/);assert.doesNotMatch(html,/data-copy-agent-command|Copiar trabajo en cola/);assert.doesNotMatch(html,/Acceso a portales/);
+ const html=t.a.applyPage();assert.match(html,/necesita tu ayuda/);assert.match(html,/Inicia sesión en el portal/);assert.doesNotMatch(html,/data-checks=/);assert.match(html,/Ya he completado el acceso/);assert.match(html,/Cancelar búsqueda/);assert.doesNotMatch(t.a.agentPage(),/Necesita tu ayuda|activity-work/);assert.doesNotMatch(html,/data-copy-agent-command|Copiar trabajo en cola/);assert.doesNotMatch(html,/Acceso a portales/);
  assert.match(t.a.coverage(),/<dd>Sin revisión de webs registrada<\/dd>/);
 });
 
@@ -553,7 +572,7 @@ test('each available offer keeps its explicit request modes in the detail instea
  assert.doesNotMatch(t.a.applyPage(),/data-select=|data-investigate=|flow-table-action/);
  assert.match(detail,/<button class="primary request-button" data-select="one" data-selection-mode="review"[^>]*><span class="request-icon" aria-hidden="true"><svg[^>]*data-icon="eye"[\s\S]*?<\/svg><\/span>Solicitar con revisión<\/button>/);
  assert.match(detail,/<button class="primary request-button" data-select="one" data-selection-mode="auto"[^>]*><span class="request-icon" aria-hidden="true"><svg[^>]*data-icon="bot"[\s\S]*?<\/svg><\/span>Auto-solicitud<\/button>/);
- assert.match(detail,/sin tu aprobación final/);assert.match(detail,/aria-describedby="offer-auto-help-one"/);assert.doesNotMatch(detail,/offer-request-options/);
+ assert.match(detail,/sin esperar tu aprobación/);assert.match(detail,/aria-describedby="offer-auto-help-one"/);assert.doesNotMatch(detail,/offer-request-options/);
  assert.doesNotMatch(t.a.applyPage(),/data-auto-setting|Contacto con reclutadores/);
  t.a.setSelected(null);assert.doesNotMatch(t.a.profileForm(),/Cambiar valor propuesto/);
  const index=fs.readFileSync(require.resolve('../app/index.html'),'utf8');
@@ -568,7 +587,7 @@ test('direct selection uses its explicit mode and retains the stage, column filt
  t.a.setFlowFilter('solicitar','sin-elegir');t.a.setTableFilter('solicitar','company',['Empresa']);t.a.setTableSort('solicitar','salary',-1);
  const before=t.a.applyPage();assert(before.indexOf('data-job-row="three"')<before.indexOf('data-job-row="one"'));
  let submitted;
- t.env.fetch=async(path,options)=>{assert.equal(path,'/api/action');submitted=JSON.parse(options.body).operation;const state=structuredClone(t.model);state.opportunities[0].selection={selected:true,mode:submitted.mode};state.opportunities[0].requests=[{type:'review',status:'queued'}];return {ok:true,json:async()=>({state})};};
+ t.env.fetch=async(path,options)=>{assert.match(path,/^\/api\/action\?brief=1(?:&|$)/);submitted=JSON.parse(options.body).operation;const state=structuredClone(t.model);state.opportunities[0].selection={selected:true,mode:submitted.mode};state.opportunities[0].requests=[{type:'review',status:'queued'}];return {ok:true,json:async()=>({state})};};
  assert.equal(await t.a.selectOpportunity('one','review'),true);
  assert.equal(submitted.mode,'review');assert.equal(submitted.opportunityId,'one');
  const after=t.a.applyPage();assert.match(after,/data-flow-filter="sin-elegir"[^>]*aria-pressed="true"/);assert.doesNotMatch(after,/data-job-row="one"|data-job-row="other"/);
@@ -600,7 +619,7 @@ test('a preserved table render retains both horizontal and page scrolling',()=>{
 test('a blocked access request explains the next step and retains queued clarification',()=>{
  const t=setup(),job={id:'one',company:'Empresa de prueba',title:'Role',state:'Preparar',requests:[{type:'review',status:'blocked',need:'access',summary:'Falta iniciar sesión.'},{type:'change',status:'queued',instructions:[{text:'Ya abrí mi cuenta.'}]}],packages:[],questions:[],missing:['review']};
  t.model.opportunities=[job];t.a.setSelected('one');const html=t.a.changeForm();
- assert.match(html,/Aclarar el acceso/);assert.match(html,/Falta iniciar sesión/);assert.match(html,/Ya abrí mi cuenta/);assert.match(html,/No escribas contraseñas/);assert.match(html,/bloqueo seguirá vigente/);
+ assert.match(html,/Explicar el acceso/);assert.match(html,/Falta iniciar sesión/);assert.match(html,/Ya abrí mi cuenta/);assert.match(html,/Nunca escribas contraseñas/);assert.match(html,/Continúa con Stubbs Jobs/);
 });
 test('one offers list shows each process exactly once and keeps its state',()=>{
  const t=setup(),base={title:'Analista',state:'Preparar',requests:[],packages:[],questions:[],missing:['review']};
@@ -665,8 +684,8 @@ test('Activity omits routine changes while preserving the original history',()=>
 
 test('an old execution failure does not resurface after later confirmed activity',()=>{
  const t=setup();t.model.execution={status:'failed',message:'Error antiguo',updatedAt:'2026-09-23T18:52:00Z'};
- assert.match(t.a.agentPage(),/Error antiguo/);
- t.model.history=[{title:'Búsqueda actualizada',at:'2026-09-26T21:09:00Z',actor:'Usuario'}];assert.doesNotMatch(t.a.agentPage(),/Error antiguo|Búsqueda actualizada/);
+ assert.match(t.a.applyPage(),/Error antiguo/);assert.doesNotMatch(t.a.agentPage(),/Error antiguo/);
+ t.model.history=[{title:'Búsqueda actualizada',at:'2026-09-26T21:09:00Z',actor:'Usuario'}];assert.doesNotMatch(t.a.applyPage(),/Error antiguo/);assert.doesNotMatch(t.a.agentPage(),/Error antiguo|Búsqueda actualizada/);
  assert.equal(t.model.execution.message,'Error antiguo');
 });
 
@@ -680,7 +699,7 @@ test('current blockers stay concise and the preserved diagnostics retain full ev
  const t=setup();t.model.health=[{company:'Fuente ficticia',status:'partial',checkedAtUtc:'2026-09-25T09:00:00Z',lastSuccessUtc:'2026-09-24T09:00:00Z',errors:['Página 2 no disponible']}];
  t.model.requests=[{type:'discovery',status:'blocked',updatedAt:'2026-09-25T10:00:00Z',summary:'Acceso pendiente',result:'No se revisó la página',instructions:[{text:'Revisar el acceso'}]}];
  t.model.history=Array.from({length:35},(_,i)=>({at:'2026-09-25T10:00:00Z',title:`Cambio ${i+1}`,actor:'Agente'}));
- const html=t.a.agentPage();assert.match(html,/Acceso pendiente/);assert.doesNotMatch(html,/No se revisó la página|Revisar el acceso|Cambio 35|Página 2 no disponible/);
+ const html=t.a.applyPage();assert.match(html,/Acceso pendiente/);assert.doesNotMatch(html,/No se revisó la página|Revisar el acceso|Cambio 35|Página 2 no disponible/);
  for(const text of ['Último éxito:','Último intento:'])assert.ok(t.a.coverage().includes(text),text);assert.equal(t.model.requests[0].result,'No se revisó la página');assert.equal(t.model.requests[0].instructions[0].text,'Revisar el acceso');
  assert.match(t.a.history(),/Cargar anteriores/);t.a.setHistoryLimit(60);assert.match(t.a.history(),/Cambio 1<\/strong>/);assert.match(t.a.history(),/Cambio 35<\/strong>/);
 });
@@ -710,9 +729,10 @@ test('Activity uses the latest completed offer task with a direct link and exclu
 
 test('Activity distinguishes a queued task from starting and actual work',()=>{
  const t=setup();t.model.requests=[{type:'review',status:'queued'}];
- let html=t.a.activityWork();assert.equal(html,'');assert.match(t.a.agentPage(),/Comprobar solicitud/);assert.match(t.a.agentPage(),/Pendiente de iniciar/);assert.doesNotMatch(t.a.agentPage(),/El agente está trabajando|activity-work/);
- t.model.execution={status:'starting'};html=t.a.activityWork();assert.match(html,/El agente se está iniciando/);assert.doesNotMatch(html,/El agente está trabajando/);
- t.model.execution={status:'idle'};t.model.requests[0].status='running';t.model.requests[0].updatedAt=new Date().toISOString();html=t.a.activityWork();assert.match(html,/Revisando solicitud/);assert.doesNotMatch(html,/pendiente de iniciar/);
+ let html=t.a.activityWork();assert.equal(html,'');assert.match(t.a.agentPage(),/Preparar solicitud/);assert.match(t.a.agentPage(),/Pendiente de iniciar/);assert.doesNotMatch(t.a.agentPage(),/El agente está trabajando|activity-work/);
+ // Starting or running work is not an action for the person: no general notice.
+ t.model.execution={status:'starting'};assert.equal(t.a.activityWork(),'');
+ t.model.execution={status:'idle'};t.model.requests[0].status='running';t.model.requests[0].updatedAt=new Date().toISOString();assert.equal(t.a.activityWork(),'');assert.doesNotMatch(t.a.agentPage(),/activity-work/);
 });
 
 test('pending offer decisions stay visible in the table and actionable only in their detail',()=>{
@@ -813,7 +833,9 @@ test('offer table filters equivalent labels together and preserves the original 
  const before=structuredClone(t.model),ids=html=>[...html.matchAll(/data-job-row="([^"]+)"/g)].map(m=>m[1]);
  t.a.applyPage();assert.deepEqual([...t.a.columnCatalog('solicitar','mode').values],['Híbrido','Remoto']);
  assert.deepEqual([...t.a.columnCatalog('solicitar','country').values],['España']);
- assert.deepEqual([...t.a.columnCatalog('solicitar','schedule').values],['—','07:30–15:30']);
+ assert.deepEqual([...t.a.columnCatalog('solicitar','schedule').values],['07:30–15:30','Por confirmar']);
+ t.a.setTableFilter('solicitar','schedule',['Por confirmar']);assert.deepEqual(ids(t.a.applyPage()),['c']);
+ t.a.setTableFilter('solicitar','schedule',[]);
  // A prior page filter expressed with the old label still selects the same remote offers.
  t.a.setTableFilter('solicitar','mode',['100% remoto']);t.a.setTableFilter('solicitar','contract',['Permanent']);
  t.a.setTableFilter('solicitar','schedule',['7:30 - 15:30 h']);assert.deepEqual(ids(t.a.applyPage()).sort(),['a','b']);
@@ -853,7 +875,7 @@ test('relative discovery labels keep exact chronology and absolute day filters i
 test('all source facts appear in Conditions while consultation links accompany their date',()=>{
  const t=setup(),job={id:'one',company:'Empresa ficticia',title:'ABAP',state:'Investigar',apply:'Sí',requests:[],packages:[],questions:[],missing:[],draft:{},answers:{},country:'España',workMode:'100% remoto',contract:'Indefinido',salary:'No publicado; según experiencia',schedule:'07:30-15:30 habitual; 08:00-15:00 verano',assessment:{isCurrent:true,reason:'Requiere aprender SAP.',references:[{url:'https://example.org/jobs/one',text:'07:30-15:30 habitual; 08:00-15:00 verano; 100% remoto; No publicado; según experiencia. 1-2 años junior o 3-5 años middle; ABAP con CFM/TRM o PM Distribución'}]}};
  t.model.opportunities=[job];t.a.setSelected(job.id);const before=structuredClone(job),html=t.a.detail();
- const assessment=html.match(/<section class="case-section offer-assessment">([\s\S]*?)<\/section>/)[1];assert.match(assessment,/href="https:\/\/example.org\/jobs\/one"[^>]*>Fuentes consultadas<\/a>/);assert.doesNotMatch(assessment,/Fuente del anuncio|assessment-evidence|no garantiza|1-2 años junior|ABAP con CFM\/TRM|15:30|remoto|No publicado|según experiencia/);
+ const assessment=html.match(/<section class="case-section offer-assessment">([\s\S]*?)<\/section>/)[1];assert.match(assessment,/href="https:\/\/example.org\/jobs\/one"[^>]*>Ver fuente<\/a>/);assert.doesNotMatch(assessment,/Fuente del anuncio|assessment-evidence|no garantiza|1-2 años junior|ABAP con CFM\/TRM|15:30|remoto|No publicado|según experiencia/);
  const conditions=t.a.offerConditions(job);assert.match(conditions,/<dt>País<\/dt><dd>España<\/dd>/);assert.match(conditions,/<dt>Modalidad<\/dt><dd>Remoto<\/dd>/);assert.equal((conditions.match(/07:30–15:30/g)||[]).length,1);assert.match(conditions,/No publicado; según experiencia/);assert.match(conditions,/<dt>Experiencia requerida<\/dt><dd>1-2 años junior o 3-5 años middle<\/dd>/);assert.match(conditions,/<dt>Tecnologías<\/dt><dd>ABAP con CFM\/TRM o PM Distribución<\/dd>/);assert.deepEqual(job,before);
 });
 
@@ -963,7 +985,7 @@ test('case shows offer conditions without current search criteria or legacy thre
  const t=setup(),job={id:'one',company:'Test',title:'Role',state:'Preparar',requests:[],packages:[],missing:['Review'],questions:[],draft:{message:'text',recipient:'https://example.org'},answers:{},conditions:{'Viajes ≤1/mes':'Sí','Fijo ≥32 k€':'Sí'},apply:'Revisar',answerOverrides:{}};
  t.model.opportunities=[job];t.model.preferences={contract:'Indefinido',location:'Cádiz',minimumFixed:45000,maxTrips:0};t.a.setSelected('one');
  job.salary='40.000–50.000 € brutos/año';job.schedule='De lunes a viernes';job.draft.messageUsage='unused';
- const html=t.a.detail();assert.match(html,/40.000–50.000 € brutos\/año/);assert.match(html,/De lunes a viernes/);assert.doesNotMatch(html,/45000|0 viajes\/mes|Criterios actuales|Faltan condiciones|Comprobaciones anteriores|32.000|Presentación/);assert.match(html,/<h2>Condiciones<\/h2>[\s\S]*<h2>[\s\S]*?Formulario de solicitud[\s\S]*?<\/h2>[\s\S]*<h2>Actividad<\/h2>/);assert.doesNotMatch(html,/<summary>(Condiciones|Formulario de solicitud|Actividad)<\/summary>/);
+ const html=t.a.detail();assert.match(html,/40.000–50.000 € brutos\/año/);assert.match(html,/De lunes a viernes/);assert.doesNotMatch(html,/45000|0 viajes\/mes|Criterios actuales|Faltan condiciones|Comprobaciones anteriores|32.000|Presentación/);assert.match(html,/<h2>Condiciones<\/h2>[\s\S]*<h2>[\s\S]*?Formulario de solicitud[\s\S]*?<\/h2>/);assert.doesNotMatch(html,/data-offer-section="activity"/);assert.doesNotMatch(html,/<summary>(Condiciones|Formulario de solicitud|Actividad)<\/summary>/);
  t.model.legacyEvidenceMode=false;assert.doesNotMatch(t.a.detail(),/32.000|Comprobaciones anteriores/);
  job.cvUrl='/api/document?id=cv&case=one';job.contactDrafts=[{recipient:'Selección',purpose:'Aclarar condiciones',message:'¿Cuál es el fijo?'}];
  const updated=t.a.detail();assert.match(updated,/Abrir PDF/);assert.doesNotMatch(updated,/<iframe|cv-preview/);assert.match(updated,/Borradores de contacto \(1\)/);assert.match(updated,/No enviados/);assert.match(updated,/data-copy-contact="0"/);
@@ -1117,15 +1139,18 @@ test('completed searches and sends use daily groups without a fixed coverage boa
  assert.doesNotMatch(html,/agent-overview|agent-coverage|Qué se ha revisado/);
 });
 
-test('Resumen shows four historical cards and daily disclosures with exact offer links',()=>{
+test('Resumen counts offers by their table states and keeps daily disclosures with exact offer links',()=>{
  const t=setup(),base={state:'Investigar',apply:'Sí',requests:[],packages:[],questions:[],missing:[],draft:{},answers:{}};
  t.model.opportunities=Array.from({length:6},(_,i)=>({...base,id:'offer-'+i,company:'Empresa '+i,title:'Puesto '+i}));
  t.model.metrics={sent:2,interviews:1,offers:0};
  t.model.requests=t.model.opportunities.map((job,i)=>({id:'review-'+i,type:'investigate',status:'done',opportunityId:job.id,summary:'Comprobación real',updatedAt:'2026-10-13T09:00:00Z'}));
  t.model.requests.push({id:'found',type:'discovery',status:'done',updatedAt:'2026-10-13T08:00:00Z',activityResult:{newOfferCount:2,newOpportunityIds:['offer-0','offer-1'],health:[],publicSources:[]}});
  const before=structuredClone(t.model),html=t.a.agentPage(),groups=[...html.matchAll(/<details class="activity-group"[^>]*>[\s\S]*?<\/details>/g)].map(match=>match[0]);
+ // Only the four totals: sent, closed, rejected and achieved.
  assert.equal((html.match(/class="activity-stat"/g)||[]).length,4);assert(html.indexOf('activity-statistics')<html.indexOf('activity-days'));
- assert.match(html,/data-stat="sent"[\s\S]*?activity-stat-value">2<\/strong>/);assert.match(html,/data-stat="interviews"[\s\S]*?activity-stat-value">1<\/strong>/);
+ assert.deepEqual([...html.matchAll(/data-open-offer-state="([^"]+)"/g)].map(match=>match[1]),['todas','cerradas','rechazadas','logradas']);
+ assert.match(html,/<span>Enviadas<\/span>[\s\S]*?activity-stat-value">0<\/strong>/);assert.doesNotMatch(html,/<span>Por decidir<\/span>/);
+ assert.doesNotMatch(html,/entrevista|Ofertas registradas|activity-work|Para mirar primero/i);
  assert.equal(groups.length,2);assert(groups.every(group=>!/^<details[^>]*\sopen(?:\s|>)/.test(group)));
  assert.match(groups[0],/<strong>6 ofertas revisadas<\/strong>/);assert.equal((groups[0].match(/data-job="offer-/g)||[]).length,6);
  assert.match(groups[1],/<strong>2 ofertas encontradas<\/strong>/);assert.equal((groups[1].match(/data-job="offer-/g)||[]).length,2);
@@ -1163,7 +1188,7 @@ test('a summary-only edit retains result date and historical evidence window in 
  t.model.history=[{id:'old-proof',title:'Comprobación original',detail:'Detalle original conservado',at:'2026-09-28T09:40:00Z'},{id:'new-proof',title:'Comprobación posterior',detail:'Detalle ajeno posterior',at:'2026-09-30T09:40:00Z'}];
  t.a.setScreenState('agente');t.env.fetch=async()=>({ok:true,json:async()=>t.a.getModel()});const before=structuredClone(t.model);await t.click({dataset:{report:'old-result'}});for(let i=0;i<20&&!t.env.document.querySelector('#main').innerHTML;i++)await Promise.resolve();
  const html=t.env.document.querySelector('#main').innerHTML;assert.equal(t.a.getView().screen,'informe');assert.match(html,/<p class="muted">28 sept 2026, 12:00<\/p>/);assert.match(html,/Web original ficticia/);assert.match(html,/Resumen aclarado/);assert.doesNotMatch(html,/Web posterior ficticia|Comprobación original|Comprobación posterior|Prueba original|2 oct 2026, 14:00/);assert.deepEqual(t.a.getModel(),before);
- const now=new Date().toISOString(),earlier=new Date(Date.now()-60_000).toISOString();t.a.getModel().requests=[{id:'working',type:'review',status:'running',updatedAt:now,activityAt:earlier}];assert(t.a.activityWork().includes('Último registro: '+new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Madrid'}).format(new Date(earlier))));
+ const now=new Date().toISOString(),earlier=new Date(Date.now()-60_000).toISOString();t.a.getModel().requests=[{id:'working',type:'review',status:'running',updatedAt:now,activityAt:earlier}];assert.equal(t.a.activityWork(),'');
 });
 
 test('a partial search keeps its concrete issue visible while full coverage stays in its report',()=>{
@@ -1329,7 +1354,7 @@ test('an uncertain send offers a specific portal check without reopening the for
 });
 test('a stale running task records its date and gives no claim of permanent connection',()=>{
  const t=setup();t.model.requests=[{id:'old',type:'review',status:'running',updatedAt:'2020-01-01T10:00:00Z',executionId:'original'}];
- const html=t.a.activityWork();assert.match(html,/Actividad pendiente de confirmar/);assert.match(html,/Último registro/);assert.match(html,/data-copy-recovery="old"/);assert.equal(t.model.requests[0].status,'running');
+ const html=t.a.activityWork();assert.match(html,/sin confirmar si sigue en curso/);assert.match(html,/Último registro/);assert.match(html,/data-copy-recovery="old"/);assert.equal(t.model.requests[0].status,'running');
 });
 test('a withdrawn offer keeps a started uncertain send visible without restoring send controls',()=>{
  const t=setup(),request={id:'revoked-send',opportunityId:'one',type:'send',status:'cancelled',packageId:'original',startedAt:'2026-09-01T10:00:00Z',updatedAt:'2026-09-01T10:05:00Z'};
@@ -1337,7 +1362,7 @@ test('a withdrawn offer keeps a started uncertain send visible without restoring
  t.model.requests=[request];t.model.opportunities=[job];t.a.setSelected('one');
  const detail=t.a.detail(),work=t.a.activityWork();
  assert.match(detail,/data-copy-recovery="revoked-send"/);assert.match(detail,/El permiso está retirado/);
- assert.match(work,/data-copy-recovery="revoked-send"/);assert.doesNotMatch(detail,/data-approve=|data-retry=|data-select=/);
+ assert.equal(work,'');assert.doesNotMatch(detail,/data-approve=|data-retry=|data-select=/);
  assert.equal(request.status,'cancelled');assert.equal(job.selection.selected,false);
  request.deliveryCheck={outcome:'not_sent',packageId:'original',at:new Date().toISOString(),proof:'TEST: portal comprobado sin solicitud'};
  assert.equal(t.a.activityWork(),'');assert.doesNotMatch(t.a.detail(),/data-copy-recovery="revoked-send"|data-retry=/);
@@ -1346,7 +1371,7 @@ test('a withdrawn offer keeps a started uncertain send visible without restoring
 test('offer assessments show reason, source and unknowns, and hide an obsolete reason',()=>{
  const t=setup(),job={id:'one',company:'Empresa',title:'Analista',state:'Preparar',apply:'Sí, aclarar',requests:[],packages:[],questions:[],missing:['review'],draft:{recipient:'',message:'',messageUsage:'unused'},answers:{},conditions:{},assessment:{reason:'Experiencia defendible en BI.',at:new Date().toISOString(),isCurrent:true,unknowns:['Parte fija pendiente'],references:[{url:'https://example.org/offer',text:'Modelos de datos'}]}};
  t.model.opportunities=[job];t.a.setSelected('one');let html=t.a.detail();assert.match(html,/Encaje contigo/);assert.doesNotMatch(html,/Parte fija pendiente|Consultar fuente|assessment-details|data-checks=/);assert.equal(job.assessment.unknowns[0],'Parte fija pendiente');assert.equal(job.assessment.references[0].url,'https://example.org/offer');
- job.assessment.isCurrent=false;html=t.a.detail();assert.match(html,/Esta valoración necesita actualizarse/);assert.doesNotMatch(html,/Experiencia defendible en BI/);
+ job.assessment.isCurrent=false;html=t.a.detail();assert.match(html,/Valoración pendiente de actualizar/);assert.doesNotMatch(html,/Experiencia defendible en BI/);
 });
 test('Help offers checked backups while retaining the three main navigation tabs',()=>{
  const t=setup();const html=t.a.backupsPage();assert.match(html,/Crear copia de seguridad/);assert.match(html,/carpeta aparte/);assert.doesNotMatch(t.a.applyPage(),/Crear copia de seguridad/);
@@ -1360,7 +1385,7 @@ test('outcome tabs use the requested order and details expose the appropriate su
  assert.doesNotMatch(html,/Archivada|Archivar/);
  for(const j of t.model.opportunities){
   t.a.setSelected(j.id);const detail=t.a.detail();
-  assert.match(detail,new RegExp('class="offer-change" data-change="'+j.id+'"'));
+  assert.match(detail,new RegExp('<summary>Más acciones</summary><div class="more-links"><button data-change="'+j.id+'"'));
   assert.equal(/data-offer-outcome="discard"/.test(detail),j.id==='decide');
   assert.equal(/data-offer-outcome="close"/.test(detail),['sent','rejected'].includes(j.id));
   if(j.id==='sent')assert.match(detail,/data-offer-outcome="close"[^>]*>Cerrada<\/button>/);
@@ -1446,7 +1471,7 @@ test('confirmed fixed salary retains its own currency after the profile currency
  job.conditions['Remoto España']='Contradicción';assert.match(t.a.offerConditions(job),/<dt>Modalidad<\/dt><dd>Datos contradictorios<\/dd>/);
 });
 test('every table stage marks a withdrawn started send for attention and its detail prioritizes recovery',()=>{
- const t=setup(),request={id:'original-send',type:'send',status:'cancelled',packageId:'original',startedAt:'2026-09-01T10:00:00Z',updatedAt:'2026-09-01T10:05:00Z'};
+ const t=setup(),request={id:'original-send',opportunityId:'one',type:'send',status:'cancelled',packageId:'original',startedAt:'2026-09-01T10:00:00Z',updatedAt:'2026-09-01T10:05:00Z'};
  const job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Preparar',apply:'Sí, aclarar',requests:[request],packages:[],questions:[],missing:['review'],draft:{messageUsage:'unused'},answers:{},conditions:{}};
  t.model.opportunities=[job];t.model.requests=[request];
  for(const state of ['Preparar','Cerrada'])for(const apply of ['Sí, aclarar','No','Resolver conflicto']){
@@ -1463,7 +1488,7 @@ test('every table stage marks a withdrawn started send for attention and its det
 test('Help and copied continuation explain the permitted next steps without starting the agent',async()=>{
  const t=setup(),copied=[];t.model.requests=[{id:'review-one',type:'review',status:'queued',opportunityId:'one'}];
  t.env.navigator={clipboard:{writeText:async text=>copied.push(text)}};t.env.fetch=async()=>{throw Error('Copy must not start or save work');};
- assert.match(UI.nextAction({selection:{selected:true,mode:'auto'},requests:[{type:'review',status:'queued'}]}),/Permites enviar esta oferta.*Continúa con Stubbs Jobs/);
+ assert.match(UI.nextAction({selection:{selected:true,mode:'auto'},requests:[{type:'review',status:'queued'}]}),/la enviará cuando la tenga lista.*Continúa con Stubbs Jobs/);
  assert.match(t.a.copyRequestButton('Copiar petición pendiente'),/siguientes pasos permitidos de esas mismas solicitudes/);
  await t.a.saveVisibleChangesAndCopy();assert.deepEqual(copied,['Continúa con Stubbs Jobs']);assert.equal(t.model.requests[0].status,'queued');
  assert.doesNotMatch(t.a.backupsPage(),/Selecciona ofertas|data-copy-setup/);
@@ -1501,7 +1526,9 @@ test('historic absence remains visible in the table and keeps its recheck guard 
  const job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Preparar',apply:'Sí',requests:[request],packages:[{id:'new',isCurrent:true,cvUrl:'/cv',payload:{answers:{},messageUsage:'unused'}}],questions:[],missing:[],fingerprint:'new',draft:{messageUsage:'unused'},answers:{},conditions:{},selection:{selected:true,mode:'review'}};
  t.model.requests=[request];t.model.opportunities=[job];t.a.setSelected('one');t.a.setReviewSnapshot(structuredClone(job));
  assert.match(t.a.applyPage(),/>Por atender<\/span>/);assert.doesNotMatch(t.a.applyPage(),/data-copy-recovery=|data-select=/);
- for(const html of [t.a.detail(),t.a.activityWork()]){assert.match(html,/data-copy-recovery="original"/);assert.match(html,/comprobar de nuevo/);assert.doesNotMatch(html,/envío sin confirmar|data-retry=/i);}
+ // The offer's own recovery lives in its detail (Por atender), not in a general list.
+ assert.equal(t.a.activityWork(),'');
+ for(const html of [t.a.detail()]){assert.match(html,/data-copy-recovery="original"/);assert.match(html,/comprobar de nuevo/);assert.match(html,/Pega la petición copiada en el chat del agente/);assert.doesNotMatch(html,/envío sin confirmar|data-retry=/i);}
  assert.match(t.a.reviewPage(),/data-approve="one" disabled/);assert.equal(request.status,'cancelled');
  request.deliveryRecheckRequired=false;request.deliveryCheck.at=new Date().toISOString();t.a.setReviewSnapshot(structuredClone(job));
  assert.doesNotMatch(t.a.reviewPage(),/data-approve="one" disabled/);assert.doesNotMatch(t.a.detail(),/data-copy-recovery="original"/);assert.equal(t.a.activityWork(),'');
@@ -2016,9 +2043,9 @@ test('existing offers explain their fit once and retain the complete experience 
  const t=setup(),example='Automaticé informes con Power Query para Empresa <ficticia>.',job={id:'one',company:'Empresa',title:'Analista',state:'Preparar',apply:'Revisar',requests:[],packages:[],questions:[],missing:['review'],draft:{recipient:'',message:'',messageUsage:'unused'},answers:{},conditions:{},assessment:{reason:'Valoración completa conservada.',at:new Date().toISOString(),isCurrent:true,unknowns:['Confirmar la parte fija.'],references:[{url:'https://example.org/offer',text:'Automatización e informes.'}],bestArgument:{experienceQuote:example,requirement:'Automatización <comprobada>.',sourceUrl:'https://example.org/offer'}}};
  t.model.opportunities=[job];t.a.setSelected('one');const before=structuredClone(job),html=t.a.detail();
  assert.match(html,/<h2>Encaje contigo<\/h2>/);assert.doesNotMatch(html,/Automaticé informes|Tu mejor argumento|offer-argument-example/);assert.equal(job.assessment.bestArgument.experienceQuote,example);assert.equal(job.assessment.bestArgument.requirement,'Automatización <comprobada>.');
- const assessment=html.match(/<section class="case-section offer-assessment[^"]*">([\s\S]*?)<\/section>/)[1];assert.equal((assessment.match(/<p[ >]/g)||[]).length,2);assert.match(assessment,/Fuente del anuncio|Valoración registrada/);assert.doesNotMatch(assessment,/<small|<details|<h3/);assert.match(assessment,/Valoración completa conservada/);
+ const assessment=html.match(/<section class="case-section offer-assessment[^"]*">([\s\S]*?)<\/section>/)[1];assert.equal((assessment.match(/<p[ >]/g)||[]).length,2);assert.match(assessment,/Valorado el|Comprobado el/);assert.doesNotMatch(assessment,/<small|<details|<h3/);assert.match(assessment,/Valoración completa conservada/);
  assert.doesNotMatch(html,/Confirmar la parte fija|Consultar fuente|data-checks=/);assert.equal(job.assessment.unknowns[0],'Confirmar la parte fija.');assert.deepEqual(job,before);
- job.assessment.isCurrent=false;const stale=t.a.detail();assert.doesNotMatch(stale,/Tu mejor argumento|Automaticé informes|Automatización &lt;comprobada&gt;/);assert.match(stale,/han cambiado la oferta, tus preferencias o tu experiencia/);
+ job.assessment.isCurrent=false;const stale=t.a.detail();assert.doesNotMatch(stale,/Tu mejor argumento|Automaticé informes|Automatización &lt;comprobada&gt;/);assert.match(stale,/Valoración pendiente de actualizar/);
  job.assessment.isCurrent=true;job.apply='No';assert.match(t.a.detail(),/Encaje contigo/);assert.doesNotMatch(t.a.detail(),/Por qué se descarta|Tu mejor argumento/);
 });
 
@@ -2036,7 +2063,8 @@ test('the simplified offer view keeps actions and internal proof without duplica
  assert.doesNotMatch(html,/Conviene comprobar|Confirmar días presenciales|Situación actual/);assert.match(html,/data-investigate="one">Pedir comprobación/);
  assert.doesNotMatch(html,/assessment-details|Otra duda completa conservada|Consultar fuente/);assert.equal(job.assessment.unknowns[1],'Otra duda completa conservada.');assert.equal(job.assessment.references[0].url,'https://example.org/offer');
  assert.ok(html.indexOf('offer-status')<html.indexOf('Condiciones'));assert.ok(html.indexOf('Condiciones')<html.indexOf('Formulario de solicitud'));
- assert.match(html,/data-change="one"/);assert.doesNotMatch(html,/data-checks=/);assert.match(html,/data-activity="one"/);assert.deepEqual(t.model,before);
+ assert.match(html,/data-change="one"/);assert.doesNotMatch(html,/data-checks=/);assert.doesNotMatch(html,/data-activity="one"/);assert.deepEqual(t.model,before);
+ t.model.history=[{id:'seen',opportunityId:'one',title:'Oferta registrada',at:'2026-10-01T10:00:00Z',actor:'Agente'}];assert.match(t.a.detail(),/data-activity="one"/);
  job.assessment.isCurrent=false;assert.doesNotMatch(t.a.detail(),/Conviene comprobar|Confirmar días presenciales/);
 });
 test('application sections keep verified destinations and the exact submitted material',()=>{
@@ -2092,7 +2120,7 @@ test('fit copy never turns a pending eligibility check into a human rejection or
  }
  job.assessment.reason='';assert.doesNotMatch(t.a.detail(),/offer-assessment/);assert.equal(job.assessment.bestArgument.experienceQuote,'Automaticé informes de una empresa ficticia.');
  job.assessment.reason='Tu experiencia con Empresa <ficticia> no acredita SQL avanzado.';assert.match(t.a.detail(),/Empresa &lt;ficticia&gt; no acredita SQL avanzado/);
- job.assessment.isCurrent=false;assert.doesNotMatch(t.a.detail(),/no acredita SQL avanzado/);assert.match(t.a.detail(),/Esta valoración necesita actualizarse/);
+ job.assessment.isCurrent=false;assert.doesNotMatch(t.a.detail(),/no acredita SQL avanzado/);assert.match(t.a.detail(),/Valoración pendiente de actualizar/);
 });
 
 test('all state labels keep plain text and a decorative vector while unresolved sends retain their recovery action',()=>{
@@ -2158,15 +2186,13 @@ test('detail keeps secondary actions open and change visible in the banner durin
  Object.defineProperty(main,'innerHTML',{get(){return html;},set(value){html=value;disclosures=disclosures.map(item=>({id:item.id,open:false}));}});
  const before=structuredClone(t.model);t.a.render(true);assert.ok(disclosures.every(item=>item.open));assert.deepEqual(t.model,before);
  assert.match(html,/<details class="case-disclosure case-more"[^>]*>[\s\S]*data-unselect="one"/);
- assert.match(html.match(/<section class="case-status offer-status"[\s\S]*?<\/section>/)[0],/class="offer-change" data-change="one">Pedir cambio/);assert.equal((html.match(/data-change="one"/g)||[]).length,1);
+ assert.match(html,/<details class="case-disclosure case-more"[^>]*>[\s\S]*<button data-change="one">Pedir cambio/);assert.doesNotMatch(html.match(/<section class="case-status offer-status"[\s\S]*?<\/section>/)[0],/data-change=/);assert.equal((html.match(/data-change="one"/g)||[]).length,1);
 });
 
-test('summary links one current recommendation directly to the existing offer with no write',()=>{
+test('summary leaves offer actions to Ofertas and does not single out an offer to look at first',()=>{
  const t=setup(),make=(id,priority)=>({id,priority,company:'Empresa '+id,title:'Analista',state:'Preparar',apply:'Revisar',requests:[],packages:[],questions:[],missing:['review'],assessment:{isCurrent:true,unknowns:['Comprobar modalidad.']}});
  t.model.opportunities=[make('b','B'),make('a','A')];const before=structuredClone(t.model),html=t.a.agentPage();
- assert.equal((html.match(/class="offer-recommendation"/g)||[]).length,1);assert.match(html,/Empresa a/);assert.match(html,/offer-recommendation-role"> · Analista/);assert.match(html,/data-job="a">Ver oferta/);
- assert.doesNotMatch(html,/data-investigate|data-select|data-approve/);assert.deepEqual(t.model,before);
- t.model.opportunities[1].assessment.isCurrent=false;assert.match(t.a.agentPage(),/data-job="b">Ver oferta/);
+ assert.doesNotMatch(html,/offer-recommendation|Para mirar primero|data-investigate|data-select|data-approve/);assert.match(html,/data-open-offer-state="logradas"/);assert.deepEqual(t.model,before);
 });
 test('retired checks links return to the offer or summary without exposing or changing proof',async()=>{
  const t=setup(),job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:['review'],draft:{messageUsage:'unused'},answers:{},conditions:{},evidence:[{'Condición':'Modalidad','Texto o motivo':'PRIVATE ORIGINAL PROOF','Fuente':'https://example.org/offer'}]};
@@ -2182,13 +2208,13 @@ test('retired checks links return to the offer or summary without exposing or ch
 test('a simple offer heading retains concrete blockers, mode, deadlines and uncertain delivery safeguards',()=>{
  const t=setup(),job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:['review'],draft:{messageUsage:'unused'},answers:{},conditions:{},assessment:{isCurrent:true,reason:'Tus informes encajan. Falta comprobar SQL avanzado.',unknowns:['Confirmar contrato.'],references:[]}};
  t.model.opportunities=[job];t.a.setSelected(job.id);const heading=()=>t.a.detail().match(/<section class="case-status offer-status"[\s\S]*?<\/section>/)[0];
- let html=heading();assert.match(html,/<strong data-offer-state="sin-elegir"><svg[^>]*data-icon="choice"[\s\S]*?<\/svg>Por decidir<\/strong>/);assert.match(html,/Solicitar con revisión/);assert.match(html,/Auto-solicitud/);assert.match(html,/class="offer-change" data-change="one">Pedir cambio/);assert.doesNotMatch(html,/Situación actual|Conviene comprobar|Tus informes|Confirmar contrato|offer-request-options/);
+ let html=heading();assert.match(html,/<strong data-offer-state="sin-elegir"><svg[^>]*data-icon="choice"[\s\S]*?<\/svg>Por decidir<\/strong>/);assert.match(html,/Solicitar con revisión/);assert.match(html,/Auto-solicitud/);assert.match(html,/data-offer-outcome="discard"/);assert.doesNotMatch(html,/data-change=|data-user-sent=/);assert.doesNotMatch(html,/Situación actual|Conviene comprobar|Tus informes|Confirmar contrato|offer-request-options/);
  job.selection={selected:true,mode:'auto'};job.requests=[{id:'queued',type:'review',status:'queued'}];html=heading();assert.match(html,/En preparación<\/strong>[\s\S]*Auto-solicitud/);assert.doesNotMatch(html,/preparará|Puedes seleccionar|Último registro/);
- job.requests=[{id:'blocked',type:'review',status:'blocked',need:'access',summary:'Inicia sesión en el portal para continuar.',result:'PRIVATE FULL TECHNICAL PROOF'}];html=heading();assert.match(html,/Inicia sesión en el portal para continuar/);assert.match(html,/data-resolve="one"/);assert.doesNotMatch(html,/PRIVATE FULL TECHNICAL PROOF/);
+ job.requests=[{id:'blocked',type:'review',status:'blocked',need:'access',summary:'Inicia sesión en el portal para continuar.',result:'PRIVATE FULL TECHNICAL PROOF'}];html=heading();assert.match(html,/Inicia sesión en el portal para continuar/);assert.doesNotMatch(html,/data-resolve=/);assert.match(html,/data-retry="blocked"[^>]*>Ya he completado el acceso</);assert.match(html,/ventana del navegador que usa el agente/);assert.doesNotMatch(html,/PRIVATE FULL TECHNICAL PROOF/);
  job.questions=[{key:'custom_idioma',label:'Nivel de inglés'}];html=heading();assert.match(html,/>Por atender<\/strong>/);assert.match(html,/Nivel de inglés/);assert.match(html,/data-answers="one"/);
  job.questions=[];job.requests=[{id:'uncertain',type:'send',status:'blocked',startedAt:'2026-10-01T10:00:00Z',updatedAt:'2026-10-01T10:05:00Z'}];html=heading();assert.match(html,/El envío quedó sin confirmar/);assert.match(html,/data-copy-recovery="uncertain"/);assert.doesNotMatch(html,/data-approve=|data-select=/);
- job.requests=[{id:'running',type:'send',status:'running',updatedAt:new Date().toISOString()}];html=heading();assert.match(html,/data-change=/);assert.doesNotMatch(html,/data-select=/);
- job.requests=[];job.sent={at:'2026-10-02T10:00:00Z'};html=heading();assert.match(html,/data-change=/);assert.doesNotMatch(html,/data-select=/);job.sent=null;
+ job.requests=[{id:'running',type:'send',status:'running',updatedAt:new Date().toISOString()}];html=heading();assert.doesNotMatch(html,/data-select=/);assert.match(t.a.detail(),/<button data-change="one">Pedir cambio/);
+ job.requests=[];job.sent={at:'2026-10-02T10:00:00Z'};html=heading();assert.match(html,/data-followup-check=/);assert.doesNotMatch(html,/data-select=|data-change=/);job.sent=null;
  job.requests=[];job.state='Entrevista';job.next='Confirma tu disponibilidad para la entrevista.';job.externalDeadline='2026-10-08';html=heading();assert.match(html,/Confirma tu disponibilidad/);assert.match(html,/Plazo:/);
 });
 
@@ -2383,7 +2409,7 @@ test('offer notes use their saved scope and can be recovered from backups withou
 
 test('desktop offers page uses counted segments, a heading action and Escape to leave multi-select',async()=>{
  const t=setup(),base={title:'ANALISTA DE DATOS SENIOR',state:'Investigar',apply:'Sí, aclarar',requests:[],packages:[],questions:[],missing:[]};
- let html=t.a.applyPage();assert.match(html,/class="offers-heading"><div><h1>Ofertas<\/h1>[\s\S]*?<\/div><button class="primary offers-add" data-screen="nueva">/);assert.doesNotMatch(html,/data-bulk-mode/);
+ let html=t.a.applyPage();assert.match(html,/class="offers-heading"><div><h1>Ofertas<\/h1>[\s\S]*?<\/div><div class="offers-heading-actions"><button class="primary offers-search" data-run-search=""[^>]*>[\s\S]*?Buscar ofertas nuevas<\/button><button class="offers-add" data-screen="nueva">/);assert.doesNotMatch(html,/data-bulk-mode/);
  t.model.opportunities=[{...base,id:'one',company:'TECDATA ENGINEERING'},{...base,id:'two',company:'IBM'}];const before=structuredClone(t.model);
  html=t.a.applyPage();assert.match(html,/data-flow-filter="todas"[^>]*>Todas <span class="filter-count">2<\/span><\/button>/);assert.match(html,/data-bulk-mode="1"[^>]*>Seleccionar varias/);
  assert.match(html,/<span class="company-name">Tecdata Engineering<\/span>/);assert.match(html,/<span class="company-name">IBM<\/span>/);assert.match(html,/<td title="ANALISTA DE DATOS SENIOR"><span class="offer-title-text">Analista de Datos Senior<\/span>/);
@@ -2487,11 +2513,42 @@ test('saving a nondefault strategy keeps its stable identifier in preview, opera
  assert(!t.storage.has('stubbs_jobs-draft:busqueda:profile:search-two'));
 });
 
-test('filtering a strategy shows a shared vacancy once, preserves the nine columns and never changes permission',async()=>{
+test('filtering a strategy uses its current evaluation, keeps historical appearances and never changes permission',async()=>{
  const t=setup();strategyFixture(t);const base={title:'TEST oferta',state:'Investigar',apply:'Sí',requests:[],packages:[],questions:[],missing:[],draft:{},answers:{}};
- const model=t.a.getModel();model.opportunities=[{...base,id:'shared',company:'TEST compartida',searchProfileIds:['search-current','search-two']},{...base,id:'first',company:'TEST solo BI',searchProfileIds:['search-current']}];const before=structuredClone(model);
+ const model=t.a.getModel();model.opportunities=[{...base,id:'shared',company:'TEST compartida',searchProfileId:'search-two',searchProfileIds:['search-current','search-two']},{...base,id:'first',company:'TEST solo BI',searchProfileId:'search-current',searchProfileIds:['search-current']}];const before=structuredClone(model);
  t.a.setScreenState('solicitar');await t.dispatchMain('change',{dataset:{offerProfile:'1'},value:'search-two'});
  const html=t.a.applyPage();assert.equal((html.match(/data-job-row="shared"/g)||[]).length,1);assert.doesNotMatch(html,/data-job-row="first"/);assert.equal((html.match(/class="column-title"/g)||[]).length,9);assert.deepEqual(t.a.getModel(),before);
+});
+
+test('offers found by a morning search appear under their current IA or BI profile',async()=>{
+ const t=setup(),base={state:'Investigar',requests:[],packages:[],questions:[],missing:[]};
+ t.model.searchProfiles=[{id:'morning',name:'Técnico de mañana'},{id:'ai',name:'IA aplicada'},{id:'bi',name:'Datos y BI'}];
+ t.model.defaultSearchProfileId='morning';
+ t.model.opportunities=[
+  {...base,id:'white',company:'TEST White',title:'AI Engineer',searchProfileId:'ai',searchProfileIds:['ai','morning']},
+  {...base,id:'logicalis',company:'TEST Logicalis',title:'Data Engineer',searchProfileId:'bi',searchProfileIds:['bi','morning']}
+ ];
+ const before=structuredClone(t.model);
+ t.a.setScreenState('solicitar');
+ for(const [profile,shown,hidden] of [['morning',[],['white','logicalis']],['ai',['white'],['logicalis']],['bi',['logicalis'],['white']]]){
+  await t.dispatchMain('change',{dataset:{offerProfile:'1'},value:profile});
+  const html=t.a.applyPage();
+  for(const id of shown)assert.match(html,new RegExp(`data-job-row="${id}"`));
+  for(const id of hidden)assert.doesNotMatch(html,new RegExp(`data-job-row="${id}"`));
+  assert.match(html,/Ofertas agrupadas en este perfil\./);
+ }
+ assert.deepEqual(t.model,before);
+});
+
+test('a sent offer follows its display profile while keeping the original evaluation visible',async()=>{
+ const t=setup();strategyFixture(t);
+ const base={title:'TEST oferta',state:'Enviada',sent:{at:'2026-10-16T10:00:00Z'},apply:'Ya enviada',requests:[],packages:[],questions:[],missing:[],draft:{},answers:{}};
+ t.a.getModel().opportunities=[{...base,id:'sent',company:'TEST enviada',searchProfileId:'search-current',searchProfileName:'Datos y BI',displaySearchProfileId:'search-two',displaySearchProfileName:'IA aplicada'}];
+ t.a.setScreenState('solicitar');await t.dispatchMain('change',{dataset:{offerProfile:'1'},value:'search-two'});
+ assert.match(t.a.applyPage(),/data-job-row="sent"/);
+ await t.dispatchMain('change',{dataset:{offerProfile:'1'},value:'search-current'});
+ assert.doesNotMatch(t.a.applyPage(),/data-job-row="sent"/);
+ t.a.setSelected('sent');assert.match(t.a.detail(),/Perfil de evaluación: Datos y BI · En Ofertas: IA aplicada/);
 });
 
 test('a criteria edit only proposes previous rounds from its own search profile',async()=>{
@@ -2554,9 +2611,9 @@ test('offer conditions contain published facts and the evaluation profile change
  t.a.getModel().opportunities=[job];t.a.setSelected(job.id);
  const html=t.a.detail(),conditions=html.match(/<section class="case-section offer-conditions"[\s\S]*?<\/section>/)[0];
  assert.doesNotMatch(conditions,/data-offer-criteria|Evaluada con|Cambiar perfil/);
- assert.match(html,/<p class="helper offer-criteria-basis">Evaluada con: TEST perfil anterior · Perfil eliminado<\/p>/);
+ assert.match(html,/<p class="helper offer-criteria-basis">Perfil de evaluación: TEST perfil anterior \(eliminado\)<\/p>/);
  const more=html.match(/<details class="case-disclosure case-more"[\s\S]*?<\/details>/)[0];
- assert.doesNotMatch(more,/<details[^>]*\bopen\b/);assert.match(more,/Cambiar perfil de evaluación/);
+ assert.doesNotMatch(more,/<details[^>]*\bopen\b/);assert.match(more,/Valorar con otro perfil de búsqueda/);assert.match(more,/Perfil de evaluación: TEST perfil anterior/);assert.match(more,/data-form="offer-note"/);
  job.sent={at:'2026-10-08T20:00:00Z'};assert.doesNotMatch(t.a.detail(),/data-offer-criteria-change/);
 });
 test('Sobre mi orders contact, experience, form answers, consents and demographics and joins a yes/no answer with its detail',()=>{
@@ -2597,4 +2654,84 @@ test('Sobre mi orders general personal fields by meaning rather than creation or
  assert.match(html,/name="custom_self_employed"[\s\S]*value="false" selected/);
  assert.match(html,/name="custom_current_gross_annual_salary_eur"[^>]*value="30000"/);
  t.model.fieldDefinitions=Object.fromEntries(Object.entries(definitions).reverse());assert.equal(about(),html);
+});
+
+test('Sobre mi puts the two previously isolated short answers on the same row',()=>{
+ const t=setup();t.model.fieldDefinitions=Object.fromEntries([
+  ['custom_open_to_relocation','Dispuesto a mudarse por trabajo'],
+  ['custom_disability','Tengo alguna discapacidad'],
+  ['custom_legally_protected_status','Estatus legalmente protegido']
+ ].map(([key,label])=>[key,{key,label,type:'boolean',scope:'global'}]));
+ const about=t.a.profileForm().split('id="profile-about"')[1].split('</section>')[0];
+ const relocation=about.indexOf('name="custom_open_to_relocation"'),disability=about.indexOf('name="custom_disability"'),survey=about.indexOf('name="demographicSurveyParticipation"');
+ assert(relocation>=0&&relocation<disability&&disability<survey);
+ assert.doesNotMatch(about.slice(relocation,disability),/profile-field-wide|name="demographicSurveyParticipation"/);
+});
+
+test('the search button saves a search for the chosen profile without copying a request',async()=>{
+ const t=setup();t.model.searchProfiles=[{id:'p1',name:'Perfil uno'},{id:'p2',name:'Perfil dos'}];t.model.defaultSearchProfileId='p1';
+ let html=t.a.applyPage();assert.match(html,/data-run-search="p1"[^>]*title="Guarda una búsqueda con «Perfil uno»[^"]*"[^>]*>[\s\S]*?Buscar ofertas nuevas</);
+ assert.match(html,/Las búsquedas nuevas usan «Perfil uno» salvo que elijas otro perfil/);assert.doesNotMatch(html,/data-copy-agent-command/);
+ await t.dispatchMain('change',{dataset:{offerProfile:'1'},value:'p2',closest(){return null;}});
+ html=t.a.applyPage();assert.doesNotMatch(html,/Las búsquedas nuevas usan/);
+ assert.match(html,/Ofertas agrupadas en este perfil\./);
+ assert.match(html,/data-run-search="p2"[^>]*>[\s\S]*?Buscar con este perfil</);
+});
+test('the offers table distinguishes unconfirmed and incompatible morning schedules under the selected profile',async()=>{
+ const t=setup(),base={company:'Empresa ficticia',title:'Puesto técnico',state:'Investigar',requests:[],packages:[],questions:[],missing:[],searchProfileId:'p1',searchProfileIds:['p1']};
+ t.model.searchProfiles=[{id:'p1',name:'Técnico de mañana'},{id:'p2',name:'Otro perfil'}];t.model.defaultSearchProfileId='p1';
+ t.model.opportunities=[
+  {...base,id:'unknown',schedule:null,scheduleChecks:{p1:'unknown'},minimums:{canApply:true,unknowns:[],violations:[]}},
+  {...base,id:'partial',schedule:'Jornada intensiva solo en verano',scheduleChecks:{p1:'unknown'},minimums:{canApply:true,unknowns:[],violations:[]}},
+  {...base,id:'incompatible',schedule:'9:00-18:00',scheduleChecks:{p1:'violation'},minimums:{canApply:true,unknowns:[],violations:[]}}
+ ];
+ await t.dispatchMain('change',{dataset:{offerProfile:'1'},value:'p1',closest(){return null;}});
+ const html=t.a.applyPage();
+ assert.match(html,/>Sin confirmar<\/td>/);
+ assert.match(html,/Sin confirmar · Jornada intensiva solo en verano/);
+ assert.match(html,/>No cumple<\/td>/);
+});
+test('runSearch queues a discovery for that profile and explains how to start it',async()=>{
+ const t=setup();t.model.searchProfiles=[{id:'p1',name:'Perfil uno'}];t.model.defaultSearchProfileId='p1';const calls=[];
+ t.env.fetch=(path,options)=>{const body=JSON.parse(options.body);calls.push(body.operation);return Promise.resolve({ok:true,json:async()=>({state:{...t.model,revision:1,requests:[{id:'s',type:'discovery',status:'queued',searchProfileId:'p1',updatedAt:'2026-10-16T10:00:00Z'}]}})});};
+ await t.click({dataset:{runSearch:'p1'}});
+ assert.deepEqual(calls,[{kind:'ui-request',type:'discovery',searchProfileId:'p1'}]);
+ assert.match(t.env.document.querySelector('#toast').innerHTML,/Búsqueda con «Perfil uno» guardada para el agente\. Para iniciarla, pide «Continúa con Stubbs Jobs»/);
+});
+test('unscreened announcements are listed apart from the offers table with undoable decisions',async()=>{
+ const t=setup();t.model.searchProfiles=[{id:'p1',name:'Perfil uno'},{id:'p2',name:'Perfil dos'}];
+ t.model.pendingEntries=[{id:'e1',company:'Empresa A',title:'Analista',url:'https://example.org/a',firstSeenAt:'2026-10-10T10:00:00Z',searchProfileIds:['p1']},
+  {id:'e2',company:'Empresa B',title:'Ingeniero',url:'javascript:alert(1)',firstSeenAt:null,searchProfileIds:['p2']}];
+ let html=t.a.applyPage();assert.match(html,/<details class="pending-entries" id="pending-entries">/);assert.match(html,/2 anuncios encontrados sin revisar/);
+ assert.match(html,/<a href="https:\/\/example\.org\/a" target="_blank" rel="noopener"><strong>Empresa A<\/strong> · Analista<\/a>/);
+ assert.doesNotMatch(html,/javascript:alert/);assert.match(html,/data-entry-add="e1"/);assert.match(html,/data-entry-discard="e2"/);assert.match(html,/Descartar los 2 anuncios/);
+ assert.doesNotMatch(html.slice(html.indexOf('<table')),/Empresa A/);
+ const calls=[];t.env.fetch=(path,options)=>{calls.push(JSON.parse(options.body).operation);return Promise.resolve({ok:true,json:async()=>({state:{...t.model,revision:1,pendingEntries:[]}})});};
+ await t.click({dataset:{entryDiscard:'e1'}});
+ assert.deepEqual(calls,[{kind:'ui-entry-decision',decision:'discard',entryIds:['e1'],expectedRevision:0}]);
+ assert.equal(t.a.applyPage().includes('pending-entries'),false);
+});
+test('an agent stop in the offer detail offers another attempt',()=>{
+ const t=setup();t.model.opportunities=[{id:'one',company:'Empresa',title:'Analista',state:'Investigar',apply:'Sí, aclarar',selection:{selected:true,mode:'auto'},packages:[],questions:[],missing:[],
+  requests:[{id:'r1',type:'investigate',status:'blocked',actionOwner:'agent',need:'other',summary:'La empresa debe confirmar el remoto.'}]}];
+ t.a.setSelected('one');const detail=t.a.detail();
+ assert.match(detail,/<button data-retry="r1"[^>]*>Pedir otro intento<\/button>/);assert.match(detail,/La empresa debe confirmar el remoto/);
+});
+test('Lo que busco offers a schedule minimum with an explicit no-requirement choice',()=>{
+ const t=setup();t.model.searchContext={targetRoles:'Analista',requiredSchedule:'morning'};
+ const html=t.a.profileForm();
+ assert.match(html,/<span[^>]*>Horario obligatorio<\/span><select name="requiredSchedule"[^>]*data-type="choice">/);
+ assert.match(html,/<option value="">Sin requisito<\/option><option value="morning" selected>Solo de mañana<\/option>/);
+ t.model.searchContext.requiredSchedule='';assert.match(t.a.profileForm(),/<option value="" selected>Sin requisito<\/option>/);
+ assert.match(html,/La oferta se descarta si el anuncio publica un horario incompatible o no confirma este horario/);
+});
+test('the offer detail says who chose it and whether the person instructed the agent',()=>{
+ const t=setup(),base={id:'one',company:'Empresa',title:'Analista',state:'Investigar',apply:'Sí, aclarar',packages:[],requests:[],questions:[],missing:['review']};
+ t.model.opportunities=[{...base,selection:{selected:true,mode:'auto',actor:'Agente',mandate:{text:'Aplica a todas las de BI',at:'2026-10-15T21:20:00Z'}}}];
+ t.a.setSelected('one');let detail=t.a.detail();
+ assert.match(detail,/La eligió el agente porque se lo pediste: «Aplica a todas las de BI»/);
+ t.model.opportunities=[{...base,selection:{selected:true,mode:'auto',actor:'Agente'}}];detail=t.a.detail();
+ assert.match(detail,/La eligió el agente sin que se lo pidieras, así que revisarás la solicitud antes del envío\./);
+ t.model.opportunities=[{...base,selection:{selected:true,mode:'auto',actor:'Usuario'}}];detail=t.a.detail();
+ assert.doesNotMatch(detail,/offer-selection-origin/);
 });

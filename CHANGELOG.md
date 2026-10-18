@@ -1,5 +1,32 @@
 # Notas de cambios
 
+## Sin publicar · Horario confirmado y CV adaptado · 18/10/2026
+
+- **Horario obligatorio confirmado:** si un perfil exige horario (por ejemplo, solo de mañana), una oferta cuyo anuncio no lo confirma (no lo publica, dice «flexible» o solo habla del verano) se descarta automáticamente con el motivo «El anuncio no confirma tu horario obligatorio». Vuelve sola a Por decidir cuando se registra un horario compatible. Antes quedaba «Por confirmar» y se podía elegir y enviar. La columna Horario distingue «Sin confirmar» de «No cumple». Las solicitudes ya enviadas no cambian.
+- Al descartarse automáticamente una oferta, sus tareas pendientes se cancelan en el mismo momento, en vez de esperar a la siguiente acción.
+- **CV adaptado o justificado:** antes de dar por revisada una solicitud, el agente debe indicar si el CV se adaptó a esa oferta (un PDF propio que no use otra oferta) o si reutiliza el CV general, y explicar por qué. La pantalla «Revisar solicitud» lo muestra («Adaptado a esta oferta» o «CV general, sin adaptar a esta oferta») junto con el motivo, que antes no se veía en ningún sitio.
+- **CV adaptado con un comando:** `build-cv` prepara un CV de una página en español o inglés para cada oferta con los datos de tu perfil confirmado, elegidos y ordenados según el anuncio. Rechaza cualquier habilidad, herramienta, cifra o puesto que no conste en tu perfil y no usa proyectos ocultos. Cada oferta recibe su propio PDF, que aparece en Currículums y como CV de esa solicitud. Antes no había forma oficial de hacerlo y las solicitudes salían con el CV general.
+- Documentación del agente sincronizada entre la edición personal y la pública (frases duplicadas, notas del 17/10 y nombre del CV adjunto).
+
+## Sin publicar · Revisión de búsqueda y solicitudes · 16/10/2026
+
+- **Arreglo urgente:** los perfiles de búsqueda guardados antes de añadir «Horario obligatorio» impedían abrir `agent-status` («Hay un perfil de búsqueda incompleto o duplicado»). Ahora se leen como «Sin requisito» y se completan sin perder nada.
+- Los anuncios captados antes de existir los perfiles de búsqueda (154 en una instalación real) ya no quedan sin revisar para siempre: pertenecen al perfil predeterminado, cuya próxima búsqueda los revisa contrastándolos con todos los perfiles.
+- Pedir una búsqueda después de cambiar los criterios de un perfil sustituye a la que seguía en cola sin empezar con los criterios anteriores, en vez de dejar dos búsquedas pendientes.
+- Con un perfil 100 % remoto, el captador deja fuera los anuncios que en su propio título o ubicación dicen solo «Híbrido» o «Presencial» (78 de 267 en una instalación real); los que mencionan una opción remota o no lo dicen siguen llegando.
+- El captador reconoce más países y ciudades (Portugal, Francia, Alemania, Países Bajos, Irlanda, Italia, Bélgica… y muchas ciudades españolas), respeta zonas como «Unión Europea» o «Anywhere» y no descarta una lista mixta como «Bilbao; Lisboa».
+- Ofertas recuerda bajo el título la búsqueda guardada o en curso, y Resumen indica con qué perfil se buscará y permite «Cancelar búsqueda» antes de que empiece.
+- La tarea que crea «Solicitar con revisión» se llama «Preparar solicitud», como la ficha («En preparación»), en lugar de «Comprobar solicitud».
+- Modalidad más fiel al anuncio: «Semi-remoto», «Semipresencial», «Teletrabajo parcial», «Remoto 2 días a la semana» o «Remoto con 2 días presenciales» cuentan como híbrido y ya no pasan por 100 % remoto. Las visitas al mes o al año siguen siendo una cuestión de viajes, y una alternativa real («Remoto o semipresencial») se conserva.
+- El captador reconoce femeninos en -a de puestos en -e («Dependiente» ↔ «Dependienta», «Asistente» ↔ «Asistenta») y lee por separado los puestos unidos con «y»/«o» dentro de una frase («Auxiliar administrativo junior y puestos de recepción»), sin convertir una palabra suelta en un puesto.
+- El captador lee también las webs de empleo de empresas en Lever (también la región UE), Workable, Personio, SmartRecruiters y Recruitee: al añadir en «Webs» su dirección (jobs.lever.co/empresa, apply.workable.com/empresa, empresa.jobs.personio.de, jobs.smartrecruiters.com/Empresa, empresa.recruitee.com) obtiene el listado completo de su API pública, recorre las páginas hasta comprobar el final y marca como parcial cualquier página o total sin acreditar. Cada vacante conserva una identidad estable en ese portal, y la web exclusiva sigue limitada a esa empresa. Antes quedaban como cobertura parcial sin vacantes.
+- Tras iniciar sesión o completar una verificación del portal que bloqueaba al agente, **Ya he completado el acceso** en la ficha devuelve esa tarea a la cola en un paso. No se ofrece para envíos inciertos, que siguen necesitando comprobar el portal.
+- La prioridad A/B/C ordena, pero ya no impide que la planificación prepare una oferta elegida.
+- Acciones más rápidas: cada acción devuelve el mismo estado breve que la actualización periódica, en lugar del estado completo. Con 99 ofertas reales, la respuesta baja de 5 MB a alrededor de 1 MB.
+- Actualización del estado más ligera: la vista breve que piden la actualización periódica y cada acción solo prepara el detalle (borradores, respuestas, material enviado, evidencias e historial) de las ofertas que tienes abiertas, y la comprobación de los paquetes conservados evita resoluciones de ruta innecesarias en Windows. Con 99 ofertas reales, preparar el estado breve baja de unos 0,8 s a 0,4 s y el completo de 1,1 s a 0,6 s, con el mismo resultado.
+- Resumen y los avisos de la ficha indican cómo iniciar las tareas guardadas («Continúa con Stubbs Jobs»), también tras autorizar un envío, pedir una comprobación o reintentar.
+- El servidor local responde con su mensaje de error aunque una petición rechazada no se haya leído entera; en Windows antes se cortaba la conexión.
+
 ## Sin publicar · Preparación para más perfiles · 14/10/2026
 
 - El agente consume mucho menos contexto: `agent-status` lista por páginas de 20 las ofertas abiertas (primero las que tienen encargos o cambios pendientes), deja descartadas y cerradas para `--offers closed|all`, abrevia pruebas largas y, con más de 50 encargos en cola, conserva todos los IDs sin repetir su detalle. Con 66 ofertas reales pasa de 233 KB a 81 KB, y deja de crecer con el historial.

@@ -1,5 +1,7 @@
 """Hard conditions decide eligibility; missing facts and technical fit do not.
 
+The one exception is a required schedule, which must be confirmed (18/10/2026).
+
 Only recorded condition facts are used. Never parse prose, job titles, priority,
 CV contents or an assessment into a rejection or a sending permission.
 """
@@ -20,6 +22,15 @@ def number(value):
     return type(value) in (int, float) and math.isfinite(value) and value >= 0
 
 
+REMOTE_WORD = r'(?:remot[oa]s?|remote|teletrabajo)'
+WEEKLY_DAYS = r'(?:\d|uno|un|dos|tres|cuatro)\s*(?:dias?|days?)\b(?![^.;\n]{0,25}\b(?:al mes|mensual(?:es)?|month|monthly|trimestre|quarter|ano|year)\b)'
+PARTIAL_REMOTE = re.compile(
+    r'\bsemi[- ]?(?:remot[oa]s?|remote|presencial(?:es)?)\b|\bteletrabajo parcial\b|\bremot[oa]s? parcial(?:es)?\b|'
+    r'\bparcialmente (?:remot[oa]|en remoto)\b|\bpartially remote\b|\bpartly remote\b|'
+    r'\b' + REMOTE_WORD + r'\b\s+' + WEEKLY_DAYS + '|'
+    r'\b' + REMOTE_WORD + r'\b[^.;\n]{0,30}?\b' + WEEKLY_DAYS + r'[^.;\n]{0,20}?\b(?:presencial(?:es)?|en (?:la )?oficina|in (?:the )?office|on[- ]?site)\b')
+
+
 def categories(value, kind, preference=False):
     """Read categorical fields, including qualifiers, without mining other prose.
 
@@ -32,9 +43,13 @@ def categories(value, kind, preference=False):
         return set()
     if preference and re.search(r'prefer(?:ible|entemente|encia)|deseable|idealmente', text):
         return set()
+    if kind == 'mode':
+        # Partial remote work is an explicit hybrid arrangement, not 100 % remote.
+        # Other alternatives in the same label are still read normally.
+        text = PARTIAL_REMOTE.sub('hibrido', text)
     patterns = ({'remote': r'\b(?:remot[oa]|remote|teletrabajo)\b',
                  'hybrid': r'\b(?:hibrid[oa]|hybrid)\b',
-                 'onsite': r'\b(?:presencial|on[- ]?site|onsite)\b'} if kind == 'mode' else
+                 'onsite': r'\b(?:presencial(?:es)?|on[- ]?site|onsite)\b'} if kind == 'mode' else
                 {'permanent': r'\b(?:indefinid[oa]|permanent|indefinite)\b',
                  'temporary': r'\b(?:temporal|temporary|fixed[- ]term|duracion determinada)\b',
                  'self_employed': r'\b(?:freelance|autonom[oa]|mercantil|self[- ]employed|contractor)\b',
@@ -76,6 +91,75 @@ def categories(value, kind, preference=False):
         options.add(current[2])
         previous = current
     return options
+
+
+SCHEDULES = {'morning': 'solo de mañana', 'afternoon': 'solo de tarde', 'continuous': 'jornada continua, sin partida'}
+MORNING_END = 15 * 60 + 30
+AFTERNOON_START = 13 * 60
+HOUR_RANGE = re.compile(r'\b(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm|h)?\s*(?:-|–|a|to|hasta)\s*(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm|h)?\b')
+
+
+def schedule_ranges(text):
+    """Published working hours as (start, end) minutes; dates and other figures are ignored."""
+    result = []
+    for match in HOUR_RANGE.finditer(text):
+        values = []
+        for hour, minute, suffix in ((match[1], match[2], match[3]), (match[4], match[5], match[6] or match[3])):
+            hour, minute = int(hour), int(minute or 0)
+            if minute >= 60:
+                break
+            if suffix == 'pm' and hour < 12:
+                hour += 12
+            if suffix == 'am' and hour == 12:
+                hour = 0
+            values.append(hour * 60 + minute)
+        if len(values) != 2:
+            continue
+        start, end = values
+        if not 0 <= start < end <= 24 * 60 or end - start > 14 * 60:
+            continue
+        if not (match[2] or match[5] or match[3] or match[6] or re.search(r'hora|horario|jornada|de\s*$', text[:match.start()][-25:])):
+            continue
+        result.append((start, end))
+    return result
+
+
+def schedule_outcome(value, requirement):
+    """'violation', 'ok' or 'unknown' for the recorded schedule of an offer.
+
+    Only the published schedule field is read. An explicit incompatible schedule
+    is a violation; flexibility, a partial season or silence remain unknown.
+    """
+    if requirement not in SCHEDULES:
+        return 'ok'
+    text = normalized(value).strip()
+    if not text or re.search(r'no publicad|sin publicar|no concretad|sin concretar|por confirmar|desconocid|no consta', text):
+        return 'unknown'
+    # A stated ordinary timetable does not prove the year-round requirement
+    # when the same record expressly leaves the summer timetable open.
+    if re.search(r'(?:no (?:se )?(?:especifica|indica|concreta)|sin (?:especificar|indicar|concretar))[^.;]*horario (?:de )?verano', text):
+        return 'unknown'
+    ranges = schedule_ranges(text)
+    split = bool(re.search(r'\bpartid[ao]s?\b|split shift|para comer|pausa (?:para la )?comida|lunch break', text)) or len(ranges) > 1 and any(
+        later[0] - earlier[1] >= 60 for earlier, later in zip(sorted(ranges), sorted(ranges)[1:]))
+    night = bool(re.search(r'\bnoche|nocturn|\bnight', text))
+    shifts = bool(re.search(r'\bturnos? rotativ|rotating shift|\bturnicidad', text))
+    morning = bool(re.search(r'\bmanana|\bmorning', text))
+    afternoon = bool(re.search(r'\btarde|\bafternoon|\bevening', text))
+    if requirement == 'morning':
+        if split or night or shifts or any(end > MORNING_END for start, end in ranges) or afternoon and not morning:
+            return 'violation'
+        return 'ok' if ranges or morning and not afternoon else 'unknown'
+    if requirement == 'afternoon':
+        if split or night or shifts or any(start < AFTERNOON_START for start, end in ranges) or morning and not afternoon:
+            return 'violation'
+        return 'ok' if ranges or afternoon and not morning else 'unknown'
+    if split or shifts:
+        return 'violation'
+    # A long block often hides a lunch break; only a short one confirms continuous hours.
+    if ranges:
+        return 'ok' if all(end - start <= 8 * 60 for start, end in ranges) else 'unknown'
+    return 'ok' if re.search(r'\b(?:jornada )?continu[ao]|intensiv[ao] (?:todo el ano|anual)', text) else 'unknown'
 
 
 def places(value):
@@ -221,6 +305,7 @@ def current_facts(data, row):
     return result
 
 
+@view_cache.cached(lambda data, row: (id(data), row['ID']))
 def view(data, row):
     import app_context
     from personalization import context
@@ -247,6 +332,17 @@ def view(data, row):
         problem = presence_problem(row, search, modes)
         if problem:
             violations.append({'key': 'Remoto España', 'reason': problem})
+    schedule = search.get('requiredSchedule')
+    if schedule in SCHEDULES:
+        outcome = schedule_outcome(row.get('Horario real'), schedule)
+        if outcome == 'violation':
+            violations.append({'key': 'Horario', 'reason': 'El horario publicado no cumple tu requisito: ' + SCHEDULES[schedule] + '.'})
+        elif outcome == 'unknown':
+            # A required schedule must be confirmed (17/10/2026 decision): until the
+            # advertisement or the company confirms it, the offer stays discarded.
+            # The automatic archive is lifted as soon as a compatible schedule is recorded.
+            violations.append({'key': 'Horario', 'unconfirmed': True,
+                               'reason': 'El anuncio no confirma tu horario obligatorio (' + SCHEDULES[schedule] + '). Vuelve a Por decidir cuando conste.'})
     trips = criteria.get('maxTrips')
     if number(trips):
         required_trips = row.get('Viajes mín. al mes')

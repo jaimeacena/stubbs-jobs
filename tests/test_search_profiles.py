@@ -65,6 +65,15 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
         for key,value in originals.items():self.assertEqual(data[key],value)
         self.assertFalse(profiles.migrate(data))
 
+    def test_profiles_saved_before_a_new_search_field_stay_readable_and_neutral(self):
+        for profile in self.data['app']['searchProfiles']:
+            profile['searchContext'].pop('requiredSchedule')
+        self.assertEqual(profiles.get(self.data)['searchContext']['requiredSchedule'],'')
+        import agent_context
+        self.assertEqual(agent_context.view(self.data)["defaultSearchProfileId"],profiles.LEGACY_ID)
+        self.edit(searchPriorities='TEST: mañanas')
+        self.assertEqual(profiles.get(self.data)['searchContext']['requiredSchedule'],'')
+
     def test_duplicate_edits_do_not_change_first_strategy_or_common_answers(self):
         self.data['profile']['salaryExpectationFixed']=35000
         self.duplicate()
@@ -168,6 +177,17 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
         self.apply({'kind':'ui-request-update','id':request['id'],'status':'queued','proof':'TEST: acceso recuperado'})
         self.assertEqual(self.start(request)['round'],frozen)
 
+    def test_new_search_supersedes_only_an_unstarted_search_of_the_same_profile(self):
+        stale=self.queue();self.duplicate();other=self.queue('search-two')
+        self.edit(targetRoles='TEST Data Engineer')
+        current=self.queue()
+        status={r['id']:r['status'] for r in self.data['app']['requests']}
+        self.assertEqual((status[stale['id']],status[other['id']],status[current['id']]),('cancelled','queued','queued'))
+        self.assertEqual(current['round']['searchContext']['targetRoles'],'TEST Data Engineer')
+        running=self.start(current)
+        self.edit(targetRoles='TEST Analytics Engineer');self.queue()
+        self.assertEqual(next(r for r in self.data['app']['requests'] if r['id']==running['id'])['status'],'running')
+
     def test_blocked_strategy_does_not_prevent_another_and_renaming_does_not_duplicate(self):
         request=self.start(self.queue())
         self.apply({'kind':'ui-request-update','id':request['id'],'status':'blocked','proof':'TEST: acceso','summary':'TEST acceso pendiente','need':'access'})
@@ -258,6 +278,44 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'searchProfileId'):
             self.apply({'kind':'ui-criteria-scope','mode':'current','targets':[{'id':'one'}],
                         'expectedRevision':self.data['revision'],'proof':'TEST'})
+        self.assertEqual(self.data,before)
+
+    def test_sent_offer_can_move_in_filters_without_rewriting_its_evaluation_or_delivery(self):
+        self.duplicate()
+        row=w.row_for(self.data,'one');row['Estado']='Cerrada'
+        before=copy.deepcopy({key:self.data['app'].get(key) for key in ('offerCriteria','offerRounds','offerSearches','packages','selections')})
+        original=profiles.offer_info(self.data,'one')
+        material=w.material_versions(self.data)
+        with self.assertRaisesRegex(ValueError,'cambió'):
+            self.apply({'kind':'ui-offer-profile-placement','opportunityId':'one','searchProfileId':'search-two',
+                        'expectedSearchProfileId':'search-two','expectedRevision':self.data['revision'],
+                        'proof':'TEST: corrección de ubicación solicitada'})
+        self.apply({'kind':'ui-offer-profile-placement','opportunityId':'one','searchProfileId':'search-two',
+                    'expectedSearchProfileId':original['displaySearchProfileId'],'expectedRevision':self.data['revision'],
+                    'proof':'TEST: corrección de ubicación solicitada'})
+        shown=profiles.offer_info(self.data,'one')
+        self.assertEqual(shown['displaySearchProfileId'],'search-two')
+        self.assertEqual(shown['searchProfileId'],original['searchProfileId'])
+        self.assertEqual(w.material_versions(self.data),material)
+        self.assertEqual({key:self.data['app'].get(key) for key in before},before)
+
+    def test_open_offer_cannot_use_display_placement_instead_of_evaluation_change(self):
+        self.duplicate()
+        before=copy.deepcopy(self.data)
+        with self.assertRaisesRegex(ValueError,'enviadas o cerradas'):
+            self.apply({'kind':'ui-offer-profile-placement','opportunityId':'one','searchProfileId':'search-two',
+                        'expectedSearchProfileId':profiles.offer_info(self.data,'one')['displaySearchProfileId'],
+                        'expectedRevision':self.data['revision'],'proof':'TEST: intento ficticio'})
+        self.assertEqual(self.data,before)
+
+    def test_display_placement_requires_an_explicit_profile(self):
+        self.duplicate()
+        w.row_for(self.data,'one')['Estado']='Cerrada'
+        before=copy.deepcopy(self.data)
+        with self.assertRaisesRegex(ValueError,'searchProfileId'):
+            self.apply({'kind':'ui-offer-profile-placement','opportunityId':'one',
+                        'expectedSearchProfileId':profiles.offer_info(self.data,'one')['displaySearchProfileId'],
+                        'expectedRevision':self.data['revision'],'proof':'TEST: intento ficticio'})
         self.assertEqual(self.data,before)
 
     def test_planning_an_explicit_strategy_does_not_use_or_change_the_default(self):
