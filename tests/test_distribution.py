@@ -41,6 +41,18 @@ class ReleaseIdentityTests(unittest.TestCase):
 
 
 class SourceDependencyTests(unittest.TestCase):
+    def test_portable_modules_include_their_local_python_dependencies(self):
+        shipped = {Path(name).stem for name in SHARE['MODULES'] if name.endswith('.py')}
+        local = {path.stem for path in (PROJECT / 'tools').glob('*.py')}
+        for name in shipped:
+            tree = ast.parse((PROJECT / 'tools' / (name + '.py')).read_text(encoding='utf-8'))
+            for node in ast.walk(tree):
+                imports = ([item.name.split('.')[0] for item in node.names] if isinstance(node, ast.Import)
+                           else [node.module.split('.')[0]] if isinstance(node, ast.ImportFrom) and node.module else [])
+                for dependency in imports:
+                    if dependency in local:
+                        self.assertIn(dependency, shipped, name + ' imports ' + dependency)
+
     def test_public_tests_include_their_local_python_dependencies(self):
         shipped = {Path(name).stem for name in SHARE['SOURCE_TESTS'] if name.endswith('.py')}
         local = {path.stem for path in (PROJECT / 'tests').glob('*.py')}

@@ -54,7 +54,7 @@ const url=value=>isHttpUrl(value)?esc(value):'#';
 const getJob=id=>model?.opportunities.find(x=>x.id===id)||(model?UI.archive(model).find(x=>x.id===id):null);
 const active=UI.active;
 const labels={queued:'Pendiente del agente',running:'En curso',blocked:'Necesita intervención',interrupted:'Interrumpido',done:'Terminado',cancelled:'Cancelado'};
-const requestNames={change:'Aplicar tus cambios',review:'Comprobar solicitud',investigate:'Comprobar oferta',send:'Enviar solicitud',mail:'Revisión de correo anterior',discovery:'Buscar ofertas'};
+const requestNames={change:'Aplicar tus cambios',review:'Preparar solicitud',investigate:'Comprobar oferta',send:'Enviar solicitud',mail:'Revisión de correo anterior',discovery:'Buscar ofertas'};
 const requestModes={review:{label:'Solicitar con revisión',icon:'eye'},auto:{label:'Auto-solicitud',icon:'bot'}};
 const platformNames={linkedin:'LinkedIn',infojobs:'InfoJobs',indeed:'Indeed',tecnoempleo:'Tecnoempleo',empresas:'Web',glassdoor:'Glassdoor'};
 function lastUserUndo(){return (model?.undo||[]).filter(item=>['Usuario','Usuario'].includes(item.actor)).at(-1);}
@@ -171,16 +171,21 @@ function restoreForm(form=main.querySelector('form[data-form]')){
   form._dirty=true;const info=formFeedback(form,'.form-info');if(info)info.textContent='';
  }catch{}
 }
-async function refresh(force=false,{deferRender=false}={}){
- if(profileSaving||actionBusy||(document.hidden||saving)&&!force)return;
- if(refreshInFlight){await refreshInFlight;if(force)return refresh(true,{deferRender});return;}
- const view=screen+'/'+(selected||'')+'/'+historyLimit,readSerial=mutationSerial;
+// The brief state for the current screen, also returned after each action.
+function stateParams(){
  const params=new URLSearchParams({brief:'1'});
  if(selected&&screen!=='informe')params.set('case',selected);
  if(screen==='revision-multiple')bulkReviewSnapshots.forEach(j=>params.append('case',j.id));
  if(screen==='edicion-multiple')bulkEditor?.jobs.forEach(j=>params.append('case',j.id));
  if(['agente','actividad','informe'].includes(screen)||selected)params.set('history','1');
  if(screen==='informe'&&selected?.startsWith('event:')){const item=activityRecord(selected.slice(6));if(item?.opportunityId)params.set('case',item.opportunityId);}
+ return params;
+}
+async function refresh(force=false,{deferRender=false}={}){
+ if(profileSaving||actionBusy||(document.hidden||saving)&&!force)return;
+ if(refreshInFlight){await refreshInFlight;if(force)return refresh(true,{deferRender});return;}
+ const view=screen+'/'+(selected||'')+'/'+historyLimit,readSerial=mutationSerial;
+ const params=stateParams();
  if(!force&&stateVersion?.view===view)params.set('since',stateVersion.version);
  refreshInFlight=(async()=>{try{
   const next=await api('/api/state?'+params);
@@ -264,8 +269,11 @@ function timeline(items,limit=30,withCompany=true,relative=false){
  return '<ol class="timeline">'+items.slice().reverse().slice(0,limit).map(item=>activityItem(item,withCompany,relative)).join('')+'</ol>';
 }
 function primaryAction(j,step=UI.step(j),inDetail=false){
-  if(inDetail&&step.action==='open')return '';
+  if(inDetail&&step.action==='open')return step.retryRequestId?`<button data-retry="${esc(step.retryRequestId)}" title="El agente comprobará lo ocurrido antes de continuar.">Pedir otro intento</button>`:'';
   if(!step.cta)return '';
+  // A pending portal step is done in the agent's browser: one button reports it.
+  // Explaining a problem instead stays in Más acciones > Pedir cambio.
+  if(inDetail&&step.retryRequestId)return `<button class="primary" data-retry="${esc(step.retryRequestId)}" title="El agente comprobará el portal antes de continuar.">Ya he completado el acceso</button>`;
   const attr={review:'data-review',answers:'data-answers',resolve:'data-resolve',open:'data-job',recovery:'data-copy-recovery'}[step.action]||'data-job';
   return `<button class="primary" ${attr}="${esc(step.action==='recovery'?step.requestId:j.id)}">${esc(step.cta)}</button>`;
 }
@@ -291,12 +299,12 @@ function setupForm(){
  return `<div class="welcome-view setup-view"><h1>Empieza con Stubbs Jobs</h1><p class="lead">Encuentra ofertas a tu medida y prepara tus solicitudes con tu agente de IA. Tú decides dónde solicitar.</p>${current}${typeof model.syncedFolder==='string'&&model.syncedFolder?`<p class="setup-warning" role="alert">Esta carpeta está dentro de ${esc(model.syncedFolder)}. Para evitar copias en conflicto de tus datos, cierra la app y mueve la carpeta completa a una ubicación local sin sincronizar, como C:\\StubbsJobs.</p>`:''}<section class="setup-instructions"><h2><span class="setup-step" aria-hidden="true">1</span> Añade esta carpeta como proyecto en tu agente de IA</h2><div class="copy-line"><code>${esc(available?path:'Cargando ubicación…')}</code><button data-copy-path="1"${available?'':' disabled'}>Copiar ubicación</button></div><h2><span class="setup-step" aria-hidden="true">2</span> Pega este mensaje en un chat dentro de tu nuevo proyecto para empezar el on-boarding</h2><pre id="setup-message" class="setup-message" tabindex="0" aria-label="Mensaje para tu agente">${esc(setupAgentPrompt())}</pre>${setupCopyButton('Copiar mensaje',available)}</section>${state.executionId?`<section class="setup-resume" aria-labelledby="setup-resume-title"><h2 id="setup-resume-title">Si cambias de chat, retoma aquí antes de continuar</h2><p>Conserva tus respuestas y CV y retira al chat anterior el acceso a esta preparación.</p><button data-setup-retry="1">Retomar en otro chat</button></section>`:''}</div>`;
 }
 function setupReady(){
- return `<div class="welcome-view setup-view"><h1>Tu perfil está preparado</h1><p class="lead">Para encontrar tus primeras ofertas, pide «Busca ofertas nuevas» en el chat de tu agente.</p><div class="setup-actions"><button class="primary" data-setup-finish="solicitar">Ir a Ofertas</button><button data-setup-finish="perfil">Revisar mi perfil</button></div>${!model.searchContext.targetRoles||!model.preferences.location?'<p class="helper">Antes de buscar, concreta los puestos y la zona con tu agente o en Mi perfil.</p>':''}</div>`;
+ return `<div class="welcome-view setup-view"><h1>Tu perfil está preparado</h1><p class="lead">Para encontrar tus primeras ofertas, pide «Busca ofertas nuevas» en el chat de tu agente.</p><div class="setup-actions"><button class="primary" data-setup-finish="solicitar">Ir a Ofertas</button><button data-setup-finish="perfil">Revisar mi perfil</button></div>${!String(model.searchContext.targetRoles||'').trim()||!String(model.preferences.location||model.searchContext.regions||'').trim()?'<p class="helper">Antes de buscar, concreta los puestos y la zona con tu agente o en Mi perfil.</p>':''}</div>`;
 }
 function sectionDefinitions(section){
  const context=window.StubbsJobsSetup.context,contact=window.StubbsJobsSetup.contact;
  const preferences={contract:{label:'Contrato',type:'text',placeholder:'Ej.: indefinido'},location:{label:'Zona de búsqueda',type:'text',placeholder:'Países o zonas donde quieres trabajar'},maxTrips:{label:'Viajes al mes (máximo)',type:'number'},minimumFixed:{label:'Salario fijo mínimo bruto anual',type:'number'},keywords:{label:'Palabras clave',type:'text',placeholder:'Términos relevantes para tu sector'},noticeDays:{label:'Preaviso',type:'text',placeholder:'Ej.: 15 días laborables, 3 semanas o inmediato'},searchPriorities:{...context.searchPriorities,label:'Horario que prefiero',placeholder:'Ej.: mañana, flexible o sin turnos de noche'}};
- const keys=section==='about'?Object.values(aboutLayout()).flat(2):section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','searchNotes','languages','previousApplications']:section==='sources'?['sourceUrls','platforms']:[];
+ const keys=section==='about'?Object.values(aboutLayout()).flat(2):section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','requiredSchedule','searchNotes','languages','previousApplications']:section==='sources'?['sourceUrls','platforms']:[];
  const personal={currentCity:{label:'Ciudad actual',type:'text'},workPermitWithoutSponsorship:{label:'Permiso de trabajo sin patrocinio',type:'boolean'},salaryExpectationFixed:{label:'Salario fijo esperado al año',type:'number'},noticeDays:{label:'Días de preaviso',type:'number'}};
  const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Permiso de trabajo sin patrocinio en',type:'multiselect'},gender:{...window.StubbsJobsSetup.demographics.gender,...model.fieldDefinitions?.gender,help:null,descriptionId:null},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000}};
  return Object.fromEntries(keys.map(k=>[k,{...(defs[k]||{label:k,type:'text'}),...(section==='about'&&window.StubbsJobsSetup.aboutOptions.choices[k]?{options:window.StubbsJobsSetup.aboutOptions.choices[k]}:{})}]));
@@ -326,7 +334,12 @@ function aboutLayout(){
   const type=definitions[key].type,partner=group('answer').find(other=>!used.has(other)&&stem(other)===stem(key)&&[type,definitions[other].type].sort().join()==='boolean,text');
   if(partner){used.add(partner);answers.push(type==='boolean'?[key,partner]:[partner,key]);}else answers.push(key);
  }
- return {contact:['name','email','phone','linkedinUrl','websiteUrl',...group('link'),...group('identity'),'currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays',...group('work'),...group('mobility')],answers,consent:group('consent'),demographic:['demographicSurveyParticipation','gender',...group('demographic')]};
+ const demographic=group('demographic');
+ // These two short answers otherwise leave separate half-empty rows around
+ // the full-width permissions field. Keep their DOM and visual order together.
+ const relocation=answers.indexOf('custom_open_to_relocation'),disability=demographic.indexOf('custom_disability');
+ if(relocation!==-1&&disability!==-1){answers.splice(relocation+1,0,demographic.splice(disability,1)[0]);}
+ return {contact:['name','email','phone','linkedinUrl','websiteUrl',...group('link'),...group('identity'),'currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays',...group('work'),...group('mobility')],answers,consent:group('consent'),demographic:['demographicSurveyParticipation','gender',...demographic]};
 }
 function aboutFieldsHtml(keys,values,defs){
  const permissions=window.StubbsJobsSetup.aboutOptions.permissions.filter(item=>defs[item.key]);
@@ -432,7 +445,13 @@ function reportRequest(key){return key?.startsWith('legacy:')?model.requests[Num
 function resultTitle(request){return request.type==='discovery'?window.StubbsJobsActivity.searchTitle(request):({review:'Solicitud revisada',investigate:'Oferta comprobada',change:'Cambios aplicados',send:'Solicitud enviada'})[request.type]||'Trabajo terminado';}
 function activityCard(request){
  const job=request.opportunityId?getJob(request.opportunityId):null,search=request.type==='discovery';
- if(request.status==='queued')return activityRow({kind:'pending',title:[request.purpose==='followup'?'Comprobar tu candidatura':window.StubbsJobsWorkflow.names[request.type]||'Trabajo guardado',job?.company].filter(Boolean).join(' · '),text:['Pendiente de iniciar',job?.title].filter(Boolean).join(' · '),anchor:reportKey(request),target:job?`data-job="${esc(job.id)}"`:search?'data-screen="solicitar"':'data-screen="perfil"',action:job?'Ver oferta':search?'Ver ofertas':'Ver perfil'});
+ if(request.status==='queued'){
+  // A queued search names the profile whose criteria it froze and can be cancelled before it starts.
+  const identifier=request.searchProfileId||request.round?.searchProfileId;
+  const profile=search?[...(model.searchProfiles||[]),...(model.deletedSearchProfiles||[])].find(p=>p.id===identifier)?.name||request.round?.searchProfileName:'';
+  return activityRow({kind:'pending',title:[request.purpose==='followup'?'Comprobar tu candidatura':window.StubbsJobsWorkflow.names[request.type]||'Trabajo guardado',job?.company||profile].filter(Boolean).join(' · '),text:['Pendiente de iniciar',job?.title].filter(Boolean).join(' · '),anchor:reportKey(request),target:job?`data-job="${esc(job.id)}"`:search?'data-screen="solicitar"':'data-screen="perfil"',action:job?'Ver oferta':search?'Ver ofertas':'Ver perfil',
+   extra:search?`<button class="link-button" data-cancel="${esc(request.id)}">Cancelar búsqueda</button>`:''});
+ }
  let title=search?'Búsqueda realizada':request.type==='send'?'Solicitud enviada'+(job?' a '+job.company:''):request.type==='investigate'?(request.purpose==='followup'?'Candidatura comprobada':'Oferta revisada')+(job?': '+job.company:''):request.type==='review'?'Solicitud revisada'+(job?': '+job.company:''):job?'Solicitud actualizada: '+job.company:'Perfil actualizado';
  let text=search?window.StubbsJobsActivity.searchTitle(request).replace(/^Búsqueda realizada:?\s*/,''):request.type==='send'?activityRole(job):request.summary||request.result||'';
  if(search){
@@ -450,9 +469,9 @@ function activityCard(request){
  return activityRow({kind:request.type,title,text,at:window.StubbsJobsWorkflow.taskAt(request),anchor:reportKey(request),target,action});
 }
 function activityRole(job){return String(job?.title||'').replace(/\s*[|·]\s*100%\s+Remoto\b.*$/i,'').trim();}
-function activityRow({kind,title,text,anchor,target,action}){
+function activityRow({kind,title,text,anchor,target,action,extra=''}){
  const mark=kind==='send'?'check':kind==='discovery'?'search':kind==='interview'?'clock':'arrow-right';
- return `<li class="activity-card" data-kind="${esc(kind)}" data-anchor="activity-${esc(anchor)}"><span class="activity-icon" aria-hidden="true">${icon(mark)}</span><div class="activity-card-body"><strong>${esc(title)}</strong>${text?`<p>${esc(conciseText(text,120))}</p>`:''}</div><div class="activity-card-actions"><button class="link-button" ${target}>${esc(action)} ${icon('arrow-right')}</button></div></li>`;
+ return `<li class="activity-card" data-kind="${esc(kind)}" data-anchor="activity-${esc(anchor)}"><span class="activity-icon" aria-hidden="true">${icon(mark)}</span><div class="activity-card-body"><strong>${esc(title)}</strong>${text?`<p>${esc(conciseText(text,120))}</p>`:''}</div><div class="activity-card-actions">${extra}<button class="link-button" ${target}>${esc(action)} ${icon('arrow-right')}</button></div></li>`;
 }
 function activityEvent(item){
  const job=item.opportunityId?getJob(item.opportunityId):null;
@@ -472,13 +491,17 @@ function activityGroup(group,day){
   const absent=group.offerIds.filter(id=>!getJob(id)).length+group.unlistedCount;
   if(absent)rows+=`<li class="activity-group-note">${absent} ${absent===1?'oferta sin detalle de posiciones conservado':'ofertas sin detalle de posiciones conservado'}.</li>`;
  }
+ // Saved work waits for the person's agent; say how it starts without a copy button.
+ if(group.key==='pending')rows+=`<li class="activity-group-note">Para iniciar ${group.count===1?'esta tarea':'estas tareas'}, pide «Continúa con Stubbs Jobs» en el chat de tu agente.</li>`;
  const reports=['found','search'].includes(group.key)?`<div class="activity-group-reports">${group.items.map(({request})=>`<button class="link-button" data-report="${esc(reportKey(request))}">Ver resultado de la búsqueda${group.items.length>1?' · '+date(window.StubbsJobsWorkflow.taskAt(request)):''} ${icon('arrow-right')}</button>`).join('')}</div>`:'';
  const repeated=group.items.length>group.members.length&&!['found','search'].includes(group.key)?'<p class="activity-group-note">Se muestra la última acción del día para cada oferta. Las anteriores siguen en su historial.</p>':'';
  return `<li class="activity-group-item"><details class="activity-group" id="${esc(id)}" data-activity-key="${esc(key)}" data-anchor="group-${esc(key)}"${openActivityGroups.has(key)?' open':''}><summary><span class="activity-group-icon" aria-hidden="true">${icon(group.icon)}</span><strong>${esc(group.label)}</strong><span class="activity-group-chevron" aria-hidden="true">${icon('chevron-down')}</span></summary><div class="activity-group-content"><ol class="activity-group-rows">${rows}</ol>${repeated}${reports}</div></details></li>`;
 }
+// The summary shows four totals with the Ofertas names and colours;
+// each count opens its filter (sent ones open all offers).
 function activityStatistics(){
- const stats=window.StubbsJobsActivity.statistics(model);
- return `<section class="activity-statistics" aria-label="Estadísticas históricas">${stats.map(stat=>`<article class="activity-stat" data-stat="${stat.key}"><div class="activity-stat-heading"><span>${esc(stat.label)}</span><span aria-hidden="true">${icon(stat.icon)}</span></div><strong class="activity-stat-value">${stat.value===null?'—':stat.value.toLocaleString('es-ES')}</strong><p>${stat.value===null?'Sin recuento disponible':esc(stat.note)}</p></article>`).join('')}</section>`;
+ const stats=UI.stateCounts([...model.opportunities,...UI.archive(model)]);
+ return `<section class="activity-statistics" aria-label="Totales de tus ofertas">${stats.map(stat=>`<button type="button" class="activity-stat" data-offer-state="${stat.state}" data-open-offer-state="${stat.filter}" aria-label="${esc(stat.label)}: ${stat.value}. Ver en Ofertas"><span class="activity-stat-heading">${icon(stat.icon,'offer-state-icon','solid')}<span>${esc(stat.label)}</span></span><strong class="activity-stat-value">${stat.value.toLocaleString('es-ES')}</strong><span class="activity-stat-note">${esc(stat.note)}</span></button>`).join('')}</section>`;
 }
 function recentActivity(){
  const Activity=window.StubbsJobsActivity,timeZone=model?.personalized?Intl.DateTimeFormat().resolvedOptions().timeZone:'Europe/Madrid';
@@ -502,10 +525,9 @@ function recentActivity(){
  };
  return '<ol class="activity-days">'+shown.map(day=>{const title=heading(day);return `<li class="activity-day" data-anchor="day-${esc(day.key)}"><h2 class="activity-day-label"><time datetime="${esc(day.key==='unknown'?'':day.key)}">${esc(title.main)}</time>${title.note?`<span class="activity-weekday">${esc(title.note)}</span>`:''}</h2><ol class="activity-cards">${Activity.dailyGroups(day,model).map(group=>activityGroup(group,day)).join('')}</ol></li>`;}).join('')+'</ol>'+(days.length>shown.length?'<button class="activity-older" data-more-activity="1">Ver anteriores</button>':'');
 }
-function activityWork(){return window.StubbsJobsExplanations.work(model,{getJob,esc,date,conciseText,copyRequestButton});}
+function activityWork(){return window.StubbsJobsExplanations.work(model,{getJob,esc,date,conciseText});}
 function agentPage(){
- const first=UI.recommendation(model),recommendation=first?`<div class="offer-recommendation"><div><span class="eyebrow">Para mirar primero</span><strong>${esc(first.company)}</strong>${first.title?`<span class="offer-recommendation-role"> · ${esc(first.title)}</span>`:''}<p>${esc(conciseText(UI.nextCheck(first),160))}</p></div><button class="link-button" data-job="${esc(first.id)}">Ver oferta ${icon('arrow-right')}</button></div>`:'';
- return flowShell('agente',`<div class="agent-view"><h1 id="agent-activity-title">Resumen</h1>${activityStatistics()}${activityWork()}${recommendation}${recentActivity()}</div>`);
+ return flowShell('agente',`<div class="agent-view"><h1 id="agent-activity-title">Resumen</h1>${activityStatistics()}${recentActivity()}</div>`);
 }
 function activityReport(){
  if(selected?.startsWith('event:')){
@@ -541,8 +563,9 @@ function copyRequestButton(label){
  const hint=work.queued.length?'Copia la petición para continuar el trabajo guardado y los siguientes pasos permitidos de esas mismas solicitudes en el chat de tu agente':'Copia la petición para pegarla en el chat de tu agente';
  return `<button type="button" class="copy-request" data-copy-agent-command="${esc(command)}" data-copy-label="${esc(label)}" title="${esc(hint)}">${esc(label)}</button>`;
 }
-async function openSearchOffers(){
- flowFilters.solicitar='todas';tableState.solicitar.filters={};
+let entryLimit=30;
+async function openSearchOffers(state='todas'){
+ flowFilters.solicitar=state;tableState.solicitar.filters={};tableSelection.clear();
  viewMemory['solicitar/']={...(viewMemory['solicitar/']||{}),filterText:'',scroll:0};
  await setScreen('solicitar');
 }
@@ -551,7 +574,8 @@ function flowToolbar(tab,choices){
 }
 function bulkExitButton(){return `<button class="icon-button bulk-clear" data-bulk-clear="1" aria-label="Salir de la selección múltiple" title="Salir de la selección múltiple (Esc)">${icon('close')}</button>`;}
 function requestButtonContent(mode,label=requestModes[mode].label){return `<span class="request-icon" aria-hidden="true">${icon(requestModes[mode].icon)}</span>${esc(label)}`;}
-function selectionButtons(j){return `<button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="review" title="Revisarás la solicitud y autorizarás su envío final.">${requestButtonContent('review')}</button><button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="auto" title="Permite enviar esta oferta tras las comprobaciones, sin tu aprobación final. El agente usará tu cuenta del portal: algunos portales, como LinkedIn, prohíben la automatización y pueden restringir tu cuenta." aria-describedby="offer-auto-help-${esc(j.id)}">${requestButtonContent('auto')}</button><span id="offer-auto-help-${esc(j.id)}" class="sr-only">Permite enviar esta oferta tras las comprobaciones, sin tu aprobación final. El agente usará tu cuenta del portal: algunos portales, como LinkedIn, prohíben la automatización y pueden restringir tu cuenta.</span>`;}
+const autoHelp='El agente la enviará sin esperar tu aprobación, con tu cuenta del portal. Algunos portales, como LinkedIn, no permiten automatizar y pueden restringir la cuenta.';
+function selectionButtons(j){return `<button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="review" title="Revisarás la solicitud antes de que se envíe.">${requestButtonContent('review')}</button><button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="auto" title="${esc(autoHelp)}" aria-describedby="offer-auto-help-${esc(j.id)}">${requestButtonContent('auto')}</button><span id="offer-auto-help-${esc(j.id)}" class="sr-only">${esc(autoHelp)}</span>`;}
 function bulkOptions(j){
  if(j.historical)return [];
  const step=UI.step(j),options=[],category=UI.offerState(j).key;
@@ -661,7 +685,14 @@ function tableValue(record,key){
  if(key==='country')return tableText(j.country,'country');
  if(key==='mode')return tableText(j.workMode||(j.conditions?.['Remoto España']==='Sí'?'Remoto':j.conditions?.['Remoto España']==='Contradicción'?'Por aclarar':null),'mode');
  if(key==='contract')return tableText(j.contract||({Sí:'Indefinido',Contradicción:'Por aclarar'})[j.conditions?.Indefinido],'contract');
- if(key==='schedule')return tableText(j.schedule,'schedule');
+ if(key==='schedule'){
+  const shown=tableText(j.schedule,'schedule');
+  const review=j.scheduleChecks?.[offerProfileFilter||j.searchProfileId];
+  if(review==='violation'||!review&&j.minimums?.violations?.some(item=>item.key==='Horario'&&!item.unconfirmed))return 'No cumple';
+  // A required schedule that the advertisement does not confirm discards the offer.
+  if(review==='unknown'||!review&&j.minimums?.violations?.some(item=>item.key==='Horario'&&item.unconfirmed))return shown==='—'?'Sin confirmar':'Sin confirmar · '+shown;
+  return shown==='—'?'Por confirmar':shown;
+ }
  if(key==='firstSeen')return discoveryTime(j.firstSeenAt);
  if(key==='salary')return salaryTableLabel(salaryInfo(j.salary));
  if(key==='deadline')return tableDate(j.externalDeadline);
@@ -690,7 +721,7 @@ function defaultTableTimestamp(record,key){
 }
 function sortedFilteredRecords(tab,records){
  const state=tableState[tab],columns=tableFilterColumns();
- const visible=records.filter(record=>columns.every(([key])=>!Object.hasOwn(state.filters,key)||state.filters[key].map(value=>key==='salary'&&/^(no publicado|[-—])$/i.test(value)?'—':['country','mode','contract','schedule'].includes(key)?tableText(value,key):value).includes(tableFilterValue(record,key))));
+ const visible=records.filter(record=>columns.every(([key])=>!Object.hasOwn(state.filters,key)||state.filters[key].map(value=>key==='salary'&&/^(no publicado|[-—])$/i.test(value)?'—':key==='schedule'&&['Por confirmar','Sin confirmar','No cumple'].includes(value)?value:['country','mode','contract','schedule'].includes(key)?tableText(value,key):value).includes(tableFilterValue(record,key))));
  if(!state.sort){
   const key=defaultTableOrder(tab);
   return visible.sort((a,b)=>{const left=defaultTableTimestamp(a,key),right=defaultTableTimestamp(b,key);return left===null?right===null?0:1:right===null?-1:right-left;});
@@ -771,7 +802,7 @@ function placeColumnMenu(menu){
  panel.style.top=Math.max(top+12,Math.min(below>=height||below>=above?rect.bottom+4:rect.top-height-4,top+viewportHeight-height-12))+'px';
 }
 function applyPage(){
- const all=[...model.opportunities,...UI.archive(model)].filter(j=>!offerProfileFilter||j.searchProfileIds?.includes(offerProfileFilter));
+ const all=[...model.opportunities,...UI.archive(model)].filter(j=>!offerProfileFilter||(j.displaySearchProfileId||j.searchProfileId)===offerProfileFilter);
  const stage=j=>UI.flowStage(j);
  const categories=new Map(all.map(j=>[j.id,UI.offerState(j)]));
  const legacy={elegidas:'preparacion',enviadas:'seguimiento',archivadas:'descartadas'};
@@ -783,9 +814,9 @@ function applyPage(){
  const visible=all.filter(j=>flowFilters.solicitar==='todas'||categories.get(j.id).key===flowFilters.solicitar).sort((a,b)=>priority(a)-priority(b)||(a.externalDeadline||'9999').localeCompare(b.externalDeadline||'9999')||(a.company||'').localeCompare(b.company||''));
  const records=visible.map(j=>flowRecord(j,stage(j)==='elegir'?'elegir':stage(j)==='solicitar'?'solicitar':'seguir'));
  const choices=[['todas','Todas',all.length],...UI.offerStates.filter(state=>['descartadas','sin-elegir','seguimiento','logradas','cerradas','rechazadas'].includes(state.key)||counts[state.key]>0||flowFilters.solicitar===state.key).map(state=>[state.key,({descartadas:'Descartadas',logradas:'Logradas',cerradas:'Cerradas',rechazadas:'Rechazadas'})[state.key]||state.label,counts[state.key]])];
-  const empty=all.length?'No hay ofertas en este grupo.':'Aún no hay ofertas. Pide una búsqueda en el chat de tu agente.';
-  const table=all.length?workflowTable('solicitar',records,empty):'<div class="empty-state"><p>Aún no hay ofertas. Pide una búsqueda en el chat de tu agente o añade una oferta.</p></div>';
-  return flowShell('solicitar',`<div class="offers-heading"><div><h1>Ofertas</h1><p class="page-lead">Compara las ofertas, elige dónde solicitar y consulta cada resultado.</p></div><button class="primary offers-add" data-screen="nueva">${icon('plus')}Añadir oferta</button></div>${offerProfileControls()}${flowToolbar('solicitar',choices)}${table}`);
+  const searchLabel=searchRunLabel(),empty=all.length?'No hay ofertas en este grupo.':`Aún no hay ofertas. Pulsa «${searchLabel}» y pide «Continúa con Stubbs Jobs» en el chat de tu agente.`;
+  const table=all.length?workflowTable('solicitar',records,empty):`<div class="empty-state"><p>Aún no hay ofertas. Pulsa «${searchLabel}» y pide «Continúa con Stubbs Jobs» en el chat de tu agente, o añade una oferta.</p></div>`;
+  return flowShell('solicitar',`<div class="offers-heading"><div><h1>Ofertas</h1><p class="page-lead">Compara las ofertas, elige dónde solicitar y consulta cada resultado.</p>${searchStatusNote()}</div><div class="offers-heading-actions">${searchRunButton()}<button class="offers-add" data-screen="nueva">${icon('plus')}Añadir oferta</button></div></div>${activityWork()}${offerProfileControls()}${pendingEntriesPanel()}${flowToolbar('solicitar',choices)}${table}`);
 }
 function followPage(){return applyPage();}
 function findResults(){
@@ -794,9 +825,9 @@ function findResults(){
  return workflowTable('encontrar',jobs.map(j=>flowRecord(j,UI.flowStage(j))),'Sin resultados guardados.');
 }
 function findPage(){return `<div class="flow-view search-results-view"><div class="offer-toolbar search-results-toolbar"><h1>Resultados guardados</h1></div><div id="find-results">${findResults()}</div></div>`;}
-function answerList(values,overrides=null,extra=''){
+function answerList(values,extra=''){
   if(!Object.keys(values).length&&!extra)return '<p class="muted">Sin respuestas de formulario guardadas.</p>';
-  return `<dl class="meta">${Object.entries(values).map(([k,v])=>`<div><dt>${esc(fieldLabel(UI.answerTitle((selected?getJob(selected)?.fieldDefinitions?.[k]?.label:null)||model.labels[k]||k)))}</dt><dd>${answerLabel(v)}${overrides&&Object.hasOwn(overrides,k)?' · Solo aquí':''}</dd></div>`).join('')}${extra}</dl>`;
+  return `<dl class="meta">${Object.entries(values).map(([k,v])=>`<div><dt>${esc(fieldLabel(UI.answerTitle((selected?getJob(selected)?.fieldDefinitions?.[k]?.label:null)||model.labels[k]||k)))}</dt><dd>${answerLabel(v)}</dd></div>`).join('')}${extra}</dl>`;
 }
 function pdfView(cvUrl){
   const previewUrl=cvUrl.replace('/api/document?','/api/preview?');
@@ -878,7 +909,7 @@ function offerConditions(j){
  return (known.length?'<dl class="meta">'+known.map(([label,value,position])=>`<div${position?' class="condition-position"':''}><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`).join('')+'</dl>':'')+
   (pending.length?`<p class="conditions-pending"><span>Por concretar:</span> ${esc(list.format(pending))}.</p>`:'');
 }
-function offerAssessment(job){return window.StubbsJobsExplanations.assessment(job,{esc});}
+function offerAssessment(job){return window.StubbsJobsExplanations.assessment(job,{esc,basis:offerProfileBasis(job)});}
 const followupResult=check=>({waiting:'Sin novedades',reviewing:'En revisión según el portal',unknown:'No se pudo confirmar',rejected:'Rechazo confirmado',closed:'Cierre confirmado'})[check.outcome]||'Resultado sin confirmar';
 function followupStatus(j){
  if(!j.sent)return '';
@@ -891,6 +922,39 @@ function followupActions(j){
  const label=pending?(pending.status==='queued'?'Comprobación pendiente del agente':pending.status==='running'?'Comprobación en curso':'Comprobación pendiente'):'Pedir comprobación';
  return `<button class="offer-change" data-followup-check="${esc(j.id)}"${pending?' disabled':''}>${label}</button>`;
 }
+function userSentButton(j){return UI.userSentChoices(j,model.cvLibrary)?`<button class="offer-change" data-user-sent="${esc(j.id)}">Ya la he enviado yo</button>`:'';}
+// Records a send the person made herself. The writer cancels the agent's pending
+// sends and permissions; the record keeps her declaration, never a portal receipt.
+async function openUserSent(id){
+ const dialog=document.querySelector('#user-sent-dialog'),form=dialog.querySelector('form'),error=form.querySelector('.user-sent-error');
+ let job=getJob(id),choices=UI.userSentChoices(job,model.cvLibrary);
+ if(!choices){toast('La oferta ha cambiado. Revisa su estado actual.');return;}
+ const fill=()=>{
+  const select=form.elements.namedItem('cv'),previous=select.value;
+  select.innerHTML=(choices.options.length?'<option value="">Elige el CV</option>':'<option value="">Añade el PDF en Currículums</option>')+choices.options.map(o=>`<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+  if(choices.options.some(o=>o.value===previous))select.value=previous;else if(choices.options.length===1)select.value=choices.options[0].value;
+  const warning=form.querySelector('.user-sent-warning');warning.textContent=choices.warnings.join(' ');warning.hidden=!choices.warnings.length;
+  form.querySelector('[data-user-sent-reapply]').hidden=!choices.reapplication;
+ };
+ form.reset();error.textContent='';fill();
+ const sentAt=form.elements.namedItem('sentAt');sentAt.value=window.StubbsJobsFormatting.localInputValue();sentAt.max=sentAt.value;
+ const submit=async event=>{
+  if(event.submitter?.value!=='ok')return;
+  event.preventDefault();error.textContent='';
+  const values={cv:form.elements.namedItem('cv').value,sentAt:sentAt.value,note:form.elements.namedItem('note').value,
+   duplicatesChecked:form.elements.namedItem('duplicatesChecked').checked,reapplication:form.elements.namedItem('reapplication').checked};
+  const plan=UI.userSentOperation(job,choices,values);
+  if(plan.error){error.textContent=plan.error;return;}
+  if(await action(plan.operation,null,form)){dialog.close('done');changeToast('Envío registrado. La oferta pasa a Siguiendo.');render(true);return;}
+  job=getJob(id);const next=job&&UI.userSentChoices(job,model.cvLibrary);
+  if(!next){dialog.close('cancel');render(true);return;}
+  if(form._conflict){choices=next;fill();error.textContent='La oferta ha cambiado mientras registrabas el envío. Revisa los datos actualizados y vuelve a confirmar.';}
+ };
+ form.addEventListener('submit',submit);
+ dialog.returnValue='cancel';dialog.showModal();sentAt.focus();
+ await new Promise(resolve=>dialog.addEventListener('close',resolve,{once:true}));
+ form.removeEventListener('submit',submit);
+}
 function outcomePicker(j){
  const category=UI.offerState(j).key;
  if(!j.sent||category==='logradas'||j.requests.some(r=>r.type==='send'&&r.status==='running'))return '';
@@ -898,7 +962,19 @@ function outcomePicker(j){
  return `<details id="offer-outcome-${esc(j.id)}" class="offer-outcome-picker"><summary>${label}</summary><div class="offer-outcome-options">${[['achieve','Lograda','logradas'],['mark-rejected','Rechazada','rechazadas'],['close','Cerrada','cerradas']].map(([action,label,key])=>`<button data-offer-outcome="${action}" data-job-id="${esc(j.id)}"${category===key?' disabled aria-label="'+label+' (actual)"':''}>${label}</button>`).join('')}</div></details>`;
 }
 function caseHistory(j){return window.StubbsJobsActivity.caseHistory(j,model);}
-function recentCaseHistory(j){return window.StubbsJobsActivity.recent(caseHistory(j),model).reverse();}
+function recentCaseHistory(j,limit=3){return window.StubbsJobsActivity.recent(caseHistory(j),model,limit).reverse();}
+// The offer's key milestones read left to right, oldest to newest, above the details.
+function offerTimeline(j){
+ const items=window.StubbsJobsActivity.milestones(caseHistory(j),model,4).reverse();
+ const steps=items.map((item,index)=>{
+  const title=historyTitle(item),hasDetail=window.StubbsJobsActivity.details(item,model),undo=(model.undo||[]).some(u=>u.id===item.id);
+  const heading=hasDetail?`<button class="link-button activity-event-link" data-report="event:${esc(item.id)}" aria-label="Ver detalle: ${esc(title)}">${esc(title)}</button>`:esc(title);
+  return `<li class="offer-timeline-step"${index===items.length-1?' aria-current="step"':''}><span class="offer-timeline-dot" aria-hidden="true"></span><strong>${heading}</strong><small>${activityTime(item.at)} · ${esc(['Usuario','Usuario'].includes(item.actor)?'Tú':item.actor||'Registro')}${undo?` · <button class="link-button" data-undo="${esc(item.id)}">Deshacer</button>`:''}</small></li>`;
+ }).join('');
+ // Without any record there is nothing to show; older records stay one click away.
+ if(!steps&&!caseHistory(j).length)return '';
+ return `<section class="offer-timeline" data-offer-section="activity" aria-label="Actividad de la oferta">${steps?`<ol class="offer-timeline-steps">${steps}</ol>`:'<p class="offer-timeline-empty">Sin novedades recientes.</p>'}<button class="link-button offer-timeline-all" data-activity="${esc(j.id)}">Ver todo ${icon('arrow-right')}</button></section>`;
+}
 function activityRecord(id){
  const original=(model.history||[]).find(item=>String(item.id)===String(id));
  const job=original?.opportunityId?getJob(original.opportunityId):(model.opportunities||[]).find(j=>caseHistory(j).some(h=>String(h.id)===String(id)));
@@ -912,25 +988,32 @@ function detail(){
  const sending=j.requests.some(r=>r.type==='send'&&r.status==='running'),canEdit=active(j)&&!j.sent&&!sending;
  const canInvestigate=active(j)&&!j.selection?.selected&&!j.sent&&!j.requests.some(r=>!window.StubbsJobsWorkflow.task(r).superseded&&['queued','running','blocked','interrupted'].includes(r.status))&&j.apply!=='No'&&j.apply!=='Resolver conflicto';
  const action=UI.canChoose(j)?selectionButtons(j):primaryAction(j,step,true)||(canInvestigate?`<button class="primary" data-investigate="${esc(j.id)}">Pedir comprobación</button>`:'');
- const stateDetail=UI.detailMessage(j,step);
+ const stateDetail=UI.detailMessage(j,step),where=UI.actionPlace(j,step);
+ // Only the decision for the current state stays visible; rarer actions live in Más acciones.
+ const statusActions=`<div class="offer-status-actions"><div class="actions offer-actions">${action}${followupActions(j)}${category.key==='sin-elegir'?`<button class="offer-change" data-offer-outcome="discard" data-job-id="${esc(j.id)}">Descartar</button>`:''}${outcomePicker(j)}</div>${where?`<p class="helper offer-where">${esc(where)}</p>`:''}</div>`;
  const contacts=(j.contactDrafts||[]).length?`<details class="case-disclosure"><summary>Borradores de contacto (${j.contactDrafts.length})</summary><p class="helper">No enviados.</p>${j.contactDrafts.map((c,i)=>`<div class="case-piece"><strong>${esc(c.purpose)}</strong><p>${esc(c.recipient)}</p><p class="note-text">${esc(c.message)}</p><button data-copy-contact="${i}">Copiar</button></div>`).reverse().join('')}</details>`:'';
  const formAnswers=UI.formAnswers(material);
  const cvMissing=j.sent?'CV enviado no disponible':'Pendiente de preparar';
  const cvAnswer=`<div class="case-cv-answer"><dt>CV para la oferta</dt><dd><article class="cv-card case-cv-card" aria-label="CV para la oferta"${j.cvUrl?'':' data-cv-state="pending"'}>${icon('file','cv-card-icon')}<h3 class="cv-card-title" title="${esc(j.cvUrl?j.cvLabel||'Currículum.pdf':cvMissing)}">${esc(j.cvUrl?j.cvLabel||'Currículum.pdf':cvMissing)}</h3>${j.cvUrl?`<a class="cv-card-open" href="${esc(j.cvUrl)}" target="_blank" rel="noopener" aria-label="Abrir PDF: ${esc(j.cvLabel||'Currículum.pdf')}">Abrir PDF</a>`:''}</article></dd></div>`;
  const presentationAnswer=UI.presentationVisible(material)?`<div class="case-form-presentation"><dt class="case-answer-heading"><span>Presentación</span>${canEdit?`<button class="link-button" data-edit="${esc(j.id)}" aria-label="Editar presentación">Editar</button>`:''}</dt><dd class="note-text">${esc(material.message)}</dd></div>`:'';
-  const answers=answerList(formAnswers,j.sent?null:j.answerOverrides,cvAnswer+presentationAnswer),assessment=offerAssessment(j),criteriaActions=offerCriteriaControls(j),profileBasis=offerProfileBasis(j);
- return `<div class="detail-wrap offer-detail">${offerHeading(j)}
+  const answers=answerList(formAnswers,cvAnswer+presentationAnswer),assessment=offerAssessment(j),criteriaActions=offerCriteriaControls(j);
+ return `<div class="detail-wrap offer-detail">${offerHeading(j)}${offerTimeline(j)}
   <div class="offer-layout"><div class="offer-columns"><aside class="offer-rail" aria-label="Decisión y condiciones">
-  <section class="case-status offer-status" data-offer-section="status" data-offer-state="${UI.offerState(j).key}" aria-label="Situación y acciones"><div class="offer-status-copy"><div class="offer-status-line"><strong data-offer-state="${category.key}">${icon(category.icon,'offer-state-icon','solid')}${esc(category.label)}</strong>${j.selection?.selected&&!j.sent?`<span class="offer-selection-mode">${j.selection.mode==='auto'?'Auto-solicitud':'Solicitud con revisión'}</span>`:''}</div>${stateDetail&&stateDetail!==step.label?`<p>${esc(stateDetail)}</p>`:''}${followupStatus(j)}${UI.nextAction(j)?`<p class="offer-next-action">${esc(UI.nextAction(j))}</p>`:''}${active(j)&&j.externalDeadline?`<p class="offer-deadline">Plazo: ${date(j.externalDeadline)}</p>`:''}</div><div class="actions offer-actions">${action}${followupActions(j)}${category.key!=='logradas'?`<button class="offer-change" data-change="${esc(j.id)}">Pedir cambio</button>`:''}${category.key==='sin-elegir'?`<button class="offer-change" data-offer-outcome="discard" data-job-id="${esc(j.id)}">Descartar</button>`:''}${outcomePicker(j)}</div></section>
+  <section class="case-status offer-status" data-offer-section="status" data-offer-state="${UI.offerState(j).key}" aria-label="Situación y acciones"><div class="offer-status-copy"><div class="offer-status-line"><strong data-offer-state="${category.key}">${icon(category.icon,'offer-state-icon','solid')}${esc(category.label)}</strong>${j.selection?.selected&&!j.sent?`<span class="offer-selection-mode">${j.selection.mode==='auto'?'Auto-solicitud':'Solicitud con revisión'}</span>`:''}</div>${selectionOrigin(j)}${stateDetail&&stateDetail!==step.label?`<p>${esc(stateDetail)}</p>`:''}${followupStatus(j)}${!assessment&&j.displaySearchProfileId&&j.displaySearchProfileId!==j.searchProfileId?`<p class="helper offer-profile-placement">${esc(offerProfileBasis(j))}</p>`:''}${UI.nextAction(j)?`<p class="offer-next-action">${esc(UI.nextAction(j))}</p>`:''}${active(j)&&j.externalDeadline?`<p class="offer-deadline">Plazo: ${date(j.externalDeadline)}</p>`:''}</div>${statusActions}</section>
   ${j.integrityError?`<div class="error" role="alert">${esc(j.integrityError)}</div>`:''}
   <section class="case-section offer-conditions" data-offer-section="conditions"><div class="section-heading"><h2>Condiciones</h2></div>${offerConditions(j)}</section>
-  ${criteriaActions||j.selection?.selected&&!j.sent||approved&&!j.sent?`<details class="case-disclosure case-more" id="offer-more-${esc(j.id)}"><summary>Más acciones</summary><div class="more-links">${j.selection?.selected&&!j.sent&&!sending?`<button data-unselect="${esc(j.id)}">Retirar selección</button>`:''}${approved&&!j.sent?`<button data-revoke="${esc(current.id)}">Retirar permiso de envío</button>`:''}${criteriaActions}</div></details>`:''}</aside>
-  <div class="case-sections offer-sections">${assessment||profileBasis?`<div class="offer-overview" data-offer-section="overview">${assessment}${profileBasis}</div>`:''}
+  <details class="case-disclosure case-more" id="offer-more-${esc(j.id)}"><summary>Más acciones</summary><div class="more-links">${category.key!=='logradas'?`<button data-change="${esc(j.id)}">Pedir cambio</button>`:''}${userSentButton(j)}${j.selection?.selected&&!j.sent&&!sending?`<button data-unselect="${esc(j.id)}">Dejar de solicitar</button>`:''}${approved&&!j.sent?`<button data-revoke="${esc(current.id)}">Retirar permiso de envío</button>`:''}</div>${criteriaActions}${offerNotes(j)}</details></aside>
+  <div class="case-sections offer-sections">${assessment?`<div class="offer-overview" data-offer-section="overview">${assessment}</div>`:''}
  <section class="case-section case-material" data-offer-section="form"><div class="section-heading"><h2>${isHttpUrl(material.recipient)?`<a href="${url(material.recipient)}" target="_blank" rel="noopener">Formulario de solicitud ${icon('arrow-up-right')}</a>`:'Formulario de solicitud'}</h2>${canEdit?`<button class="link-button" data-answers="${esc(j.id)}" aria-label="Editar respuestas del formulario">Editar</button>`:''}</div>
- ${material.legacyIncomplete?'<p class="muted">Este registro antiguo confirma el envío, pero no conserva las respuestas ni la presentación de aquella solicitud.</p>':''}${!isHttpUrl(material.recipient)?material.recipient?`<p>Solicitud por correo: ${esc(material.recipient)}</p>`:j.sent?'':'<p class="muted">Pendiente de comprobar el acceso.</p>':''}${answers}${contacts}</section>
- <section class="case-section offer-activity" data-offer-section="activity"><div class="section-heading"><h2>Actividad</h2><button class="link-button" data-activity="${esc(j.id)}">Ver historial completo</button></div>${timeline(recentCaseHistory(j),3,false,true)}</section>
- <section class="case-section offer-notes"><details id="offer-notes-${esc(j.id)}"><summary>Notas de seguimiento</summary><form data-form="offer-note"><label class="field"><span>Nota personal</span><textarea name="Notas de seguimiento" rows="3" maxlength="10000">${esc(j.notes||'')}</textarea></label><p class="helper">Estas notas no se incluyen en la solicitud ni cambian sus requisitos. Para corregir la oferta, usa Pedir cambio.</p>${formErrors()}<button type="submit">Guardar nota</button></form></details></section>
+ ${material.legacyIncomplete?`<p class="muted">${material.reportedBy==='user'?'Enviaste tú esta solicitud. La app conserva el CV que indicaste, pero no las respuestas ni la presentación del portal.':'Este registro antiguo confirma el envío, pero no conserva las respuestas ni la presentación de aquella solicitud.'}</p>`:''}${!isHttpUrl(material.recipient)?material.recipient?`<p>Solicitud por correo: ${esc(material.recipient)}</p>`:j.sent?'':'<p class="muted">Pendiente de comprobar el acceso.</p>':''}${answers}${contacts}</section>
  </div></div></div></div>`;
+}
+// Packages reviewed since 18/10/2026 declare whether the CV was tailored to the offer.
+function cvAdaptationNote(material){
+  const label={adapted:'Adaptado a esta oferta',reused:'CV general, sin adaptar a esta oferta'}[material?.cvAdaptation];
+  if(!label)return '';
+  const reason=String(material.cvReason||'').trim();
+  return `<p class="helper cv-adaptation" data-cv-adaptation="${esc(material.cvAdaptation)}"><strong>${label}.</strong>${reason?' '+esc(reason):''}</p>`;
 }
 function reviewPage(j=reviewSnapshot,bulk=false){
   if(!j)return top('No hay una solicitud para revisar');
@@ -939,7 +1022,7 @@ function reviewPage(j=reviewSnapshot,bulk=false){
   const material=pack.payload;
   return (bulk?`<h2>${esc(j.company)} · ${esc(j.title)}</h2>`:top('Revisar solicitud',esc(j.company)+' · '+esc(j.title)))+`
     ${!valid?`<div class="error" role="alert">El envío ha cambiado o necesita una nueva comprobación. Esta versión no se puede autorizar.<div class="actions"><button data-review="${esc(j.id)}">Ver versión actual</button><button data-job="${esc(j.id)}">Ver oferta</button></div></div>`:''}
-    <div class="review-page"><div class="split review-layout"><section class="panel"><div class="section-heading"><h2>CV adaptado</h2><a href="${pack.cvUrl}&download=1">Descargar</a></div><p class="file-name">${esc(j.cvLabel)}</p>${pdfView(pack.cvUrl)}</section>
+    <div class="review-page"><div class="split review-layout"><section class="panel"><div class="section-heading"><h2>CV adaptado</h2><a href="${pack.cvUrl}&download=1">Descargar</a></div><p class="file-name">${esc(j.cvLabel)}</p>${cvAdaptationNote(material)}${pdfView(pack.cvUrl)}</section>
     <div><section class="panel"><h2>${isHttpUrl(material.recipient)?'Formulario de solicitud':'Destinatario'}</h2><p class="file-name">${isHttpUrl(material.recipient)?`<a href="${url(material.recipient)}" target="_blank" rel="noopener">Abrir formulario de ${esc(j.company)}</a>`:esc(material.recipient)}</p><h2 class="section">Respuestas del formulario</h2>${answerList(UI.formAnswers(material))}${UI.presentationVisible(material)?`<h2 class="section">Presentación</h2><p class="helper">${esc(UI.presentationUsage(material))}</p><p class="note-text">${esc(material.message)}</p>`:''}
      </section></div></div>${bulk?'':`<section class="authorization" aria-label="Acciones de la solicitud"><div class="authorization-actions"><button class="primary" data-approve="${esc(j.id)}" ${valid?'':'disabled'}>Autorizar envío</button><button class="link-button secondary-change" data-change="${esc(j.id)}">Pedir cambio</button></div><p>Solo esta versión · El envío quedará pendiente del agente.</p></section>`}</div>`;
 }
@@ -1026,7 +1109,7 @@ function fieldHtml(key,definition,value){
   const numberLimits=type==='number'?numberAttributes(key):'',inputType=type==='number'?'number':['email','tel','url'].includes(definition.inputType)?definition.inputType:'text';
   if(type==='multiselect')return workAuthorizationField(value,association);
   const choices=definition.options,raw=key==='demographicSurveyParticipation'&&type==='choice'&&typeof value==='boolean'?surveyMode(value):value===null||value===undefined?'':String(value),known=choices?.some(option=>String(option.value)===raw),legacy=choices&&raw&&!known;
-  const choiceInput=choices?`<select name="${esc(key)}"${association} data-type="${esc(type)}"><option value=""${type==='choice'||key==='custom_legally_protected_status'?' hidden disabled':''}${!raw?' selected':''}>${type==='choice'?'Sin decidir':'Sin responder'}</option>${legacy?`<option value="${esc(raw)}" hidden selected>${esc(key==='demographicSurveyParticipation'?(surveyMode(value)==='use_saved'?'Sí, usar mis datos':'Prefiero no responder'):'Respuesta anterior: '+raw)}</option>`:''}${choices.map(option=>`<option value="${esc(option.value)}"${String(option.value)===raw?' selected':''}>${esc(option.label)}</option>`).join('')}</select>`:null;
+  const choiceInput=choices?`<select name="${esc(key)}"${association} data-type="${esc(type)}"><option value=""${(type==='choice'&&!definition.emptyLabel)||key==='custom_legally_protected_status'?' hidden disabled':''}${!raw?' selected':''}>${type==='choice'?definition.emptyLabel||'Sin decidir':'Sin responder'}</option>${legacy?`<option value="${esc(raw)}" hidden selected>${esc(key==='demographicSurveyParticipation'?(surveyMode(value)==='use_saved'?'Sí, usar mis datos':'Prefiero no responder'):'Respuesta anterior: '+raw)}</option>`:''}${choices.map(option=>`<option value="${esc(option.value)}"${String(option.value)===raw?' selected':''}>${esc(option.label)}</option>`).join('')}</select>`:null;
   const input=choiceInput|| (type==='boolean'?`<select name="${esc(key)}"${association} data-type="boolean"><option value="">Sin responder</option><option value="true" ${value===true?'selected':''}>${esc(definition.trueLabel||'Sí')}</option><option value="false" ${value===false?'selected':''}>${esc(definition.falseLabel||'No')}</option></select>`:type==='longtext'?`<textarea name="${esc(key)}"${association}${definition.autoGrow?' data-auto-grow="1"':''} rows="${definition.rows||10}" maxlength="${definition.maxlength||20000}" ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''}>${esc(value)}</textarea>`:`<input name="${esc(key)}"${association} data-type="${esc(type)}" type="${inputType}" ${numberLimits} value="${esc(value)}" ${definition.autocomplete?`autocomplete="${esc(definition.autocomplete)}"`:''} ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''} maxlength="${definition.maxlength||(key==='noticeDays'?300:5000)}">`);
   return `<label class="field"><span${labelId?` id="${esc(labelId)}"`:''}${definition.labelClass?` class="${esc(definition.labelClass)}"`:''}>${esc(label)}</span>${input}${definition.help?`<small class="helper" id="${esc(helpId)}">${esc(definition.help)}</small>`:''}</label>`;
 }
@@ -1091,7 +1174,7 @@ function searchSettingsPanels(){
  const searchPlace=visibleSearchLocation(search.location,search.workMode,search.regions);search.location=searchPlace.location;search.workMode=searchPlace.workMode;
  const profile=currentSearchProfile(),scope=profile?` data-search-profile-id="${esc(profile.id)}"`:'';
  return `<section class="profile-card" id="profile-work"><h2>Lo que busco</h2>${searchProfileControls()}${profile?'<hr class="search-profile-separator" aria-hidden="true">':''}<div class="profile-fields"><form data-form="search" id="profile-search-form" class="profile-fields-form"${scope}>
-  ${searchCriteriaFields(search,['targetRoles','keywords','searchPriorities',...(profile?['searchNotes']:[]),'location','workMode','onsiteLocations','contract','maxTrips','minimumFixed','salaryExpectationFixed'])}${formErrors('search')}</form>
+  ${searchCriteriaFields(search,['targetRoles','keywords','searchPriorities','requiredSchedule',...(profile?['searchNotes']:[]),'location','workMode','onsiteLocations','contract','maxTrips','minimumFixed','salaryExpectationFixed'])}${formErrors('search')}</form>
   ${searchCriteriaFields(search,['previousApplications'],'profile-search-form',{flat:true})}
   ${profile?'<p class="helper">Idiomas, empresas a evitar y salario para formularios son comunes a todos los perfiles. El mínimo salarial y su moneda pertenecen a este perfil.</p>':''}
   <form data-form="sources" class="profile-fields-form"${scope}>${searchOptionsControls(sources)}${formErrors()}</form></div></section>`;
@@ -1137,19 +1220,96 @@ async function searchProfileAction(kind,identifier=searchProfileId){
   render(true);toast({create:'Perfil creado. Completa sus criterios.',duplicate:'Perfil duplicado.',rename:'Nombre guardado.',restore:'Perfil recuperado.',default:'Perfil predeterminado guardado.',delete:'Perfil eliminado. Puedes recuperarlo en Papelera.'}[kind]);
  }
 }
+// Who chose the offer: the person, or the agent following their recorded instruction.
+function selectionOrigin(j){
+ const choice=j.selection;if(!choice?.selected||j.sent)return '';
+ if(choice.mandate)return `<p class="offer-selection-origin">La eligió el agente porque se lo pediste: «${esc(conciseText(choice.mandate.text,160))}»${tableTimestamp(choice.mandate.at)!==null?` · ${esc(date(choice.mandate.at))}`:''}</p>`;
+ if(['Agente','Sistema'].includes(choice.actor))return `<p class="offer-selection-origin">La eligió el agente sin que se lo pidieras${choice.mode==='auto'?', así que revisarás la solicitud antes del envío':''}.</p>`;
+ return '';
+}
 function offerProfileControls(){
  if(!model.searchProfiles||model.searchProfiles.length<2)return '';
- return `<label class="offer-profile-filter">Perfil de búsqueda <select data-offer-profile="1"><option value="">Todos los perfiles</option>${model.searchProfiles.map(p=>`<option value="${esc(p.id)}"${offerProfileFilter===p.id?' selected':''}>${esc(p.name)}${p.archivedAt?' · Archivado':''}</option>`).join('')}</select></label>`;
+ const fallback=!offerProfileFilter&&searchRunProfile();
+ return `<label class="offer-profile-filter">Perfil de búsqueda <select data-offer-profile="1"><option value="">Todos los perfiles</option>${model.searchProfiles.map(p=>`<option value="${esc(p.id)}"${offerProfileFilter===p.id?' selected':''}>${esc(p.name)}${p.archivedAt?' · Archivado':''}</option>`).join('')}</select>${offerProfileFilter?'<span class="helper">Ofertas agrupadas en este perfil.</span>':fallback?`<span class="helper">Las búsquedas nuevas usan «${esc(fallback.name)}» salvo que elijas otro perfil.</span>`:''}</label>`;
+}
+// A search is saved as a task for the person's agent, like choosing an offer:
+// nothing is copied and no chat starts. Without a chosen profile, the default one is used.
+function searchRunProfile(){
+ const profiles=(model.searchProfiles||[]).filter(p=>!p.archivedAt);
+ return profiles.find(p=>p.id===offerProfileFilter)||profiles.find(p=>p.id===model.defaultSearchProfileId)||null;
+}
+// A saved search stays visible until the agent finishes it, so the next step is never lost with the toast.
+function searchStatusNote(){
+ const active=(model.requests||[]).filter(r=>r.type==='discovery'&&['queued','running'].includes(r.status));
+ if(!active.length)return '';
+ const names=[...new Set(active.map(r=>(model.searchProfiles||[]).find(p=>p.id===(r.searchProfileId||r.round?.searchProfileId))?.name||r.round?.searchProfileName).filter(Boolean))];
+ const subject=names.length?' con '+names.map(name=>'«'+name+'»').join(', '):'';
+ return `<p class="helper offers-search-status">${esc(active.some(r=>r.status==='running')?`Búsqueda${subject} en curso. Las ofertas nuevas aparecerán aquí.`:`Búsqueda${subject} guardada. Para iniciarla, pide «Continúa con Stubbs Jobs» en el chat de tu agente.`)}</p>`;
+}
+function searchRunLabel(){
+ const profile=searchRunProfile();
+ return profile&&offerProfileFilter===profile.id&&model.searchProfiles.length>1?'Buscar con este perfil':'Buscar ofertas nuevas';
+}
+function searchRunButton(){
+ const profile=searchRunProfile();
+ const hint=`Guarda una búsqueda${profile?` con «${profile.name}»`:''} para tu agente. Para iniciarla, pide «Continúa con Stubbs Jobs» en su chat.`;
+ return `<button class="primary offers-search" data-run-search="${esc(profile?.id||'')}" title="${esc(hint)}">${icon('search')}${searchRunLabel()}</button>`;
+}
+async function runSearch(profileId){
+ const profile=(model.searchProfiles||[]).find(p=>p.id===profileId),name=profile?` con «${profile.name}»`:'';
+ if(!await action({kind:'ui-request',type:'discovery',...(profile?{searchProfileId:profile.id}:{})}))return false;
+ const search=(model.requests||[]).filter(r=>r.type==='discovery'&&['queued','running','blocked','interrupted'].includes(r.status)&&(!profile||r.searchProfileId===profile.id))
+  .sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0];
+ toast(search?.status==='running'?`Ya hay una búsqueda${name} en curso. Las ofertas nuevas aparecerán aquí.`
+  :search&&search.status!=='queued'?`Hay una búsqueda anterior${name} detenida. Revísala al principio de Ofertas.`
+  :search?`Búsqueda${name} guardada para el agente. Para iniciarla, pide «Continúa con Stubbs Jobs» en su chat.`
+  :'No consta una búsqueda guardada con este perfil. Actualiza el estado y revisa Ofertas.');
+ render(true);return true;
+}
+// Announcements captured by a search that nobody has screened yet. They are
+// not offers: adding one creates an offer for the agent to check; discarding is undoable.
+function visiblePendingEntries(){return (model.pendingEntries||[]).filter(e=>!offerProfileFilter||e.searchProfileIds?.includes(offerProfileFilter)||!e.searchProfileIds?.length&&offerProfileFilter===model.defaultSearchProfileId);}
+function pendingEntriesPanel(){
+ const all=visiblePendingEntries();if(!all.length)return '';
+ const names=Object.fromEntries((model.searchProfiles||[]).map(p=>[p.id,p.name])),several=(model.searchProfiles||[]).length>1&&!offerProfileFilter;
+ const link=(e,text)=>/^https?:\/\//i.test(e.url||'')?`<a href="${esc(e.url)}" target="_blank" rel="noopener">${text}</a>`:text;
+ const rows=all.slice(0,entryLimit).map(e=>{
+  const meta=[e.firstSeenAt?'Encontrado '+discoveryTime(e.firstSeenAt).toLowerCase():'',e.location,several?(e.searchProfileIds||[]).map(id=>names[id]).filter(Boolean).join(', '):''].filter(Boolean);
+  return `<li><div class="pending-entry-text">${link(e,`<strong>${esc(e.company||'Empresa sin nombre')}</strong> · ${esc(e.title||'Puesto sin título')}`)}${meta.length?`<small>${esc(meta.join(' · '))}</small>`:''}</div><div class="pending-entry-actions"><button class="link-button" data-entry-add="${esc(e.id)}">Añadir a ofertas</button><button class="link-button" data-entry-discard="${esc(e.id)}">Descartar</button></div></li>`;
+ }).join('');
+ const more=all.length>entryLimit?`<button class="link-button" data-more-entries="1">Ver más (${all.length-entryLimit})</button>`:'';
+ return `<details class="pending-entries" id="pending-entries"><summary>${icon('search')}<strong>${all.length} ${all.length===1?'anuncio encontrado sin revisar':'anuncios encontrados sin revisar'}</strong><span class="pending-entries-chevron" aria-hidden="true">${icon('chevron-down')}</span></summary><div class="pending-entries-body"><p class="helper">Las búsquedas los encontraron, pero el agente aún no los ha revisado y no aparecen en la tabla. Los revisará en tu próxima búsqueda. También puedes añadir uno a Ofertas para que lo compruebe, o descartarlo.</p><ol class="pending-entries-list">${rows}</ol><div class="pending-entries-footer">${more}<button data-entries-discard="1">${all.length===1?'Descartar este anuncio':'Descartar los '+all.length+' anuncios'}</button></div></div></details>`;
+}
+async function discardEntries(ids){
+ if(!ids.length)return;
+ if(ids.length>1&&!await confirmAction('Descartar anuncios',`Se descartarán ${ids.length} anuncios sin revisar. No se crean ofertas ni solicitudes, y podrás deshacerlo.`))return;
+ for(let start=0;start<ids.length;start+=500){
+  if(!await action({kind:'ui-entry-decision',decision:'discard',entryIds:ids.slice(start,start+500),expectedRevision:model.revision}))return;
+ }
+ changeToast(ids.length===1?'Anuncio descartado.':ids.length+' anuncios descartados.');render(true);
+}
+async function addEntry(id){
+ const entry=(model.pendingEntries||[]).find(e=>e.id===id);if(!entry)return;
+ if(!await action({kind:'ui-add-opportunity',values:{company:entry.company||'Empresa sin nombre',title:entry.title||'Puesto sin título',url:entry.url},...(entry.searchProfileIds?.length===1?{searchProfileId:entry.searchProfileIds[0]}:{})}))return;
+ toast('Oferta añadida para que el agente la compruebe. Para iniciarlo, pide «Continúa con Stubbs Jobs» en su chat.');render(true);
 }
 function offerProfileBasis(j){
- if(!model.searchProfiles)return '';
- return `<p class="helper offer-criteria-basis">Evaluada con: ${esc(j.searchProfileName||'Búsqueda anterior')}${j.searchProfileDeleted?' · Perfil eliminado':j.criteriaScope==='round'?' · Preferencias guardadas al buscar':''}</p>`;
+ if(!model.searchProfiles||model.searchProfiles.length<2&&!j.searchProfileDeleted)return '';
+ const evaluation=`Perfil de evaluación: ${j.searchProfileName||'búsqueda anterior'}${j.searchProfileDeleted?' (eliminado)':''}`;
+ return j.displaySearchProfileId&&j.displaySearchProfileId!==j.searchProfileId
+  ?`${evaluation} · En Ofertas: ${j.displaySearchProfileName||'otro perfil'}`:evaluation;
+}
+// Personal notes live in Más acciones: they never reach the application.
+function offerNotes(j){
+ return `<form class="offer-notes" data-form="offer-note"><label class="field"><span>Notas de seguimiento</span><textarea name="Notas de seguimiento" rows="3" maxlength="10000">${esc(j.notes||'')}</textarea></label><p class="helper">Solo para ti: no se envían ni cambian la solicitud.</p>${formErrors()}<button type="submit">Guardar nota</button></form>`;
 }
 function offerCriteriaControls(j){
  if(!model.searchProfiles||j.sent||['Cerrada','Lograda','Rechazada','Oferta'].includes(j.state))return '';
  const available=model.searchProfiles.filter(p=>!p.archivedAt);
  if(!available.length||model.searchProfiles.length<2&&!j.searchProfileDeleted&&j.criteriaScope!=='round')return '';
- return `<div class="offer-profile-management"><p class="helper">Otro perfil puede cambiar el encaje y los mínimos de esta oferta, y exigir revisar una solicitud preparada.</p><div class="offer-criteria-change"><label>Cambiar perfil de evaluación <select data-offer-criteria-profile="${esc(j.id)}"><option value="">Elige un perfil</option>${available.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><button type="button" data-offer-criteria-change="${esc(j.id)}">Ver efecto</button></div></div>`;
+ // Without a fit summary, the current search profile is named next to the change.
+ const basis=!offerAssessment(j)&&offerProfileBasis(j);
+ return `<div class="offer-profile-management">${basis?`<p class="helper offer-criteria-basis">${esc(basis)}</p>`:''}<div class="offer-criteria-change"><label>Valorar con otro perfil de búsqueda <select data-offer-criteria-profile="${esc(j.id)}"><option value="">Elige un perfil</option>${available.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><button type="button" data-offer-criteria-change="${esc(j.id)}">Ver efecto</button></div><p class="helper">Puede cambiar el encaje de la oferta y obligar a revisar de nuevo la solicitud.</p></div>`;
 }
 async function changeOfferCriteria(id){
  const input=[...main.querySelectorAll('[data-offer-criteria-profile]')].find(x=>x.dataset.offerCriteriaProfile===id),identifier=input?.value;
@@ -1198,10 +1358,10 @@ function backupsPage(){return `<div class="form-wrap backups-view">${top('Copias
 function changeForm(){
  const j=selected?getJob(selected):null,blocked=j?.requests.find(r=>!window.StubbsJobsWorkflow.task(r).superseded&&r.type!=='change'&&['blocked','interrupted'].includes(r.status));
   const queued=j?.requests.find(r=>r.type==='change'&&r.status==='queued');
-  const guidance={contact:{title:'Aclarar el contacto',label:'Canal de contacto que conoces',placeholder:'Indica un canal accesible y cómo puede comprobarlo la IA.',hint:'Esta aclaración no autoriza mensajes ni invitaciones. Si quieres dar un permiso concreto, indícalo a la IA en el chat.'},access:{title:'Aclarar el acceso',label:'Acceso disponible para comprobar',placeholder:'Indica si ya iniciaste sesión y qué historial debe revisar la IA.',hint:'Inicia sesión en tu navegador antes de guardar la aclaración. No escribas contraseñas aquí.'},answers:{title:'Aportar una respuesta',label:'Dato que puedes confirmar',placeholder:'Escribe solo lo que sabes con certeza.',hint:'La IA comprobará cómo usar esta respuesta en la solicitud.'},decision:{title:'Aclarar la decisión pendiente',label:'Tu decisión o antecedente confirmado',placeholder:'Explica qué sabes con certeza; si no lo recuerdas, indícalo.',hint:'La IA comprobará la posible duplicidad antes de continuar.'},other:{title:'Aclarar lo que falta',label:'Información que puedes aportar',placeholder:'Explica qué dato o paso está pendiente.',hint:'La revisión seguirá bloqueada hasta que la IA lo compruebe.'}}[blocked?.need]||null;
+  const guidance={contact:{title:'Indicar el contacto',label:'Contacto que conoces',placeholder:'Indica cómo contactar y cómo puede comprobarlo el agente.',hint:'Esto no autoriza mensajes ni invitaciones. Para dar un permiso concreto, díselo al agente en su chat.'},access:{title:'Explicar el acceso',label:'Qué ocurre con el acceso',placeholder:'Por ejemplo: ya inicié sesión, o no tengo cuenta en este portal.',hint:'Nunca escribas contraseñas aquí.'},answers:{title:'Responder',label:'Dato que puedes confirmar',placeholder:'Escribe solo lo que sabes con certeza.',hint:'El agente decidirá cómo usarlo en la solicitud.'},decision:{title:'Decidir',label:'Tu decisión',placeholder:'Explica lo que sabes con certeza; si no lo recuerdas, dilo.',hint:'El agente comprobará que no haya una solicitud duplicada antes de seguir.'},other:{title:'Responder al agente',label:'Lo que puedes aportar',placeholder:'Explica el dato o el paso pendiente.',hint:'El agente lo revisará antes de seguir.'}}[blocked?.need]||null;
   const title=guidance?.title||(j?'Pedir cambio':'Pedir un cambio en Mi perfil'),subtitle=j?esc(displayCase(j.company))+' · '+esc(displayCase(j.title)):'';
   const label=guidance?.label||(j?'Qué quieres cambiar de esta oferta':'Qué quieres cambiar');
-  return `<div class="form-wrap">${top(title,subtitle)}${blocked?`<p class="notice">${esc(blocked.summary||'Esta solicitud necesita una aclaración.')}</p>`:j?`<p>${esc(UI.step(j).detail)}</p>`:''}${queued?.instructions?.length?`<section class="section"><h2>Ya guardaste para la IA</h2><p class="note-text">${esc(queued.instructions.map(i=>i.text).join('\n'))}</p><p class="helper">Puedes añadir otra aclaración a este trabajo pendiente.</p></section>`:''}<form data-form="change" class="panel"><label class="field"><span>${esc(label)}</span><textarea name="message" rows="5" maxlength="5000" required placeholder="${esc(guidance?.placeholder||'Por ejemplo: revisa cómo encaja mi experiencia con esta oferta.')}"></textarea></label><p class="helper">${esc(guidance?.hint||'Guarda la petición y continúa en el chat del agente. Pedir una revisión no reabre la oferta ni autoriza un envío.')}</p>${blocked?'<p class="helper">Guardar deja tu aclaración en cola. El bloqueo seguirá vigente hasta que la IA la compruebe.</p>':''}${formErrors()}<div class="form-actions"><button class="primary" type="submit">${blocked?'Guardar aclaración':'Guardar petición'}</button><span class="shortcut-hint" aria-hidden="true"><kbd>Ctrl</kbd><kbd>S</kbd></span></div></form></div>`;
+  return `<div class="form-wrap">${top(title,subtitle)}${blocked?`<p class="notice">${esc(blocked.summary||'Esta solicitud necesita una aclaración.')}</p>`:j?`<p>${esc(UI.step(j).detail)}</p>`:''}${queued?.instructions?.length?`<section class="section"><h2>Ya le pediste al agente</h2><p class="note-text">${esc(queued.instructions.map(i=>i.text).join('\n'))}</p><p class="helper">Puedes añadir otra aclaración a este trabajo pendiente.</p></section>`:''}<form data-form="change" class="panel"><label class="field"><span>${esc(label)}</span><textarea name="message" rows="5" maxlength="5000" required placeholder="${esc(guidance?.placeholder||'Por ejemplo: revisa cómo encaja mi experiencia con esta oferta.')}"></textarea></label><p class="helper">${esc(guidance?.hint||'Pedir un cambio no reabre la oferta ni autoriza un envío.')}</p><p class="helper">Después, pide «Continúa con Stubbs Jobs» en el chat del agente.</p>${formErrors()}<div class="form-actions"><button class="primary" type="submit">${blocked?'Guardar respuesta':'Guardar petición'}</button><span class="shortcut-hint" aria-hidden="true"><kbd>Ctrl</kbd><kbd>S</kbd></span></div></form></div>`;
 }
 function editForm(){const j=getJob(selected);return `<div class="form-wrap">${top('Borrador para '+esc(displayCase(j.company)),'Al guardar se revisará el borrador.')}<form data-form="draft" class="panel"><label class="field"><span>Destino</span><input name="recipient" maxlength="15000" value="${esc(j.draft.recipient)}"></label>${UI.presentationVisible(j.draft)?`<p class="helper">${esc(UI.presentationUsage(j.draft))}</p><label class="field"><span>Presentación</span><textarea name="message" rows="6" maxlength="15000">${esc(j.draft.message)}</textarea></label>`:''}${formErrors()}<div class="form-actions"><button class="primary" type="submit">Guardar borrador</button><span class="shortcut-hint" aria-hidden="true"><kbd>Ctrl</kbd><kbd>S</kbd></span></div></form></div>`;}
 const cvSummaryObserver=window.ResizeObserver?new window.ResizeObserver(entries=>{
@@ -1231,9 +1391,9 @@ function cvLibrary(){
   const card=cv=>{
    const key=cvCardKey(cv,nameCounts),recorded=Array.isArray(cv.usage)?cv.usage:null,byOffer=new Map();
    for(const item of recorded||[])if(item&&['prepared','sent'].includes(item.kind)&&item.opportunityId){const previous=byOffer.get(item.opportunityId);if(!previous||previous.kind!=='sent')byOffer.set(item.opportunityId,item);}
-   const usage=[...byOffer.values()],sent=usage.filter(item=>item.kind==='sent').length,prepared=usage.length-sent;
-   const counts=usage.length?[`${usage.length} ${usage.length===1?'oferta':'ofertas'}`,prepared&&`${prepared} ${prepared===1?'preparado':'preparados'}`,sent&&`${sent} ${sent===1?'envío confirmado':'envíos confirmados'}`].filter(Boolean).join(' · '):recorded?.length===0?'Sin ofertas asociadas':'Uso no registrado';
-   const uses=usage.length?`<ul class="cv-usage-list">${usage.map(item=>`<li><a class="cv-usage-offer" id="cv-usage-${encodeURIComponent(key)}-${encodeURIComponent(item.opportunityId)}" href="#detalle/${encodeURIComponent(item.opportunityId)}" data-job="${esc(item.opportunityId)}" data-cv-key="${esc(key)}"><span class="cv-usage-company">${esc(item.company||'Oferta vinculada')}</span>${item.title?`<span class="cv-usage-title">${esc(item.title)}</span>`:''}</a><div class="cv-usage-meta"><span class="cv-usage-state${item.kind==='sent'?' cv-usage-state--sent':''}" data-kind="${item.kind}">${item.kind==='sent'?'Envío confirmado':'CV preparado'}</span>${item.at||item.historical?`<small>${item.at?date(item.at):''}${item.at&&item.historical?' · ':''}${item.historical?'Registro anterior':''}</small>`:''}</div></li>`).join('')}</ul>`:`<p class="muted cv-usage-empty">${recorded?.length===0?'Sin solicitudes asociadas.':'Aún no hay usos registrados para este CV.'}</p>`;
+   const usage=[...byOffer.values()],own=usage.filter(item=>item.kind==='sent'&&item.reportedBy==='user').length,sent=usage.filter(item=>item.kind==='sent').length-own,prepared=usage.length-sent-own;
+   const counts=usage.length?[`${usage.length} ${usage.length===1?'oferta':'ofertas'}`,prepared&&`${prepared} ${prepared===1?'preparado':'preparados'}`,sent&&`${sent} ${sent===1?'envío confirmado':'envíos confirmados'}`,own&&`${own} ${own===1?'enviado por ti':'enviados por ti'}`].filter(Boolean).join(' · '):recorded?.length===0?'Sin ofertas asociadas':'Uso no registrado';
+   const uses=usage.length?`<ul class="cv-usage-list">${usage.map(item=>`<li><a class="cv-usage-offer" id="cv-usage-${encodeURIComponent(key)}-${encodeURIComponent(item.opportunityId)}" href="#detalle/${encodeURIComponent(item.opportunityId)}" data-job="${esc(item.opportunityId)}" data-cv-key="${esc(key)}"><span class="cv-usage-company">${esc(item.company||'Oferta vinculada')}</span>${item.title?`<span class="cv-usage-title">${esc(item.title)}</span>`:''}</a><div class="cv-usage-meta"><span class="cv-usage-state${item.kind==='sent'?' cv-usage-state--sent':''}" data-kind="${item.kind}">${item.kind==='sent'?(item.reportedBy==='user'?'Enviado por ti':'Envío confirmado'):'CV preparado'}</span>${item.at||item.historical?`<small>${item.at?date(item.at):''}${item.at&&item.historical?' · ':''}${item.historical?'Registro anterior':''}</small>`:''}</div></li>`).join('')}</ul>`:`<p class="muted cv-usage-empty">${recorded?.length===0?'Sin solicitudes asociadas.':'Aún no hay usos registrados para este CV.'}</p>`;
    const available=cv.available!==false&&Boolean(cv.url);
    return `<article class="cv-card"><details class="cv-card-details" data-cv-key="${esc(key)}"${openCvCards.has(key)?' open':''}><summary class="cv-card-summary" id="cv-summary-${encodeURIComponent(key)}">${icon('file','cv-card-icon')}<div class="cv-card-identity"><h3 class="cv-card-title" title="${esc(cv.name)}">${esc(cv.name)}</h3><p class="cv-card-counts">${esc(counts)}</p></div>${icon('chevron-down','cv-card-chevron')}</summary><div class="cv-card-content">${!available?'<p class="muted">Vuelve a añadir el PDF para abrirlo.</p>':''}${uses}</div></details><div class="cv-card-actions">${available?`<a class="cv-card-open" href="${esc(cv.url)}" target="_blank" rel="noopener" aria-label="Abrir PDF: ${esc(cv.name)}">Abrir PDF</a>`:'<span class="cv-card-unavailable">PDF no disponible</span>'}</div></article>`;
   };
@@ -1289,6 +1449,8 @@ function render(preserve=false){
  main.innerHTML=(pages[screen]||applyPage)();
  syncOfferToolbar();
  syncCvCardLayout();
+ // When the timeline is wider than the screen, show its newest step first.
+ for(const steps of main.querySelectorAll?.('.offer-timeline-steps')||[])steps.scrollLeft=steps.scrollWidth;
  const allMarked=main.querySelector('#bulk-all');if(allMarked){const rows=[...main.querySelectorAll('[data-bulk-select]')];allMarked.indeterminate=rows.some(row=>row.checked)&&!rows.every(row=>row.checked);}
  if(tableScroll!==null&&tableScroll!==undefined){const table=main.querySelector('.workflow-table-wrap');if(table){table.scrollLeft=tableScroll;table.scrollTop=tableTop||0;}}
  if(disclosures)for(const [id,open] of Object.entries(disclosures)){const item=document.getElementById(id);if(item)item.open=open;}
@@ -1357,7 +1519,7 @@ async function action(operation,id=null,form=null){
  const attempt=journalled?actionAttempts.begin(operation,()=>crypto.randomUUID()):{id,operation};
  actionBusy=true;
  mutationSerial++;
- try{const result=await api('/api/action',attempt);acceptState(result.state);stateVersion=null;if(journalled)actionAttempts.finish(operation);return true;}
+ try{const result=await api('/api/action?'+stateParams(),attempt);acceptState(result.state);stateVersion=null;if(journalled)actionAttempts.finish(operation);return true;}
  catch(error){
   if(journalled&&error.status>=400&&error.status<500)actionAttempts.finish(operation);
   if(form)form._actionFailureStatus=error.status||0;
@@ -1410,7 +1572,9 @@ document.addEventListener('click',async e=>{
  if(b.dataset.recoverDraft!==undefined){await recoverLegacyDraft(Number(b.dataset.recoverDraft));return;}
  if(b.dataset.back){await goBack();return;}
  if(b.dataset.theme){window.StubbsJobsTheme.set(b.dataset.theme);b.closest('.theme-picker').open=false;return;}
- if(b.dataset.refreshState!==undefined){if(b.disabled)return;b.disabled=true;b.setAttribute('aria-busy','true');try{await Promise.all([refresh(true),new Promise(resolve=>setTimeout(resolve,650))]);if(!connection.textContent)toast('Estado actualizado.');}finally{b.disabled=false;b.removeAttribute('aria-busy');}return;}
+ if(b.dataset.refreshState!==undefined){if(b.disabled)return;b.disabled=true;b.setAttribute('aria-busy','true');const was=model?.revision;try{await Promise.all([refresh(true),new Promise(resolve=>setTimeout(resolve,650))]);
+  // Reading again never asks the agent to check portals; say plainly whether anything changed.
+  if(!connection.textContent)toast(was!==undefined&&model?.revision===was?'Ya estaba al día: no hay cambios desde la última lectura. Para comprobar una candidatura en su portal, ábrela y pulsa Pedir comprobación.':'Estado actualizado con los últimos cambios.');}finally{b.disabled=false;b.removeAttribute('aria-busy');}return;}
  if(b.dataset.bulkMode){bulkSelectionMode=true;render(true);(main.querySelector('[data-bulk-select-all]:not(:disabled)')||main.querySelector('[data-bulk-clear]'))?.focus({preventScroll:true});return;}
  if(b.dataset.bulkClear){tableSelection.clear();bulkSelectionMode=false;render(true);main.querySelector('[data-bulk-mode]')?.focus({preventScroll:true});return;}
  if(b.dataset.bulkAction){await bulkAction(b.dataset.bulkAction,b.dataset.bulkTargets?JSON.parse(b.dataset.bulkTargets):null,Number(b.dataset.bulkTotal)||tableSelection.size);return;}
@@ -1426,6 +1590,7 @@ document.addEventListener('click',async e=>{
  if(b.dataset.clearOrder){tableState[b.dataset.clearOrder].sort='';render(true);return;}
  if(b.dataset.clearTable){tableState[b.dataset.clearTable].filters={};historyLimit=30;render(true);return;}
  if(b.dataset.clearColumn){delete tableState[b.dataset.tableTab].filters[b.dataset.clearColumn];historyLimit=30;render(true);return;}
+ if(b.dataset.userSent){await openUserSent(b.dataset.userSent);return;}
  if(b.dataset.offerOutcome){
   const j=getJob(b.dataset.jobId),outcome=b.dataset.offerOutcome,category=j?UI.offerState(j).key:'';
   const allowed=j&&(outcome==='discard'?category==='sin-elegir':outcome==='reopen-followup'?j.lifecycle?.canReopen&&category!=='logradas':j.sent&&category!=='logradas'&&!j.requests.some(r=>r.type==='send'&&r.status==='running'));
@@ -1442,13 +1607,19 @@ document.addEventListener('click',async e=>{
  if(b.dataset.saveProfile!==undefined){await saveProfileChanges();return;}
  if(b.dataset.moreActivity){activityDayLimit+=7;render(true);return;}
  if(b.dataset.searchOffers){await openSearchOffers();return;}
+ if(b.dataset.openOfferState){offerProfileFilter='';workspaceSession.setItem('stubbs_jobs-offer-profile','');await openSearchOffers(b.dataset.openOfferState);return;}
  if(b.dataset.copyAgentCommand){b.disabled=true;try{await saveVisibleChangesAndCopy();}finally{b.disabled=false;}return;}
  if(b.dataset.clearPlatforms!==undefined){const form=b.closest('form[data-form="sources"]');form.elements.namedItem('platforms').value='';syncSourceControls(form);rememberForm(form);return;}
  if(b.dataset.followupCheck){
-  if(await action({kind:'ui-request',type:'investigate',purpose:'followup',opportunityId:b.dataset.followupCheck})){toast('Comprobación guardada para el agente; aún no ha consultado el portal.');render(true);}return;
+  if(await action({kind:'ui-request',type:'investigate',purpose:'followup',opportunityId:b.dataset.followupCheck})){toast('Comprobación guardada para el agente; aún no ha consultado el portal. Para iniciarla, pide «Continúa con Stubbs Jobs» en el chat del agente.');render(true);}return;
  }
+ if(b.dataset.runSearch!==undefined){b.disabled=true;try{await runSearch(b.dataset.runSearch);}finally{b.disabled=false;}return;}
+ if(b.dataset.entryAdd){b.disabled=true;try{await addEntry(b.dataset.entryAdd);}finally{b.disabled=false;}return;}
+ if(b.dataset.entryDiscard){await discardEntries([b.dataset.entryDiscard]);return;}
+ if(b.dataset.entriesDiscard){await discardEntries(visiblePendingEntries().map(e=>e.id));return;}
+ if(b.dataset.moreEntries){entryLimit+=50;render(true);return;}
  if(b.dataset.investigate){
-   if(await action({kind:'ui-request',type:'investigate',opportunityId:b.dataset.investigate})){toast('Comprobación guardada para el agente.');render(true);}
+   if(await action({kind:'ui-request',type:'investigate',opportunityId:b.dataset.investigate})){toast('Comprobación guardada para el agente. Para iniciarla, pide «Continúa con Stubbs Jobs» en el chat del agente.');render(true);}
    return;
  }
  if(b.dataset.select){
@@ -1476,12 +1647,12 @@ document.addEventListener('click',async e=>{
    const j=reviewSnapshot;
    if(!j||j.id!==b.dataset.approve||!UI.reviewValid(j,getJob(j.id)))throw new Error('El envío necesita revisarse de nuevo.');
    if(await action({kind:'ui-approve',opportunityId:j.id,fingerprint:j.fingerprint})){
-     toast('Permiso guardado. El envío aún no está confirmado.');setScreen('detalle',j.id);
+     toast('Permiso guardado. El envío aún no está confirmado. Para iniciarlo, pide «Continúa con Stubbs Jobs» en el chat del agente.');setScreen('detalle',j.id);
    }
  }
  if(b.dataset.revoke&&await action({kind:'ui-revoke',packageId:b.dataset.revoke})){toast('Permiso retirado. Si había un envío iniciado, su resultado debe comprobarse.');render();}
  if(b.dataset.cancel&&await action({kind:'ui-request-update',id:b.dataset.cancel,status:'cancelled',proof:'Cancelado por el usuario desde la aplicación.'})){toast('Encargo cancelado.');render();}
- if(b.dataset.retry&&await action({kind:'ui-request-update',id:b.dataset.retry,status:'queued',proof:'El usuario solicita reintentar; comprobar lo ocurrido antes de repetir una acción externa.'})){toast('El agente comprobará dónde continuar.');render();}
+ if(b.dataset.retry&&await action({kind:'ui-request-update',id:b.dataset.retry,status:'queued',proof:'El usuario solicita reintentar; comprobar lo ocurrido antes de repetir una acción externa.'})){toast('Tarea guardada: el agente comprobará dónde continuar cuando pidas «Continúa con Stubbs Jobs» en su chat.');render();}
  if(b.dataset.seen&&await action({kind:'ui-seen',at:new Date().toISOString()})){toast('Novedades marcadas como vistas. Las tareas siguen pendientes.');render();}
  if(b.dataset.undo&&await action({kind:'ui-undo',id:Number(b.dataset.undo)})){toast('Cambio deshecho.');render(true);}
  if(b.dataset.inherit&&await action({kind:'ui-inherit',opportunityId:selected,expected:getJob(selected).answerOverrides})){draftStorage.removeItem(draftKey());dirty=false;toast('Esta solicitud vuelve a usar tus respuestas generales.');render();}
@@ -1521,7 +1692,7 @@ async function importCv(file){
  rememberAllForms();saving=true;syncDirty();mutationSerial++;
  try{
   const content=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('No se pudo leer el PDF. Vuelve a elegirlo.'));reader.readAsDataURL(file);});
-  const result=await api('/api/import-cv',{name:file.name,content});
+  const result=await api('/api/import-cv?'+stateParams(),{name:file.name,content});
   if(!result.state||!Array.isArray(result.state.opportunities))throw new Error('No se pudo confirmar el guardado del PDF. Actualiza el estado para comprobarlo.');
   rememberAllForms();acceptState(result.state);stateVersion=null;
   saving=false;render(true);toast('CV añadido.');
@@ -1612,7 +1783,7 @@ async function saveProfileChanges(){
 }
 async function saveVisibleChangesAndCopy(){
  const work=window.StubbsJobsActivity.work(model);
- if(!work.queued.length&&(!String(model.searchContext?.targetRoles||'').trim()||!String(model.preferences?.location||'').trim())){
+ if(!work.queued.length&&(!String(model.searchContext?.targetRoles||'').trim()||!String(model.preferences?.location||model.searchContext?.regions||'').trim())){
   toast('Completa los puestos y la zona de búsqueda en Mi perfil.');await setScreen('perfil',null,true,'search-settings-criteria');return;
  }
  if(model.execution?.status==='starting'||UI.progress(model).busy){toast('El agente ya tiene trabajo en curso.');return;}

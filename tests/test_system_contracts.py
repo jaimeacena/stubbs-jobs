@@ -348,7 +348,7 @@ class SystemContractsTests(WorkflowFixture, unittest.TestCase):
         self.assertIsNone(w.answers(self.data,'two').get('custom_language'))
 
     def auto_root(self):
-        self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None})
+        self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None,'actor':'Usuario'})
         return next(item for item in w.state(self.data)['requests'] if item['type']=='review')
 
     def derived(self,root,finish=True):
@@ -377,8 +377,8 @@ class SystemContractsTests(WorkflowFixture, unittest.TestCase):
             with w.execution_owner('agent'),w.execution_scope([root['id']]):
                 self.update(root,'running')
                 previous=copy.deepcopy(w.selection(self.data,'one'))
-                self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':previous})
-                self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None})
+                with w.interface_writer():self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':previous,'actor':'Usuario'})
+                with w.interface_writer():self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None,'actor':'Usuario'})
                 choice=w.selection(self.data,'one')
                 self.assertEqual(choice['at'],previous['at'])
                 self.assertNotEqual(choice['id'],previous['id'])
@@ -407,8 +407,8 @@ class SystemContractsTests(WorkflowFixture, unittest.TestCase):
                 archived=copy.deepcopy(package['payload'])
                 self.assertEqual(w.approved_package(self.data,'one',package['id']),package)
                 previous=copy.deepcopy(w.selection(self.data,'one'))
-                self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':previous})
-                self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None})
+                with w.interface_writer():self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':previous,'actor':'Usuario'})
+                with w.interface_writer():self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None,'actor':'Usuario'})
                 self.assertEqual(w.selection(self.data,'one')['at'],previous['at'])
                 self.review()
                 newest=next(item for item in w.state(self.data)['requests'] if item['type']=='send' and item['status']=='queued')
@@ -426,8 +426,8 @@ class SystemContractsTests(WorkflowFixture, unittest.TestCase):
                 self.update(root,'running')
                 w.state(self.data)['executionScopes']['legacy-root'].pop('rootSelectionIds')
                 old_choice=copy.deepcopy(w.selection(self.data,'one'))
-                self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':old_choice})
-                self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None})
+                with w.interface_writer():self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':old_choice,'actor':'Usuario'})
+                with w.interface_writer():self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'auto','expected':None,'actor':'Usuario'})
                 self.assertEqual(w.selection(self.data,'one')['at'],old_choice['at'])
                 self.assertTrue(w.selection(self.data,'one')['id'])
                 self.review();self.update(root,'done')
@@ -456,9 +456,9 @@ class SystemContractsTests(WorkflowFixture, unittest.TestCase):
             package=copy.deepcopy(w.state(self.data)['packages'][-1])
             archive=self.root/'data/packages'/package['id']/'package.json'
             archive_bytes=archive.read_bytes()
-            self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':original})
+            self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':False,'expected':original,'actor':'Usuario'})
             withdrawal=w.state(self.data)['undo'][-1]['id']
-            self.apply({'kind':'ui-undo','id':withdrawal})
+            self.apply({'kind':'ui-undo','id':withdrawal,'actor':'Usuario'})
             recovered=w.selection(self.data,'one')
             self.assertEqual(recovered['mode'],'review')
             self.assertEqual(recovered['at'],original['at'])
@@ -538,7 +538,7 @@ class SystemContractsTests(WorkflowFixture, unittest.TestCase):
         self.assertNotIn('agent',w.state(self.data).get('executionScopes',{}))
 
     def test_review_selection_does_not_derive_send_from_later_automatic_mode(self):
-        self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'review','expected':None})
+        self.apply({'kind':'ui-select-opportunity','opportunityId':'one','selected':True,'mode':'review','expected':None,'actor':'Usuario'})
         root=next(item for item in w.state(self.data)['requests'] if item['type']=='review')
         with w.execution_owner('agent'),w.execution_scope([root['id']]):
             self.update(root,'running')

@@ -29,6 +29,7 @@ import app_workflow as w
 import agent_runner
 import app_context as context
 import offer_minimums
+import user_submission
 import view_cache
 import personalization
 import onboarding
@@ -98,6 +99,17 @@ def edit_token(data,op_id):
     d=w.draft(data,op_id)
     return {k:d.get(k) for k in ('message','recipient')}
 
+def document_name(identifier,path):
+    """A CV prepared or sent for an offer downloads as «CV Nombre Apellidos.pdf», never as its storage name."""
+    kind,_,value=identifier.partition(':')
+    if kind in ('cv','sent','package') and path.suffix.lower()=='.pdf':
+        data=read_store()
+        if kind=='package':value=next((p.get('opportunityId') for p in w.state(data)['packages'] if p['id']==value),None)
+        try:company=w.row_for(data,value)['Empresa'] if value else None
+        except KeyError:company=None
+        return personalization.cv_file_name(data,company)
+    return path.name
+
 def document_url(path):return '/api/document?id='+quote(path,safe='')
 
 def request_view(request,unresolved_ids=None,superseded=None):
@@ -119,18 +131,13 @@ def state_view(data=None,brief=False,case=None,history=False,since=None,pure=Fal
         execution=agent_runner.peek() if pure else agent_runner.view()
         version=state_version(data,brief,case,history,execution=execution)
         if since==version:return {'unchanged':True,'version':version}
-        result=build_state(data,include_export=not brief,include_instructions=not brief,execution=execution)
+        # The brief view only details the offers it names: the rest are never built.
+        result=build_state(data,include_export=not brief,include_instructions=not brief,execution=execution,
+                           detail=cases if brief else None,history_scope=cases if brief and not (history and not cases) else None,
+                           request_detail=cases if brief and not history else None)
         if brief:
-            for row in result['opportunities']:
-                if row['id'] in cases:continue
-                for key in ('draft','answers','answerOverrides','sentMaterial','evidence','fieldDefinitions','changes','contactDrafts'):
-                    row.pop(key,None)
-                row['packages']=[{k:v for k,v in p.items() if k!='payload'} for p in row['packages']]
-                row['requests']=[{k:v for k,v in r.items() if k not in ('result','instructions')} for r in row['requests']]
             if not history:result['history']=[h for h in result['history'] if h.get('opportunityId') in cases][-3:] if cases else []
             elif cases:result['history']=[h for h in result['history'] if h.get('opportunityId') in cases]
-            if not history:
-                result['requests']=[{k:v for k,v in r.items() if k not in ('result','instructions') or r.get('opportunityId') in cases} for r in result['requests']]
             result['undo']=[{k:v for k,v in item.items() if k in ('id','kind','opportunityId','title','actor')} for item in result['undo']]
             for key in ('entries','agentInstructions','handoff'):result.pop(key,None)
         result['version']=version
@@ -150,8 +157,9 @@ def state_version(data,brief=False,case=None,history=False,execution=None):
     # A damaged archived CV must invalidate an otherwise unchanged screen.
     for package in data.get('app',{}).get('packages',[]):
         files['package:'+package['id']]=w.package_issue(package)
+    events=view_cache.grouped(data['events'],'opportunityId')
     for row in data['sheets']['Oportunidades']:
-        sent=next((e for e in data['events'] if e.get('type')=='sent' and e.get('opportunityId')==row['ID']),None)
+        sent=next((e for e in events.get(row['ID'],[]) if e.get('type')=='sent'),None)
         if sent and not sent.get('packageId'):
             files['sent:'+row['ID']]=legacy_sent_cv(row,sent)
     return digest([data.get('_baseHash') or digest(data),files,cv_library(data),agent_runner.view() if execution is None else execution,datetime.now(timezone.utc).isoformat(timespec='minutes'),brief,case,history])
@@ -187,9 +195,16 @@ def legacy_sent_cv(row,sent):
     return None,'El envío está confirmado, pero no se conserva un CV original cuyo contenido pueda comprobarse.'
 
 
-def build_state(data,include_export=True,include_instructions=True,execution=None):
+BRIEF_OMITTED=('draft','answers','answerOverrides','sentMaterial','evidence','fieldDefinitions','changes','contactDrafts')
+REQUEST_DETAIL=('result','instructions')
+
+def without(item,keys):return {k:v for k,v in item.items() if k not in keys}
+
+def build_state(data,include_export=True,include_instructions=True,execution=None,detail=None,history_scope=None,request_detail=None):
+    """detail, history_scope and request_detail are sets of offer IDs that limit
+    per-offer material, history rows and task results/instructions; None keeps all."""
     app=w.seed(data)
-    import search_profiles
+    import search_profiles, pending_entries
     discovery_dates=first_seen_dates(data)
     unresolved_ids={r['id'] for r in w.unresolved_sends(data)}
     superseded=w.superseded_sends(data)
@@ -211,6 +226,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
     for row in data['sheets']['Oportunidades']:
         numbers=offer_minimums.current_facts(data,row)
         op_id=row['ID'];d=w.draft(data,op_id);p=w.payload(data,op_id)
+        full=detail is None or op_id in detail
         packs=packages.get(op_id,[])
         sent=next((e for e in events.get(op_id,[]) if e['type']=='sent'),None)
         archive=w.archived(data,op_id) or {}
@@ -223,7 +239,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
         legacy_cv,legacy_error=legacy_sent_cv(row,sent) if sent and not sent_package else (None,None)
         shown=sent_package['payload'] if sent_package else {'cv':legacy_cv,'cvHash':sent.get('cvHash'),
             'cvReason':'','changes':[],'answers':{},'formAnswerKeys':[],'message':'','messageUsage':'unknown',
-            'recipient':sent.get('recipient'),'legacyIncomplete':True} if sent else p
+            'recipient':sent.get('recipient'),'legacyIncomplete':True,**({'reportedBy':'user'} if sent.get('reportedBy')=='user' else {})} if sent else p
         current_hash=w.stamp(data,op_id);missing=list(w.readiness(data,op_id))
         shown_package=sent_package or next((pack for pack in packs if pack['id']==current_hash),None)
         integrity_error=legacy_error if sent and not sent_package else w.package_issue(shown_package) if shown_package else None
@@ -235,27 +251,32 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
         available=bool(p['cvHash'])
         cv_url=None if integrity_error else document_url('package:'+sent_package['id']) if sent_package else document_url('sent:'+op_id) if sent and legacy_cv else document_url('cv:'+op_id) if not sent and available else None
         due=excel_date(row.get('Fecha objetivo'))
-        records=[{**x,'isCurrent':x['id']==current_hash,'cvUrl':document_url('package:'+x['id']), 'messageUrl':document_url('message:'+x['id'])} for x in packs]
-        requests=[application_lifecycle.request_view(data,request_view(r,unresolved_ids,superseded),w) for r in requests_by_id.get(op_id,[])
+        records=[{**(x if full else without(x,('payload',))),'isCurrent':x['id']==current_hash,'cvUrl':document_url('package:'+x['id']), 'messageUrl':document_url('message:'+x['id'])} for x in packs]
+        requests=[application_lifecycle.request_view(data,request_view(r,unresolved_ids,superseded) if full else without(request_view(r,unresolved_ids,superseded),REQUEST_DETAIL),w) for r in requests_by_id.get(op_id,[])
                   if r['status'] not in ('done','cancelled') or
                   r['type']=='send' and r['status']=='cancelled' and r.get('packageId') and instant(r.get('startedAt'))]
         authorized=any(p['id']==current_hash and p.get('approvedAt') and not p.get('revokedAt') for p in packs)
         who='Empresa' if sent and row['Estado'] not in w.CLOSED else 'Tú' if required or (not missing and not sent and not authorized) else 'Agente'
         if row['Estado'] in w.CLOSED:who='Proceso cerrado'
-        rows.append({'id':op_id,'company':row['Empresa'],'title':personalization.display_title(row),'originalTitle':row['Puesto'],'priority':row['Prioridad'],'state':row['Estado'],'next':row.get('Siguiente paso'),'due':due,'externalDeadline':row.get('Plazo externo'),'canonicalKey':vacancy_key(row),'fieldDefinitions':context.definitions(data,op_id),'fitFingerprint':context.fit_stamp(data,row),
-                     'url':row['URL original'],'source':row['Fuente'],'family':row.get('Familia'),'owner':who,'cv':shown['cv'],'cvLabel':Path(shown['cv']).name if shown['cv'] else None,
+        profile_info=search_profiles.offer_info(data,op_id)
+        schedule_checks={profile['id']:offer_minimums.schedule_outcome(row.get('Horario real'),profile['searchContext'].get('requiredSchedule'))
+                         for profile in search_profiles.profiles(data)}
+        rows.append({'id':op_id,'company':row['Empresa'],'title':personalization.display_title(row),'originalTitle':row['Puesto'],'priority':row['Prioridad'],'state':row['Estado'],'next':row.get('Siguiente paso'),'due':due,'externalDeadline':row.get('Plazo externo'),'canonicalKey':vacancy_key(row),'fieldDefinitions':context.definitions(data,op_id) if full else None,'fitFingerprint':context.fit_stamp(data,row),
+                     'url':row['URL original'],'source':row['Fuente'],'family':row.get('Familia'),'owner':who,'cv':shown['cv'],'cvLabel':personalization.cv_file_name(data,row['Empresa']) if shown['cv'] else None,
                      'integrityError':integrity_error,'cvFingerprint':context.cv_stamp(data,op_id),'cvHash':p['cvHash'],'cvState':cv_state,'cvUrl':cv_url,'cvReason':shown['cvReason'],'changes':shown['changes'],
                      'draft':d,'answers':p['answers'],'answerOverrides':d['answers'],'missing':missing,'questions':required,'fingerprint':current_hash,'packages':records,'sent':sent,'sentMaterial':shown if sent else None,
-                     'requests':requests,'contactDrafts':contacts_by_id.get(op_id,[]),'selection':w.selection(data,op_id),'archivedAt':archive.get('at'),'discardedAt':archive.get('at') if not sent and archive.get('outcome')!='rejected' else None,'rejectedAt':rejected_at,'appliedAt':excel_date(row.get('Fecha candidatura')),'snoozedUntil':app['snoozes'].get(op_id),'apply':j.conditions(data,row)[0],'accept':j.conditions(data,row)[1],
+                     'requests':requests,'contactDrafts':contacts_by_id.get(op_id,[]) if full else None,'selection':w.selection(data,op_id),'archivedAt':archive.get('at'),'discardedAt':archive.get('at') if not sent and archive.get('outcome')!='rejected' else None,'rejectedAt':rejected_at,'appliedAt':excel_date(row.get('Fecha candidatura')),'snoozedUntil':app['snoozes'].get(op_id),'apply':j.conditions(data,row)[0],'accept':j.conditions(data,row)[1],
                      'conditions':{k:numbers.get(k,row.get(k)) for k in j.CONDITIONS},'salary':row.get('Banda publicada'),'schedule':row.get('Horario real'),'firstSeenAt':discovery_dates.get(op_id),
-                     'country':row.get('País'), 'place':row.get('Ubicación'), 'round':app.get('offerRounds',{}).get(op_id), **search_profiles.offer_info(data,op_id), 'workMode':row.get('Modalidad') or ('Remoto' if numbers.get('Remoto España',row.get('Remoto España'))=='Sí' else None), 'contract':row.get('Contrato'),
+                     'country':row.get('País'), 'place':row.get('Ubicación'), 'round':app.get('offerRounds',{}).get(op_id), **profile_info, 'scheduleChecks':schedule_checks, 'workMode':row.get('Modalidad') or ('Remoto' if numbers.get('Remoto España',row.get('Remoto España'))=='Sí' else None), 'contract':row.get('Contrato'),
                      'technologies':row.get('Tecnologías'),'requirements':row.get('Requisitos de la oferta'),'notes':row.get('Notas de seguimiento'),
                      'lifecycle':lifecycle, 'minimums':offer_minimums.view(data,row), 'archiveReason':(w.archived(data,op_id) or {}).get('reason'), 'archiveOutcome':application_lifecycle.archive_outcome(data,row),
                      'fixedSalary':numbers.get('Fijo mín. confirmado'),
                      'fixedSalaryMax':numbers.get('Fijo máx. confirmado'), 'minimumTrips':numbers.get('Viajes mín. al mes'),
                      'fixedSalaryCurrency':numbers.get('Moneda fijo confirmado') or ('EUR' if not app.get('personalized') else None),
-                     'pendingChange':w.pending_change(data,op_id),
-                     'assessmentFingerprint':offer_quality.fingerprint(data,row),'assessment':offer_quality.view(data,row),'evidence':evidence.get(op_id,[]),'lastActivityAt':latest_activity.get(op_id,(None,None))[1]})
+                     'pendingChange':w.pending_change(data,op_id),'selfReport':user_submission.view(data,row,w),
+                     'assessmentFingerprint':offer_quality.fingerprint(data,row),'assessment':offer_quality.view(data,row),'evidence':evidence.get(op_id,[]) if full else None,'lastActivityAt':latest_activity.get(op_id,(None,None))[1]})
+        if not full:
+            for key in BRIEF_OMITTED:del rows[-1][key]
     source_error=None
     try:public_sources=personalization.public_sources(data)
     except (OSError,ValueError,TypeError,KeyError):
@@ -279,13 +300,13 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
             'defaultSearchProfileId':search_profiles.default_id(data),
             'assistantMode':personalization.assistant_mode(data),'automation':{'applicationMode':w.automation(data)['applicationMode']},'workspacePath':str(ROOT),'syncedFolder':view_cache.memo(('synced-folder',),lambda:synced_folder(ROOT)),'agentInstructions':agent_runner.external_prompt(data) if include_instructions else '',
             'experience':context.experience(data),'applicationVerification':personalization.application_verification(data),
-            'history':application_lifecycle.history_view(data),'seenAt':app['seenAt'],'snoozes':app['snoozes'],'rounds':w.rounds(data),'requests':[application_lifecycle.request_view(data,request_view(req,unresolved_ids,superseded),w) for req in app['requests']],'undo':undo,
+            'history':application_lifecycle.history_view(data,history_scope),'seenAt':app['seenAt'],'snoozes':app['snoozes'],'rounds':w.rounds(data),'requests':[application_lifecycle.request_view(data,request_view(req,unresolved_ids,superseded) if request_detail is None or req.get('opportunityId') in request_detail else without(request_view(req,unresolved_ids,superseded),REQUEST_DETAIL),w) for req in app['requests']],'undo':undo,
             'metrics':j.metrics(data),
             'health':health,'sourceConfigurationError':source_error,'publicSources':[{'id':s['id'],'company':s['company'],'checked':s['id'] in data['sourceHealth']} for s in public_sources],
             'portalAccess':app.get('portalAccess',{}),
             'cycles':cycles,'export':export,'execution':agent_runner.view() if execution is None else execution,
             'handoff':f'Continúa los encargos pendientes o bloqueados de Stubbs Jobs en {ROOT}. Lee AGENTS.md, status y app-status. Revisa el motivo de cada bloqueo; no repitas un posible envío sin comprobar el portal. No autorices nuevos paquetes en mi nombre.',
-            'historical':[{**record,'canonicalKey':vacancy_key(record)} for record in data['historicalApplications']],'entries':data['sheets']['Entradas'],
+            'historical':[{**record,'canonicalKey':vacancy_key(record)} for record in data['historicalApplications']],'entries':data['sheets']['Entradas'],'pendingEntries':pending_entries.pending(data),
             'cvLibrary':cv_library(data)}
 
 @view_cache.cached(lambda data:(id(data),str(ROOT)))
@@ -385,7 +406,23 @@ class Handler(BaseHTTPRequestHandler):
             cookie.load(self.headers.get('Cookie',''))
             return bool(cookie.get(COOKIE) and hmac.compare_digest(cookie[COOKIE].value,SESSION))
         except Exception:return False
+    def requested_state(self,since=None):
+        """The view the page asked for; actions reply with the same brief state as a refresh."""
+        query=parse_qs(urlsplit(self.path).query)
+        cases=query.get('case',[])
+        return state_view(brief=query.get('brief')==['1'],case=cases if len(cases)>1 else cases[0] if cases else None,history=query.get('history')==['1'],since=since)
+    def discard_unread_body(self):
+        # Windows resets a socket closed with unread request bytes, so the page
+        # would see a broken connection instead of this error message.
+        if self.command!='POST' or getattr(self,'body_consumed',False):return
+        self.body_consumed=True;self.close_connection=True
+        try:
+            self.connection.settimeout(0.2)
+            remaining=150_000
+            while remaining>0 and (chunk:=self.rfile.read1(min(65536,remaining))):remaining-=len(chunk)
+        except (OSError,ValueError):pass
     def send(self,status,body,content_type='application/json; charset=utf-8',extra=None):
+        self.discard_unread_body()
         if not isinstance(body,bytes):body=json.dumps(body,ensure_ascii=False).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(body)))
@@ -413,9 +450,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authenticated():return self.send(401,{'error':'Abre Stubbs Jobs desde el acceso de la carpeta para recuperar la sesión.'})
         try:
             if path=='/api/state':
-                query=parse_qs(urlsplit(self.path).query)
-                cases=query.get('case',[])
-                return self.send(200,state_view(brief=query.get('brief')==['1'],case=cases if len(cases)>1 else cases[0] if cases else None,history=query.get('history')==['1'],since=query.get('since',[None])[0]))
+                return self.send(200,self.requested_state(since=parse_qs(urlsplit(self.path).query).get('since',[None])[0]))
             if path=='/api/table':return self.send(200,j.table_csv(read_store()),'text/csv; charset=utf-8',{'Content-Disposition':'attachment; filename="candidaturas.csv"'})
             if path=='/api/preview':return self.send(200,preview(parse_qs(urlsplit(self.path).query).get('id',[''])[0]),'image/png')
             if path=='/api/document':
@@ -424,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not p.is_file():raise ValueError('El archivo no está disponible')
                 kind=content_type(p.name)
                 disposition='attachment' if identifier=='excel' or 'download' in parse_qs(urlsplit(self.path).query) else 'inline'
-                return self.send(200,p.read_bytes(),kind,{'Content-Disposition':f"{disposition}; filename*=UTF-8''{quote(p.name)}"})
+                return self.send(200,p.read_bytes(),kind,{'Content-Disposition':f"{disposition}; filename*=UTF-8''{quote(document_name(identifier,p))}"})
             return self.send(404,{'error':'No se encuentra esa página'})
         except (ValueError,StopIteration,FileNotFoundError) as exc:return self.send(404,{'error':str(exc) or 'No se encuentra ese elemento'})
         except KeyError:return self.send(404,{'error':'No se encuentra ese elemento'})
@@ -442,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             upload=urlsplit(self.path).path=='/api/import-cv'
             if upload and not self.authenticated():return self.send(401,{'error':'Abre Stubbs Jobs desde su acceso'})
             if length<1 or length>(14_000_000 if upload else 150000):raise ValueError('Petición demasiado grande o vacía')
-            raw=self.rfile.read(length)
+            raw=self.rfile.read(length);self.body_consumed=True
             if len(raw)!=length:raise ValueError('La petición llegó incompleta; vuelve a intentarlo con los mismos datos')
             body=parse_json(raw)
             if not isinstance(body,dict):raise ValueError('La petición debe contener los datos de la acción')
@@ -467,7 +502,7 @@ class Handler(BaseHTTPRequestHandler):
                 with lock():
                     data=read_store()
                     if j.import_cv(data,body['name'],content):save_store(data)
-                return self.send(200,{'state':state_view()})
+                return self.send(200,{'state':self.requested_state()})
             if path=='/api/run':
                 raise ValueError('Abre tu agente y pídele que continúe con Stubbs Jobs; leerá el estado actual')
             if path=='/api/assist':
@@ -488,7 +523,7 @@ class Handler(BaseHTTPRequestHandler):
             kind=operation.get('kind')
             allowed={'ui-setup-retry','ui-setup-finish','ui-profile-section','ui-assistant-settings','ui-search-context','ui-add-opportunity','ui-profile','ui-preferences','ui-experience','ui-responses','ui-change','ui-offer-note','ui-inherit','ui-draft','ui-request','ui-approve','ui-revoke','ui-request-update','ui-snooze','ui-seen','ui-undo','ui-automation-settings','ui-select-opportunity','ui-criteria-scope'}
             allowed.add('ui-search-profile')
-            allowed.update(('ui-bulk-action','ui-followup-plan'))
+            allowed.update(('ui-bulk-action','ui-followup-plan','ui-entry-decision','ui-user-sent'))
             if kind not in allowed:raise ValueError('Acción no disponible desde la aplicación')
             if kind=='ui-request' and operation.get('type')=='send':raise ValueError('Revisa y autoriza el paquete antes de solicitar su envío')
             if kind=='ui-request-update' and operation.get('status') not in ('queued','cancelled'):raise ValueError('Solo el agente confirma la ejecución de un encargo')
@@ -499,8 +534,8 @@ class Handler(BaseHTTPRequestHandler):
             if kind=='ui-draft' and set(operation['values'])-{'message','recipient'}:raise ValueError('Ese cambio requiere revisión del agente')
             operation['actor']='Usuario' if read_store().get('app',{}).get('personalized') else 'Usuario'
             transact({'id':body['id'],'operations':[operation]})
-            return self.send(200,{'ok':True,'state':state_view()})
-        except w.Conflict as exc:return self.send(409,{'error':str(exc),'state':state_view()})
+            return self.send(200,{'ok':True,'state':self.requested_state()})
+        except w.Conflict as exc:return self.send(409,{'error':str(exc),'state':self.requested_state()})
         except (ValueError,KeyError,StopIteration,TypeError) as exc:return self.send(400,{'error':str(exc) or 'Revisa los datos de la acción'})
         except Exception:
             log_failure('POST',self.path)

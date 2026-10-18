@@ -277,7 +277,7 @@ class BulkActionsTests(WorkflowFixture, unittest.TestCase):
 
     def test_group_approval_checks_every_frozen_package_and_never_records_a_send(self):
         workflow.draft(self.data, 'one')['requiredAnswers'] = []
-        workflow.draft(self.data, 'two').update(messageUsage='unused',formAnswerKeys=[])
+        workflow.draft(self.data, 'two').update(messageUsage='unused',formAnswerKeys=[],cvAdaptation='reused',cvReason='TEST: el CV general ficticio ya cubre los requisitos.')
         with patch.object(jobs, 'conditions', return_value=('Sí', 'Pendiente', False)):
             self.review()
             self.data['app']['selections']['two'] = {'selected': True, 'mode': 'review', 'at': workflow.now()}

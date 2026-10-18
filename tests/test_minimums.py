@@ -85,7 +85,7 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
                 self.assertNotIn('select-review', offer_actions.available(self.data, 'one', workflow))
                 with self.assertRaises(ValueError):
                     self.apply({'kind': 'ui-select-opportunity', 'opportunityId': 'one',
-                                'selected': True, 'mode': 'auto', 'expected': None})
+                                'selected': True, 'mode': 'auto', 'expected': None,'actor':'Usuario'})
 
     def test_range_crossing_the_minimum_remains_selectable_but_not_confirmed(self):
         self.evidence('Fijo ≥32 k€', 'Pendiente', fixed=30000, fixedMax=40000)
@@ -113,7 +113,7 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
         self.assertEqual(self.data['app']['requests'][0]['id'], request_id)
 
     def test_archiving_cancels_future_work_and_correction_never_restores_permissions(self):
-        self.apply({'kind': 'ui-select-opportunity', 'opportunityId': 'one', 'selected': True, 'mode': 'auto', 'expected': None})
+        self.apply({'kind': 'ui-select-opportunity', 'opportunityId': 'one', 'selected': True, 'mode': 'auto', 'expected': None,'actor':'Usuario'})
         self.evidence('Remoto España', 'No')
         self.assertIsNone(workflow.selection(self.data, 'one'))
         self.assertTrue(all(r['status'] == 'cancelled' for r in self.data['app']['requests']))
@@ -208,6 +208,26 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
         # Descriptive prose between two labels is still not an alternative.
         self.assertEqual(cats('Híbrido, 3 días presencial', 'mode'), {'hybrid'})
         self.assertEqual(cats('Remoto, con viajes al centro presencial', 'mode'), {'remote'})
+
+    def test_partial_remote_wording_is_hybrid_but_keeps_real_alternatives(self):
+        cats = offer_minimums.categories
+        for text in ('Semi-remoto', 'Semipresencial', 'Teletrabajo parcial', 'Remoto parcial', 'Parcialmente remoto',
+                     'Remoto 2 días a la semana', 'Teletrabajo 3 días', 'Remoto con 2 días presenciales',
+                     'Remote, 3 days in the office', 'Remoto (1 día a la semana en oficina)'):
+            with self.subTest(text=text):
+                self.assertEqual(cats(text, 'mode'), {'hybrid'})
+        # Occasional monthly or yearly visits remain a travel question, not hybrid work.
+        for text in ('Remoto, 1 día presencial al mes', 'Remote 4 days a year onsite', 'Remoto con visitas puntuales'):
+            with self.subTest(text=text):
+                self.assertEqual(cats(text, 'mode'), {'remote'})
+        self.assertEqual(cats('Remoto o semipresencial', 'mode'), {'remote', 'hybrid'})
+        self.assertEqual(cats('Presenciales', 'mode'), {'onsite'})
+        self.row['Modalidad'] = 'Teletrabajo parcial'
+        decision = offer_minimums.view(self.data, self.row)
+        self.assertFalse(decision['canApply'])
+        self.assertEqual(decision['violations'][0]['key'], 'Remoto España')
+        self.row['Modalidad'] = 'Remoto o semipresencial'
+        self.assertTrue(offer_minimums.view(self.data, self.row)['canApply'])
 
     def setup_places(self, accepted='Villa Norte; Puerto Sur'):
         self.data['app']['searchContext'] = {'workMode': 'Remoto, Híbrido, Presencial', 'currency': 'EUR',

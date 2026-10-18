@@ -9,12 +9,22 @@ test('an authorized queued send asks to start the agent without asking for permi
    packages:[{id:'TEST-package',isCurrent:true,approvedAt:new Date().toISOString()}],
    requests:[{type:'send',status:'queued',packageId:'TEST-package'}]});
   const before=structuredClone(value),message=ui.nextAction(value);
-  assert.match(message,/Envío autorizado/);assert.match(message,/aún no está confirmado/);
+  assert.match(message,/Envío autorizado/);assert.match(message,/aún no enviado/);assert.match(message,/chat del agente/);
   assert.match(message,/Continúa con Stubbs Jobs/);
   assert.doesNotMatch(message,/Tendrás que aprobar|tras revisar el paquete/);
   assert.equal(ui.step(value).label,'Autorizada · aún sin enviar');
   assert.deepEqual(value,before);
  }
+});
+
+test('a completed portal access can put only that blocked non-send task back in the queue',()=>{
+ const blocked=need=>job({selection:{selected:true,mode:'auto'},requests:[{id:'TEST-task',type:'investigate',status:'blocked',need,summary:'Completa la verificación del portal.'}]});
+ assert.equal(ui.step(blocked('access')).retryRequestId,'TEST-task');
+ assert.equal(ui.step(blocked('access')).cta,'Explicar el acceso');
+ for(const need of ['answers','contact','decision','other'])assert.equal(ui.step(blocked(need)).retryRequestId||null,null,need);
+ // An uncertain send needs a portal check, never a plain retry.
+ const send=job({selection:{selected:true,mode:'auto'},requests:[{id:'TEST-send',type:'send',status:'blocked',need:'access',packageId:'p',startedAt:'2026-09-22T09:00:00Z'}]});
+ assert.equal(ui.step(send).retryRequestId||null,null);
 });
 
 test('a revoked or old package never explains a queued task as an authorized send',()=>{
@@ -132,40 +142,24 @@ test('uncertain and withdrawn delivery takes precedence over archive and cannot 
  request.supersededByRequestId='next-attempt';assert.equal(ui.offerState(job({state:'Cerrada',requests:[request]}),now).key,'cerradas');
 });
 test('attention keeps a useful reason and follow-up identifies interviews without claiming a receipt',()=>{
- const value=job({selection:{selected:true},missing:[]});assert.match(ui.detailMessage(value),/Falta tu permiso/);
+ const value=job({selection:{selected:true},missing:[]});assert.match(ui.detailMessage(value),/autoriza el envío/);
  assert.match(ui.detailMessage(job({state:'Entrevista',next:'Confirma tu disponibilidad.'})),/^Entrevista: Confirma tu disponibilidad/);
  assert.equal(ui.detailMessage(job({state:'Oferta',next:'Revisa el salario.'})),'La empresa te ofrece el puesto.');
  assert.match(ui.detailMessage(job({sent:{at:'2026-10-05'}})),/Sin respuesta conocida/);
  assert.match(ui.detailMessage(job({state:'Enviada'})),/No consta una confirmación/);
  const legacy=ui.detailMessage(job({state:'Pendiente de ti',next:'Puedes seleccionarla. Fijo y viajes pendientes.'}));
- assert.match(legacy,/revisa su encaje con el agente/);assert.doesNotMatch(legacy,/Puedes seleccionarla|Fijo|viajes/);
+ assert.match(legacy,/revisa el encaje con el agente/);assert.doesNotMatch(legacy,/Puedes seleccionarla|Fijo|viajes/);
  assert.match(ui.detailMessage(job({sent:{at:'2026-10-05'},requests:[{type:'change',status:'blocked',summary:'TEST empresa pide un dato.'}]})),/TEST empresa pide un dato/);
 });
 function assessedJob(values={}){return job({company:'Empresa ficticia',priority:'A',apply:'Revisar',assessment:{isCurrent:true,unknowns:['Confirmar días presenciales antes de elegir.']},...values});}
-test('the first checked doubt is brief guidance and never a new task or selection',()=>{
- const current=assessedJob({assessment:{isCurrent:true,unknowns:['  Confirmar\n días presenciales.  ','Otra duda']}}),before=structuredClone(current);
- assert.equal(ui.nextCheck(current),'Confirmar días presenciales.');assert.deepEqual(current,before);
- for(const values of [{sent:true},{historical:true},{state:'Cerrada'},{state:'Entrevista'},{state:'Oferta'},{apply:'No'},{selection:{selected:true}},{questions:[{key:'city'}]},{assessment:{isCurrent:false,unknowns:['Antes']}}])assert.equal(ui.nextCheck(assessedJob(values)),'');
-});
-test('guidance does not compete with queued work, delivery reconciliation or an interruption',()=>{
- for(const request of [{type:'investigate',status:'queued'},{type:'review',status:'running'},{type:'send',status:'cancelled',packageId:'TEST-package',startedAt:'2026-09-21T10:00:00Z',authorizationAt:'2026-09-21T09:00:00Z'},{type:'investigate',status:'blocked'},{type:'investigate',status:'interrupted'}])assert.equal(ui.nextCheck(assessedJob({requests:[request]})),'');
- assert.ok(ui.nextCheck(assessedJob({requests:[{type:'investigate',status:'done'}]})));
-});
-test('a single recommended offer respects priority and an actual current deadline without sorting the saved list',()=>{
- const list=[assessedJob({id:'b',priority:'B'}),assessedJob({id:'a'}),assessedJob({id:'urgent',priority:'C',externalDeadline:'2026-09-22T18:00:00Z'})],state=model(list),before=structuredClone(state);
- assert.equal(ui.recommendation(state,at).id,'urgent');assert.deepEqual(state,before);
- list[2].externalDeadline=null;assert.equal(ui.recommendation(state,at).id,'a');
-});
-test('summary keeps personal decisions and uncertain work ahead of another offer suggestion',()=>{
- const candidate=assessedJob({id:'candidate'});
- for(const other of [job({id:'answer',questions:[{key:'city'}]}),job({id:'interview',state:'Entrevista'}),job({id:'review',selection:{selected:true},missing:[]})])assert.equal(ui.recommendation(model([candidate,other]),at),null);
- for(const status of ['queued','running','blocked','interrupted']){
-  const pending={type:'investigate',status};assert.equal(ui.recommendation(model([assessedJob({requests:[pending]})],{requests:[pending]}),at),null);
- }
-});
-test('old, incompatible, snoozed and damaged offers do not become recommendations',()=>{
- for(const values of [{assessment:{isCurrent:false,unknowns:['Antes']}},{apply:'No'},{integrityError:'TEST PDF corrupto'},{sent:true},{selection:{selected:true}},{assessment:{isCurrent:true,unknowns:[]}}])assert.equal(ui.recommendation(model([assessedJob(values)]),at),null);
- assert.equal(ui.recommendation(model([assessedJob()],{snoozes:{a:'2026-09-23T10:00:00Z'}}),at),null);
+test('summary shows only sent, closed, rejected and achieved totals',()=>{
+ const jobs=[job({id:'decide',apply:'Sí'}),job({id:'follow',state:'Enviada',sent:{at:'2026-10-01'}}),job({id:'won',state:'Lograda',sent:{at:'2026-10-01'}}),
+  job({id:'no',state:'Rechazada',sent:{at:'2026-10-01'}}),job({id:'closed',archiveOutcome:'closed',sent:{at:'2026-10-01'}})],before=structuredClone(jobs);
+ const stats=ui.stateCounts(jobs);
+ assert.deepEqual(stats.map(stat=>stat.key),['enviadas','cerradas','rechazadas','logradas']);
+ assert.deepEqual(stats.map(stat=>stat.label),['Enviadas','Cerradas','Rechazadas','Logradas']);
+ assert.deepEqual(Object.fromEntries(stats.map(stat=>[stat.key,stat.value])),{enviadas:4,cerradas:1,rechazadas:1,logradas:1});
+ assert.deepEqual(jobs,before);
 });
 test('a process moves through choosing, applying, following and history without treating uncertainty as a send',()=>{
   const pending=job({apply:'Revisar'});
@@ -181,7 +175,7 @@ test('a process moves through choosing, applying, following and history without 
 
 test('an unchecked offer explains the check before proposing selection',()=>{
   assert.match(ui.step(job({apply:'Revisar'})).detail,/comprobar las condiciones/);
-  assert.match(ui.step(job({apply:'Sí'})).detail,/Puedes seleccionar esta oferta/);
+  assert.match(ui.step(job({apply:'Sí'})).detail,/Puedes solicitarla/);
 });
 test('offer modality preserves confirmed negatives and contradictions in all projections',()=>{
  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Remoto desde España');
@@ -317,7 +311,7 @@ test('a due candidature with missing answers does not duplicate the profile deci
 });
 test('contextual step surfaces the concrete blocker without dumping its proof',()=>{
   const j=job({next:'Indicar un canal disponible',requests:[{status:'blocked',need:'contact',result:'Technical proof with details'}]});
-  assert.equal(ui.step(j).cta,'Aclarar contacto');assert.equal(ui.step(j).detail,'Indicar un canal disponible');
+  assert.equal(ui.step(j).cta,'Indicar contacto');assert.equal(ui.step(j).detail,'Indicar un canal disponible');
 });
 test('confirmed interviews and external deadlines outrank routine preparation dates',()=>{
   assert.equal(ui.rank(job({state:'Entrevista'}),at),0);
@@ -331,11 +325,11 @@ test('historical rows preserve uncertainty and avoid duplicate or non-job entrie
 });
 test('new instructions have an honest pending state even if an older task is blocked',()=>{
   const j=job({requests:[{type:'review',status:'blocked'},{type:'change',status:'queued'}]});
-  assert.match(ui.step(j).label,/falta comprobación/);assert.match(ui.step(j).detail,/bloqueo sigue vigente/);assert.equal(ui.step(j).owner,'agent');
+  assert.match(ui.step(j).label,/falta comprobación/);assert.match(ui.step(j).detail,/para que la revise/);assert.equal(ui.step(j).owner,'agent');
 });
 test('a blocked decision has a specific action',()=>{
   const j=job({requests:[{type:'review',status:'blocked',need:'decision',summary:'Confirma el antecedente.'}]});
-  assert.equal(ui.step(j).cta,'Aclarar decisión');assert.equal(ui.step(j).detail,'Confirma el antecedente.');
+  assert.equal(ui.step(j).cta,'Decidir');assert.equal(ui.step(j).detail,'Confirma el antecedente.');
 });
 
 test('a legacy running cycle does not claim current agent activity',()=>{
@@ -347,7 +341,7 @@ test('a legacy running cycle does not claim current agent activity',()=>{
 test('pending profile changes cannot be presented as a request ready to authorize',()=>{
  const pending=job({pendingChange:true,missing:[],requests:[]});
  assert.equal(ui.status(pending).owner,'agent');assert.equal(ui.step(pending).cta,null);
- assert.match(ui.step(pending).detail,/comprobar los cambios del perfil/);
+ assert.match(ui.step(pending).detail,/revisarlos antes de que autorices el envío/);
  assert.equal(ui.inbox(model([pending]),at).some(item=>item.kind==='review'),false);
  assert.equal(ui.reviewValid(pending,pending),false);
 });
@@ -393,8 +387,8 @@ test('a brief unconfirmed-interruption flag preserves the offer recovery and pro
 test('queued selection explains the permission and next step persistently without claiming execution',()=>{
  for(const mode of ['auto','review']){
   const value=job({selection:{selected:true,mode},requests:[{type:'review',status:'queued'}]});const text=ui.nextAction(value);
-  assert.match(text,/La tarea está guardada.*Continúa con Stubbs Jobs.*para iniciarla/);
-  assert.match(text,mode==='auto'?/Permites enviar esta oferta tras revisar el paquete exacto/:/aprobar el paquete final/);
+  assert.match(text,/Continúa con Stubbs Jobs.*chat del agente para empezar/);
+  assert.match(text,mode==='auto'?/la enviará cuando la tenga lista/:/Revisarás la solicitud antes de que se envíe/);
   assert.equal(value.requests[0].status,'queued');
  }
  const value=job({selection:{selected:true,mode:'auto'},requests:[{type:'send',status:'running'}]});assert.match(ui.nextAction(value),/Permiso retirado.*compruebe si llegó a enviarse/);

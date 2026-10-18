@@ -15,15 +15,36 @@ REASONS = {'expired': 'Anuncio expirado', 'withdrawn': 'Anuncio retirado', 'fill
 CHECK_DAYS = 7
 
 
-def history_view(data):
-    """Attach dated facts to a copy; never reinterpret or rewrite stored history."""
+def history_view(data, opportunities=None):
+    """Attach dated facts to a copy; never reinterpret or rewrite stored history.
+
+    With opportunities, only those offers' rows are built: each row depends
+    solely on records of its own offer, so the result is the filtered view."""
     app = data.get('app', {})
-    items = copy.deepcopy(app.get('history', []))
+    history = app.get('history', [])
+    if opportunities is not None:
+        history = [h for h in history if h.get('opportunityId') in opportunities]
+    items = copy.deepcopy(history)
+    by_offer = {}
+    for item in items:
+        by_offer.setdefault(item.get('opportunityId'), []).append(item)
+    events_by_offer = {}
+    for event in data.get('events', []):
+        events_by_offer.setdefault(event.get('opportunityId'), []).append(event)
+    retracted = {e.get('id') for e in app.get('retractedEvents', [])}
+    requests = app.get('requests', [])
+    requests_by_id = {}
+    requests_by_offer = {}
+    for request in requests:
+        requests_by_id.setdefault(request.get('id'), request)
+        requests_by_offer.setdefault(request.get('opportunityId'), []).append(request)
     for scope, store, title in (
             ('availability', 'availabilityChecks', 'Disponibilidad comprobada'),
             ('followup', 'followupChecks', 'Seguimiento comprobado')):
         for key, records in app.get(store, {}).items():
-            rows = [h for h in items if h.get('opportunityId') == key and h.get('title') == title]
+            if opportunities is not None and key not in opportunities:
+                continue
+            rows = [h for h in by_offer.get(key, []) if h.get('title') == title]
             matches = {}
             used = set()
             # New records carry an exact identity. Legacy writes appended one
@@ -59,7 +80,7 @@ def history_view(data):
                                    'outcome': record.get('outcome'), 'sourceUrl': record.get('sourceUrl'),
                                    'observedAt': at}
     for item in items:
-        events = [e for e in data.get('events', []) if e.get('opportunityId') == item.get('opportunityId')]
+        events = events_by_offer.get(item.get('opportunityId'), [])
         exact = [e for e in events if e.get('id') == item.get('eventId') and item.get('eventId')]
         if not exact and item.get('title') in ('Envío confirmado', 'Solicitud enviada'):
             exact = [e for e in events if e.get('type') == 'sent' and
@@ -70,12 +91,17 @@ def history_view(data):
             event = exact[0]
             item['activity'] = {'kind': 'event', 'type': event.get('type'), 'scope': event.get('scope'),
                                 'packageId': event.get('packageId'), 'sourceUrl': event.get('sourceUrl')}
-        request = next((r for r in app.get('requests', []) if r.get('id') == item.get('requestId')), None)
+            if event.get('reportedBy') == 'user':
+                item['activity']['reportedBy'] = 'user'
+        elif item.get('eventId') and item['eventId'] in retracted:
+            # An undone record of the person's own send stays in history, marked as undone.
+            item['activity'] = {'kind': 'event', 'type': 'sent', 'reportedBy': 'user', 'retracted': True}
+        request = requests_by_id.get(item.get('requestId'))
         creation_type = {'Investigación solicitada': 'investigate', 'Revisión solicitada': 'review',
                          'Envío puesto en cola': 'send', 'Búsqueda solicitada': 'discovery'}.get(item.get('title'))
         if request is None and creation_type and instant(item.get('at')):
-            candidates = [r for r in app.get('requests', []) if r.get('type') == creation_type
-                          and r.get('opportunityId') == item.get('opportunityId') and instant(r.get('createdAt'))
+            candidates = [r for r in requests_by_offer.get(item.get('opportunityId'), []) if r.get('type') == creation_type
+                          and instant(r.get('createdAt'))
                           and abs((instant(item['at']) - instant(r['createdAt'])).total_seconds()) <= 1]
             if len(candidates) == 1:
                 request = candidates[0]

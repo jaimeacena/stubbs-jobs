@@ -339,7 +339,7 @@ class DeliveryRecoveryTests(unittest.TestCase):
         baseline = copy.deepcopy(self.data)
         cases = (
             {'kind': 'ui-select-opportunity', 'opportunityId': 'one', 'selected': False,
-             'expected': copy.deepcopy(workflow.state(self.data)['selections']['one'])},
+             'expected': copy.deepcopy(workflow.state(self.data)['selections']['one']),'actor':'Usuario'},
             {'kind': 'ui-change', 'opportunityId': 'one', 'message': 'TEST revise material', 'actor': 'Persona'},
         )
         for operation in cases:

@@ -6,13 +6,28 @@ from urllib.parse import urlsplit
 from stubbs_jobs_core import ROOT, now, identity, digest
 
 SEARCH_PLATFORMS=('linkedin','infojobs','indeed','tecnoempleo','glassdoor','empresas')
-FIT_CONTEXT={'targetRoles','keywords','searchPriorities','regions','workMode','onsiteLocations','languages','currency','previousApplications','searchNotes'}
-CONTEXT={'name':'','targetRoles':'','keywords':'','searchPriorities':'','searchNotes':'','regions':'','workMode':'','onsiteLocations':'','languages':'','currency':'EUR','previousApplications':'','sourceUrls':'','platforms':'','checkMail':False}
+FIT_CONTEXT={'targetRoles','keywords','searchPriorities','requiredSchedule','regions','workMode','onsiteLocations','languages','currency','previousApplications','searchNotes'}
+# Optional schedule minimum; '' or none keeps the schedule as a preference only.
+SCHEDULE_REQUIREMENTS=('','none','morning','afternoon','continuous')
+CONTEXT={'name':'','targetRoles':'','keywords':'','searchPriorities':'','requiredSchedule':'','searchNotes':'','regions':'','workMode':'','onsiteLocations':'','languages':'','currency':'EUR','previousApplications':'','sourceUrls':'','platforms':'','checkMail':False}
 
 def validate_work_authorizations(value):
     if value is None:return
     if not isinstance(value,list) or len(value)>40 or any(not isinstance(v,str) or not v.strip() or v!=v.strip() or len(v)>100 for v in value) or len(set(v.casefold() for v in value))!=len(value):
         raise ValueError('Selecciona países o zonas válidos, sin duplicados')
+
+def _file_part(value,limit=80):
+    value=re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',str(value or ''))
+    return ' '.join(value.split())[:limit].strip(' .-')
+
+def cv_file_name(data,company=None):
+    """Natural name for a CV shown, downloaded or attached: «CV Nombre Apellidos - Empresa.pdf».
+    The company tells apart the CV prepared for each offer. Stored copies keep
+    their verified paths; only the visible name changes."""
+    name=_file_part(context(data).get('name'))
+    base=f'CV {name}' if name else 'Curriculum'
+    company=_file_part(company,60)
+    return f'{base} - {company}.pdf' if company else f'{base}.pdf'
 
 def display_title(row):
     translated=row.get('Puesto traducido')
@@ -31,15 +46,44 @@ def source_allowed(data,url):
         validate_public_source_url(url)
         host=urlsplit(url).hostname.lower().removeprefix('www.')
         for link in chosen:
-            configured=urlsplit(link);allowed_host=configured.hostname.lower().removeprefix('www.')
-            same=host==allowed_host or {host,allowed_host}<={'boards.greenhouse.io','job-boards.greenhouse.io'}
-            if not same:continue
-            if allowed_host in ('boards.greenhouse.io','job-boards.greenhouse.io','jobs.ashbyhq.com'):
-                board=configured.path.strip('/').split('/')[0]
-                if board and urlsplit(url).path.strip('/').split('/')[0]!=board:continue
-            return True
+            # A hosted job board is exclusive to its company, on any of its host aliases.
+            portal=portal_board(link)
+            if portal:
+                if same_board(portal,portal_board(url)):return True
+                continue
+            allowed_host=urlsplit(link).hostname.lower().removeprefix('www.')
+            if host==allowed_host or {host,allowed_host}<={'boards.greenhouse.io','job-boards.greenhouse.io'}:return True
         return False
     except (ValueError,AttributeError):return False
+
+# Hosted job boards with a public listing API, recognised by address. Personio
+# and Recruitee carry the company in the host name, the others in the first path segment.
+PORTAL_KINDS=('greenhouse','ashby','lever','workable','personio','smartrecruiters','recruitee')
+SUBDOMAIN_PORTALS=('personio','recruitee')
+BOARD=re.compile(r'[A-Za-z0-9][A-Za-z0-9._-]{0,199}')
+LABEL=re.compile(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?')
+
+def portal_board(url):
+    """{'kind','board'[,'region']} for a hosted job board address with its company, or None."""
+    parts=urlsplit(url);host=(parts.hostname or '').lower().rstrip('.').removeprefix('www.')
+    first=parts.path.strip('/').split('/')[0]
+    subdomain=re.fullmatch(r'([^.]+)\.(jobs\.personio\.(?:de|com)|recruitee\.com)',host)
+    if subdomain:
+        kind='personio' if subdomain[2].startswith('jobs.') else 'recruitee'
+        if not LABEL.fullmatch(subdomain[1]) or kind=='recruitee' and subdomain[1] in ('app','api','www','help','support','blog'):return None
+        return {'kind':kind,'board':subdomain[1]}
+    kind={'boards.greenhouse.io':'greenhouse','job-boards.greenhouse.io':'greenhouse','jobs.ashbyhq.com':'ashby',
+          'jobs.lever.co':'lever','jobs.eu.lever.co':'lever','apply.workable.com':'workable',
+          'jobs.smartrecruiters.com':'smartrecruiters','careers.smartrecruiters.com':'smartrecruiters'}.get(host)
+    # apply.workable.com/j/CODE is a single offer without its account.
+    if not kind or not BOARD.fullmatch(first) or kind=='workable' and first in ('j','api'):return None
+    return {'kind':kind,'board':first,**({'region':'eu'} if host=='jobs.eu.lever.co' else {})}
+
+def same_board(first,second):
+    if not first or not second or first['kind']!=second['kind'] or first.get('region')!=second.get('region'):return False
+    # SmartRecruiters company identifiers are case-insensitive in its addresses.
+    if first['kind']=='smartrecruiters':return first['board'].casefold()==second['board'].casefold()
+    return first['board']==second['board']
 OPPORTUNITY_FIELDS=['ID','Empresa','Puesto','Puesto traducido','País','Ubicación','Modalidad','Contrato','Prioridad','Estado','Apta solicitar','Apta aceptar','Siguiente paso','Fecha objetivo','URL original','Fuente','Publicada','Revisada','Vigencia','Remoto España','Indefinido','Viajes ≤1/mes','Fijo ≥32 k€','Fijo mín. confirmado','Fijo máx. confirmado','Moneda fijo confirmado','Banda publicada','Horario real','Mañanas','Tecnologías','Familia','CV usado','Fecha candidatura','Cliente / duplicado posible','Observaciones','Requisitos de la oferta','Notas de seguimiento','Clave canónica','CV preparado','Oferta elegida']
 
 def blank_store():
@@ -86,6 +130,7 @@ def validate_context(values):
             if value is not False:raise ValueError('La búsqueda en correo se ha retirado de Stubbs Jobs')
         elif not isinstance(value,str) or len(value)>(10000 if key=='previousApplications' else 3000):raise ValueError('Revisa los datos de búsqueda')
     if values.get('currency') and not re.fullmatch('[A-Z]{3}',values['currency']):raise ValueError('Usa un código de moneda de tres letras, como EUR o USD')
+    if 'requiredSchedule' in values and values['requiredSchedule'] not in SCHEDULE_REQUIREMENTS:raise ValueError('Elige un horario obligatorio de la lista')
     if 'platforms' in values:
         chosen=values['platforms'].split(',') if values['platforms'] else []
         if len(chosen)!=len(set(chosen)) or any(item not in SEARCH_PLATFORMS for item in chosen):
@@ -141,10 +186,13 @@ def validate_source_configuration(value):
             raise ValueError('La web configurada necesita un tipo de fuente válido')
         if 'enabled' in source and type(source['enabled']) is not bool:
             raise ValueError('Indica con true o false si la web está activa')
-        if kind in ('greenhouse','ashby'):
+        if kind in PORTAL_KINDS:
             board=source.get('board')
-            if not isinstance(board,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,199}',board):
+            # Subdomain boards become part of a host name, the others a path segment.
+            if not isinstance(board,str) or not (LABEL if kind in SUBDOMAIN_PORTALS else BOARD).fullmatch(board):
                 raise ValueError('La web de ofertas necesita un identificador de portal válido')
+            if 'region' in source and (kind!='lever' or source['region']!='eu'):
+                raise ValueError('La región del portal no es válida')
         if kind=='html' or 'url' in source:
             url=source.get('url')
             if not isinstance(url,str) or len(url)>3000:
@@ -167,8 +215,11 @@ def public_sources(data):
             validate_public_source_url(link)
             parts=urlsplit(link);segments=parts.path.strip('/').split('/')
             source={'id':'source-'+digest(link)[:12],'company':parts.hostname,'kind':'html','url':link,'enabled':True}
+            portal=portal_board(link)
             if parts.hostname in ('boards.greenhouse.io','job-boards.greenhouse.io') and segments[0]:source.update(kind='greenhouse',board=segments[0])
             elif parts.hostname=='jobs.ashbyhq.com' and segments[0]:source.update(kind='ashby',board=segments[0])
+            # The shared portal host does not name the company; its identifier does.
+            elif portal:source.update(portal,company=portal['board'])
             if not any(existing.get('url')==link for existing in sources):sources.append(source)
     return [source for source in validate_source_configuration(sources) if source.get('enabled')]
 
@@ -298,6 +349,10 @@ def handle(data,op):
         row={k:None for k in OPPORTUNITY_FIELDS}
         row.update({'ID':key,'Clave canónica':key,'Empresa':values['company'].strip(),'Puesto':values['title'].strip(),'URL original':values['url'].strip(),'Fuente':'Añadida por ti','Prioridad':'B','Estado':'Investigar','Vigencia':'Sin comprobar','Siguiente paso':'Comprobar la oferta y su encaje con tu perfil.'})
         data['sheets']['Oportunidades'].append(row);w.draft(data,key)
+        # The same announcement captured earlier is now an offer: it leaves the unscreened list.
+        for entry in data['sheets']['Entradas']:
+            if entry.get('Estado')=='Nueva' and not entry.get('ID oportunidad') and vacancy_key(entry)==key:
+                entry.update({'Estado':'Promovida','ID oportunidad':key,'Motivo / comprobación':'Añadida por ti a Ofertas para que el agente la compruebe.'})
         request=search_profiles.discovery_request(data,op.get('requestId'))
         search_profiles.associate(data,key,request,op.get('searchProfileId'),new=True)
         w.request(data,key,'investigate',actor=actor)

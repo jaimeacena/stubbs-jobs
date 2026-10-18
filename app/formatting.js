@@ -192,6 +192,21 @@ function displayCase(value){
  });
 }
 
-const api={fold,tableText,salaryNumber,salaryInfo,tableTimestamp,tableDate,discoveryDay,discoveryTime,relativeTime,historicalDate,displayCase};
+// A datetime-local value is the person's wall-clock time; keep her offset explicitly.
+const pad=n=>String(n).padStart(2,'0');
+function localInputValue(at=new Date()){
+ const value=at instanceof Date?at:new Date(at);
+ if(Number.isNaN(value.getTime()))return '';
+ return `${value.getFullYear()}-${pad(value.getMonth()+1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+}
+function zonedInstant(value){
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value))return null;
+ const at=new Date(value);
+ if(Number.isNaN(at.getTime()))return null;
+ const offset=-at.getTimezoneOffset(),abs=Math.abs(offset);
+ return `${localInputValue(at)}:${pad(at.getSeconds())}${offset>=0?'+':'-'}${pad(Math.floor(abs/60))}:${pad(abs%60)}`;
+}
+
+const api={localInputValue,zonedInstant,fold,tableText,salaryNumber,salaryInfo,tableTimestamp,tableDate,discoveryDay,discoveryTime,relativeTime,historicalDate,displayCase};
 if(typeof module!=='undefined')module.exports=api;else window.StubbsJobsFormatting=api;
 })();

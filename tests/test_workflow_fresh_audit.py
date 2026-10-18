@@ -55,12 +55,12 @@ class AutoReviewContinuityTests(WorkflowFixture, unittest.TestCase):
         with patch.object(agent_runner, 'read_state', return_value={'status': 'idle'}), \
                 patch.object(agent_runner, 'view', return_value={'status': 'idle'}):
             self.apply({'kind': 'ui-select-opportunity', 'opportunityId': 'one',
-                        'selected': True, 'mode': 'auto', 'expected': None})
+                        'selected': True, 'mode': 'auto', 'expected': None,'actor':'Usuario'})
             root = workflow.state(self.data)['requests'][-1]
             with workflow.execution_owner('TEST-original'), workflow.execution_scope([root['id']]):
                 self.apply({'kind': 'ui-request-update', 'id': root['id'], 'status': 'running',
                             'proof': 'TEST preparation started'})
-                workflow.draft(self.data,'one').update(messageUsage='form',formAnswerKeys=[])
+                workflow.draft(self.data,'one').update(messageUsage='form',formAnswerKeys=[],cvAdaptation='reused',cvReason='TEST: el CV general ficticio ya cubre los requisitos.')
                 review = {'kind': 'ui-review', 'opportunityId': 'one',
                           'fingerprint': workflow.stamp(self.data, 'one'),
                           'checks': {key: True for key in workflow.CHECKS},

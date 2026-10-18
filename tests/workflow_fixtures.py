@@ -61,6 +61,8 @@ class WorkflowFixture:
         d=workflow.draft(self.data,'one')
         d.setdefault('messageUsage','form')
         d.setdefault('formAnswerKeys',list(d['requiredAnswers']))
+        d.setdefault('cvAdaptation','reused')
+        if d.get('cvReason')==workflow.PENDING_CV_REASON:d['cvReason']='TEST: el CV general ficticio ya cubre los requisitos.'
         workflow.state(self.data)['selections'].setdefault('one', {'selected': True, 'mode': 'review', 'at': core.now(), 'actor': 'Persona'})
         self.apply({'kind': 'ui-review', 'opportunityId': 'one', 'checks': {key: True for key in workflow.CHECKS},
                     'proof': 'Oferta, destino, CV, formulario y duplicados comprobados.',

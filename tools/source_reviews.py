@@ -17,7 +17,18 @@ def configured_url(source):
         return 'https://job-boards.greenhouse.io/' + board
     if isinstance(board, str) and board and source.get('kind') == 'ashby':
         return 'https://jobs.ashbyhq.com/' + board
+    if isinstance(board, str) and board and source.get('kind') in PORTAL_PAGES:
+        return PORTAL_PAGES[source['kind']](source)
     return None
+
+
+PORTAL_PAGES = {
+    'lever': lambda source: ('https://jobs.eu.lever.co/' if source.get('region') == 'eu' else 'https://jobs.lever.co/') + source['board'],
+    'workable': lambda source: 'https://apply.workable.com/' + source['board'],
+    'personio': lambda source: f"https://{source['board']}.jobs.personio.de",
+    'smartrecruiters': lambda source: 'https://jobs.smartrecruiters.com/' + source['board'],
+    'recruitee': lambda source: f"https://{source['board']}.recruitee.com",
+}
 
 
 def _source_identity(url):

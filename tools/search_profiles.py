@@ -11,9 +11,21 @@ import view_cache
 
 VERSION = 1
 LEGACY_ID = 'search-current'
-SEARCH_FIELDS = ('targetRoles', 'keywords', 'searchPriorities', 'regions', 'workMode',
+SEARCH_FIELDS = ('targetRoles', 'keywords', 'searchPriorities', 'requiredSchedule', 'regions', 'workMode',
                  'onsiteLocations', 'currency', 'sourceUrls', 'platforms', 'searchNotes')
 CRITERIA_FIELDS = ('contract', 'location', 'maxTrips', 'minimumFixed')
+# Fields added after profiles were first saved. A stored profile without one
+# keeps its meaning ("no requirement"), so older registries stay readable.
+ADDED_SEARCH_FIELDS = {'requiredSchedule': ''}
+
+
+def upgrade(saved):
+    """Fill fields added later with their neutral value; idempotent and lossless."""
+    for profile in saved if isinstance(saved, list) else ():
+        search = profile.get('searchContext') if isinstance(profile, dict) else None
+        if isinstance(search, dict):
+            for key, value in ADDED_SEARCH_FIELDS.items():
+                search.setdefault(key, value)
 
 
 def profiles(data):
@@ -22,8 +34,13 @@ def profiles(data):
         if data['app'].get('searchProfilesVersion')!=VERSION:
             raise ValueError('Versión de perfiles de búsqueda no compatible; conserva el registro')
         default = data['app'].get('defaultSearchProfileId')
+        upgrade(saved)
         # Validation is pure; within one view snapshot identical content is checked once.
-        view_cache.memo(('search-profiles-valid', digest([saved, default])), lambda: validate(saved, default) or True)
+        # Views read profiles for every offer: fingerprint each list once, not per read.
+        # The memo keeps the list alive, so its id cannot be reused by another list.
+        _, fingerprint = view_cache.memo(('search-profiles-digest', id(saved), default),
+                                         lambda: (saved, digest([saved, default])))
+        view_cache.memo(('search-profiles-valid', fingerprint), lambda: validate(saved, default) or True)
         return saved
     app = data.get('app', {})
     from personalization import CONTEXT
@@ -99,6 +116,11 @@ def validate_model(data):
     for assigned in assignments.values():
         if not isinstance(assigned,dict) or assigned.get('searchProfileId') not in identifiers:
             raise ValueError('Una oferta hace referencia a un perfil de búsqueda inexistente')
+    placements=app.get('offerProfilePlacements',{})
+    rows={row['ID'] for row in data['sheets']['Oportunidades']}
+    if not isinstance(placements,dict) or any(key not in rows or not isinstance(identifier,str) or identifier not in identifiers
+                                                for key,identifier in placements.items()):
+        raise ValueError('La ubicación de una oferta en los perfiles no es válida')
     for request in app.get('requests',[]):
         identifier=(request.get('round') or {}).get('searchProfileId')
         if identifier and identifier not in identifiers:
@@ -130,6 +152,7 @@ def validate_criteria(values):
 def migrate(data):
     app = data['app']
     if 'searchProfiles' in app:
+        upgrade(app['searchProfiles'])
         validate(app['searchProfiles'], app.get('defaultSearchProfileId'))
         return False
     if app.get('setupComplete') is False:
@@ -228,11 +251,15 @@ def offer_info(data, key):
     if not identifier and not request_id:
         identifier = default_id(data)
     profile = next((p for p in profiles(data) if p['id'] == identifier), {})
+    display_identifier = app.get('offerProfilePlacements',{}).get(key) or identifier
+    display_profile = next((p for p in profiles(data) if p['id'] == display_identifier), {})
     memberships = app.get('offerSearches', {}).get(key, [])
     ids = {r.get('searchProfileId') for r in memberships if r.get('searchProfileId')}
     if identifier:
         ids.add(identifier)
     return {'searchProfileId': identifier, 'searchProfileName': profile.get('name') or basis.get('searchProfileName'),
+            'displaySearchProfileId': display_identifier,
+            'displaySearchProfileName': display_profile.get('name') or basis.get('searchProfileName'),
             'searchProfileDeleted': bool(profile.get('deletedAt')),
             'searchProfileIds': sorted(ids), 'searchAppearances': copy.deepcopy(memberships),
             'criteriaScope': 'current' if key in app.get('offerCriteria', {}) or not request_id else 'round'}

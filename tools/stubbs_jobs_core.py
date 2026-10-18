@@ -8,6 +8,7 @@ import re
 import tempfile
 import time
 from contextlib import contextmanager
+from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
@@ -38,7 +39,9 @@ def canonical_url(url):
     query = [(k,v) for k,v in parse_qsl(p.query) if not k.lower().startswith('utm_') and k.lower() not in ('trk','tracking_id')]
     return urlunsplit((p.scheme.lower(), netloc, p.path.rstrip('/'), urlencode(sorted(query)), ''))
 
+@lru_cache(maxsize=8192)
 def identity(url):
+    """Pure function of the text: views compare every offer and entry, so remember it."""
     u = canonical_url(url); p = urlsplit(u); parts = p.path.strip('/').split('/')
     host = p.hostname.removeprefix('www.')
     if host == 'boards.greenhouse.io': host = 'job-boards.greenhouse.io'
@@ -50,6 +53,21 @@ def identity(url):
         return f'greenhouse:{parts[0]}:{parts[2]}'
     if host == 'jobs.ashbyhq.com' and len(parts)>=2:
         return f'ashby:{parts[0]}:{parts[1]}'
+    if p.port is None:
+        # Hosted company boards: the same vacancy keeps one identity on every
+        # host alias, with or without its title slug or /apply suffix.
+        if host in ('jobs.lever.co','jobs.eu.lever.co') and len(parts)>=2 and re.fullmatch(r'[0-9a-fA-F-]{36}',parts[1]):
+            return f'lever:{parts[0].lower()}:{parts[1].lower()}'
+        match = re.fullmatch(r'/(?:[^/]+/)?j/([A-Za-z0-9]+)(?:/.*)?', p.path)
+        if host == 'apply.workable.com' and match:return 'workable:'+match.group(1)
+        board = re.fullmatch(r'([a-z0-9-]+)\.jobs\.personio\.(?:de|com)', host)
+        match = re.fullmatch(r'/job/(\d+)(?:/.*)?', p.path)
+        if board and match:return f'personio:{board.group(1)}:{match.group(1)}'
+        if host == 'jobs.smartrecruiters.com' and len(parts)>=2 and (match:=re.match(r'(\d+)(?:-|$)', parts[1])):
+            return f'smartrecruiters:{parts[0].lower()}:{match.group(1)}'
+        board = re.fullmatch(r'([a-z0-9-]+)\.recruitee\.com', host)
+        match = re.fullmatch(r'/o/([^/]+)(?:/.*)?', p.path)
+        if board and match:return f'recruitee:{board.group(1)}:{match.group(1)}'
     offer=re.search(r'/of-i([a-zA-Z0-9]+)',p.path)
     if host=='infojobs.net' and offer: return 'infojobs:'+offer.group(1)
     match = re.match(r'/jobs/(\d+)(?:-|$)', p.path)

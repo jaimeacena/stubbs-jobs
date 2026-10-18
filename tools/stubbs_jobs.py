@@ -172,10 +172,10 @@ def validate_offer_facts(values, proof):
     if 'Puesto traducido' in values:
         from personalization import validate_display_title
         validate_display_title(values['Puesto traducido'],proof)
-    for field in ('País','Ubicación','Modalidad','Contrato'):
+    for field in ('País','Ubicación','Modalidad','Contrato','Horario real'):
         if field in values and (not proof or values[field] is not None and
                                 (not isinstance(values[field],str) or not values[field].strip() or len(values[field])>300)):
-            raise ValueError('País, ubicación, modalidad y contrato necesitan un dato válido y su prueba; no se deducen del perfil')
+            raise ValueError('País, ubicación, modalidad, contrato y horario necesitan un dato válido y su prueba; no se deducen del perfil')
 
 
 def _apply_batch(data,batch):
@@ -366,7 +366,10 @@ def _apply_batch(data,batch):
     import application_lifecycle
     application_lifecycle.reconcile(data,workflow)
     from offer_minimums import reconcile as reconcile_minimums
+    archives=set(workflow.state(data).get('offerArchives',{}))
     reconcile_minimums(data,workflow)
+    # An automatic archive closes the offer now: resolve its obsolete tasks in this batch.
+    if set(workflow.state(data).get('offerArchives',{}))!=archives:application_lifecycle.reconcile(data,workflow)
     data['appliedBatches'].append(batch['id'])
     data['changes'].append({'id':batch['id'],'at':now(),'operations':copy.deepcopy(batch['operations'])})
     validate(data)
@@ -432,7 +435,7 @@ def clear_opportunities(data, expected_revision):
     for key, empty in (('drafts', {}), ('packages', []), ('requests', []),
                        ('history', []), ('snoozes', {}), ('undo', []),
                        ('selections', {}), ('fitReviews', {}), ('contactDrafts', []), ('offerArchives', {}),
-                       ('offerRounds',{}),('currentCriteria',[]),('offerCriteria',{}),('offerSearches',{}),
+                       ('offerRounds',{}),('currentCriteria',[]),('offerCriteria',{}),('offerSearches',{}),('offerProfilePlacements',{}),
                        ('availabilityChecks',{}),('followupChecks',{}),('followupPlans',{}),
                        ('offerAssessments',{}),('sourceReviews',[]),('executionScopes',{})):
         app[key] = empty
@@ -478,6 +481,7 @@ def view(data):
             names={p['id']:p['name'] for p in search_profiles.profiles(data)}
             row['Perfil de búsqueda']=info['searchProfileName'] or 'Búsqueda anterior sin perfil asignado'
             row['ID perfil de búsqueda']=info['searchProfileId']
+            row['Perfil en Ofertas']=info['displaySearchProfileName'] or row['Perfil de búsqueda']
             row['Búsquedas en que apareció']='; '.join(names.get(key,key) for key in info['searchProfileIds'])
     return result
 
@@ -594,17 +598,19 @@ def export(data=None):
 def main():
     configure_stdio()
     ap=argparse.ArgumentParser()
-    ap.add_argument('command',choices=['init','plan','handoff','migrate','upgrade-app','ingest','apply','import-cv','export','status','app-status','agent-status','refresh','packages','doctor','maintenance','backup','check-backup','restore','clear-opportunities'])
+    ap.add_argument('command',choices=['init','plan','handoff','migrate','upgrade-app','ingest','apply','import-cv','build-cv','export','status','app-status','agent-status','refresh','packages','doctor','maintenance','backup','check-backup','restore','clear-opportunities'])
     ap.add_argument('--file'); ap.add_argument('--name'); ap.add_argument('--destination')
     ap.add_argument('--execution-id'); ap.add_argument('--expected-revision',type=int)
     ap.add_argument('--request-ids',help='IDs originales de la tanda, separados por comas')
-    ap.add_argument('--case',help='Detalle de una oferta')
+    ap.add_argument('--case',help='Detalle de una oferta; en build-cv, la oferta del CV')
+    ap.add_argument('--preview',help='build-cv: guarda el PDF en este archivo para revisarlo, sin registrarlo')
     ap.add_argument('--request',help='Detalle de un encargo')
     ap.add_argument('--profile',action='store_true',help='Perfil y antecedentes completos')
     ap.add_argument('--search-profile',help='Perfil de agent-status o de una búsqueda autorizada con plan; no cambia el predeterminado')
     ap.add_argument('--history',action='store_true');ap.add_argument('--limit',type=int,default=20)
     ap.add_argument('--since',help='Versión de la consulta anterior')
     ap.add_argument('--offers',choices=['open','all','closed'],default='open',help='Ofertas listadas por agent-status: abiertas (predeterminado), todas o cerradas')
+    ap.add_argument('--entries',action='store_true',help='Anuncios captados sin revisar (agent-status), por páginas y opcionalmente por --search-profile')
     ap.add_argument('--page',type=int,default=1,help='Página del listado general de agent-status')
     ap.add_argument('--page-size',type=int,default=20,help='Ofertas por página en agent-status (1-100)')
     args=ap.parse_args()
@@ -617,7 +623,7 @@ def main():
         from agent_context import view as agent_view
         print(json.dumps(agent_view(read_store(),case=args.case,request_id=args.request,
                                     history=args.history,limit=args.limit,since=args.since,profile_detail=args.profile,search_profile_id=args.search_profile,
-                                    offers=args.offers,page=args.page,page_size=args.page_size),ensure_ascii=False))
+                                    offers=args.offers,page=args.page,page_size=args.page_size,entries=args.entries),ensure_ascii=False))
         return
     if args.command=='doctor':
         result=doctor(ROOT);print(json.dumps(result,ensure_ascii=False));return
@@ -635,6 +641,19 @@ def main():
             else:
                 if not args.destination:raise ValueError('Indica una carpeta nueva con --destination')
                 result=backup.restore(ROOT,args.file,args.destination)
+        print(json.dumps(result,ensure_ascii=False));return
+    if args.command=='build-cv':
+        import build_cv
+        if not args.case or not args.file:raise ValueError('Indica la oferta con --case y la adaptación JSON con --file')
+        spec=parse_json(Path(args.file).read_text(encoding='utf-8-sig'))
+        if args.preview:
+            print(json.dumps(build_cv.preview(read_store(),args.case,spec,args.preview),ensure_ascii=False));return
+        import app_workflow as workflow
+        with lock():
+            data=read_store();recover_export(data)
+            with workflow.execution_scope(args.request_ids.split(',') if args.request_ids is not None else None):
+                result=build_cv.register(data,args.case,spec)
+            save_store(data)
         print(json.dumps(result,ensure_ascii=False));return
     if args.command=='refresh':
         before_run=json.loads((ROOT/'outputs/feeds/latest.json').read_text(encoding='utf-8')).get('runId') if (ROOT/'outputs/feeds/latest.json').exists() else None
@@ -707,7 +726,7 @@ def table_csv(data):
         writer.writerow([("'"+str(row.get(k))) if str(row.get(k) or '').lstrip().startswith(('=','+','-','@')) else row.get(k) or '' for k in fields])
     return output.getvalue().encode('utf-8-sig')
 
-def import_cv(data,name,content,actor='Usuario'):
+def import_cv(data,name,content,actor='Usuario',review=True):
     if not isinstance(name,str) or not name.lower().endswith('.pdf') or len(content)>10_000_000 or not content.startswith(b'%PDF-'):raise ValueError('Elige un PDF válido de hasta 10 MB')
     import pypdfium2
     try:pdf=pypdfium2.PdfDocument(content)
@@ -735,7 +754,8 @@ def import_cv(data,name,content,actor='Usuario'):
     import app_workflow as w
     import app_context as c
     w.record(data,'CV añadido',actor=actor)
-    if data.get('app',{}).get('setupComplete',True):
+    # build-cv generates from the confirmed profile; only an outside PDF needs this review.
+    if review and data.get('app',{}).get('setupComplete',True):
         c.add_change(data,None,'Revisar el CV aportado: '+relative+'. Contrastar sus datos con la experiencia confirmada; preguntar ante discrepancias. No reemplazar paquetes enviados.',actor)
     return True
 

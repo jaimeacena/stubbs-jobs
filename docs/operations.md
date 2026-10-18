@@ -46,10 +46,11 @@ runtime/python/python.exe -B tools/stubbs_jobs.py apply --file data/lote.json --
 
 | Comando | Alcance |
 | --- | --- |
-| agent-status | Consulta sin escritura ni recover_export. Vista breve; --case ID, --request ID, --profile, --history y --limit 1–100 amplían contexto. --since VERSION devuelve unchanged o la vista actual, nunca un delta. --execution-id ID permite consultar executionScope/eligibleContinuations de ese propietario. |
+| agent-status | Consulta sin escritura ni recover_export. Vista breve; --case ID, --request ID, --profile, --history y --limit 1–100 amplían contexto. --since VERSION devuelve unchanged o la vista actual, nunca un delta. --execution-id ID permite consultar executionScope/eligibleContinuations de ese propietario. --entries lista los anuncios captados sin revisar (pendingEntries), opcionalmente por --search-profile. |
 | status / app-status | Estado operativo y contexto completo; posible conciliación administrativa. No constituyen una API selectiva ni una orden de ejecutar pendientes. |
 | init | Crear solo si no existe; no reiniciar un perfil existente. |
 | import-cv --file | PDF aportado, comprobado y deduplicado; no confirma sus afirmaciones. |
+| build-cv --case ID --file adaptación.json [--preview archivo.pdf] | CV de una página adaptado a una oferta solo con hechos del perfil confirmado; registra su PDF propio como «CV preparado» y declara cvAdaptation=adapted. Véase «CV adaptado con build-cv». |
 | apply: ui-cv-retire / ui-cv-restore | Retirar versiones sustituidas o recuperarlas expresamente, con revisión y huellas actuales. Solo mediante el escritor; sin borrar archivos, modificar copias enviadas ni iniciar empleo. Contrato en docs/application-contract.md. |
 | plan | Planificar descubrimiento y preparación pertinente de ofertas seleccionadas; solo con mandato de búsqueda. |
 | handoff | Obtener los IDs queued y sus instrucciones. Copiar no inicia trabajo ni transfiere propietario. |
@@ -65,6 +66,34 @@ Los comandos administrativos migrate y clear-opportunities no forman parte del t
 clear-opportunities bloquea el reinicio si queda un envío iniciado sin resultado conciliado. Cuando el reinicio está expresamente autorizado y permitido, retira también las comprobaciones, valoraciones, planes de seguimiento y ámbitos de ejecución vinculados a las ofertas y encargos retirados. Conserva el contexto personal, los perfiles de búsqueda, los CV y las preguntas reutilizables; la revisión anterior se conserva mediante la copia del escritor.
 
 La vista general contiene hechos centrales, queuedSnapshot, propietarios, versiones y referencias; no es una orden de trabajo. --profile amplía antecedentes, --case ID --history recupera fundamentos de valoraciones/revisiones desde changes. No mantener otra memoria ni interpretar un historial truncado como ausencia de antecedentes.
+
+## CV adaptado con build-cv · 18/10/2026
+
+Herramienta oficial para el CV adaptado del contrato «Horario obligatorio confirmado y CV adaptado» (docs/application-contract.md). Úsala al preparar una solicitud elegida; no autoriza envíos ni sustituye ui-review.
+
+```text
+runtime/python/python.exe -B tools/stubbs_jobs.py build-cv --case ID_OFERTA --file data/cv-ID_OFERTA.json --preview outputs/vista-cv.pdf
+runtime/python/python.exe -B tools/stubbs_jobs.py build-cv --case ID_OFERTA --file data/cv-ID_OFERTA.json --execution-id ID_PROPIO --request-ids ID1,ID2
+```
+
+Con `--preview` solo escribe ese PDF para revisarlo, sin tocar el registro. Sin él, añade el PDF a Currículums como `outputs/cv/<huella>.pdf` (import_cv, sin crear la tarea de revisar un CV aportado), lo asigna a «CV preparado» de la oferta y guarda en su borrador `cvAdaptation=adapted` y el `cvReason` de la adaptación, todo mediante el escritor. Repetir la misma adaptación no cambia nada; cada oferta obtiene un PDF propio (su ID va en los metadatos), de modo que pasa la comprobación de unicidad de ui-review. Se rechaza en ofertas enviadas, cerradas, archivadas o con un envío en curso.
+
+La adaptación es un JSON escrito por el agente:
+
+```json
+{"language": "es", "cvReason": "Qué se adaptó a esta oferta y por qué",
+ "headline": "opcional", "summary": "Resumen orientado al anuncio",
+ "highlights": ["Power BI", "SQL"],
+ "experience": [{"title": "Puesto", "company": "Empresa", "dates": "Fechas", "description": "opcional",
+                 "bullets": ["Viñeta existente", {"from": "Viñeta existente", "text": "Versión más breve o traducida"}]}],
+ "projects": [{"name": "Proyecto", "text": "opcional"}],
+ "education": ["…"], "certifications": ["…"], "languages": "…",
+ "glossary": {"Sales": "Ventas"}}
+```
+
+Reglas que comprueba antes de generar nada: cada texto es literal del perfil confirmado (`app.experience`, o «Datos confirmados» de private/profile.md) o `{"from": literal, "text": versión}`, y la versión no añade cifras ni nombres propios (herramientas, empresas, puestos, lugares) ausentes de su origen; un término traducido se declara en `glossary` y debe corresponder a una palabra de ese origen. El puesto debe constar con título y empresa en la misma línea del perfil, y sus fechas y viñetas en su propio bloque; `experience` fija el orden. `summary` y `headline` solo pueden mencionar cifras y nombres que consten en el perfil; cada tecnología destacada debe constar en él. Máximo seis viñetas por puesto y una línea por viñeta; el CV debe caber en una página A4. Los proyectos marcados como ocultos —líneas con «(oculto)» o «(hidden)» y la sección «Proyectos ocultos» del perfil o de private/profile.md— no se pueden usar ni mencionar. El nombre sale de Mi perfil (sin él no se genera) y los contactos de ciudad, teléfono, email, LinkedIn y web guardados. Idioma es o en.
+
+Límite: la comprobación es textual. Detecta cifras y nombres propios nuevos, pero no el sentido de una frase en minúsculas ni la palabra inicial de una frase del resumen; el agente sigue respondiendo de que el contenido sea fiel y de revisar la vista previa antes de registrarla.
 
 ## Perfiles y ámbito de búsqueda · 08/10/2026
 
@@ -101,7 +130,7 @@ Cada operación incluye `kind`. Para las operaciones `ui-*`, consultar docs/appl
 
 | kind | Campos y uso |
 | --- | --- |
-| opportunity | id, values con próximo paso, fecha, clasificación, familia, vigencia, estado de preparación o notas. No cambiar ID, clave canónica, condiciones o campos derivados; el avance enviado/entrevista/oferta/rechazo exige evento. |
+| opportunity | id, values con próximo paso, fecha, clasificación, familia, vigencia, estado de preparación o notas. País, Ubicación, Modalidad, Contrato y Horario real exigen proof. No cambiar ID, clave canónica, condiciones o campos derivados; el avance enviado/entrevista/oferta/rechazo exige evento. |
 | promote | entryId, reason, values con Prioridad A/B/C y Siguiente paso; Familia si corresponde. Promueve una entrada no promovida ni duplicada. No confirma condiciones o envíos; A no selecciona la oferta. |
 | entry | id, state Nueva/Descartada/Cerrada/Contradicción/Duplicada, reason. Conserva el cribado documentado. |
 | evidence | id, condition (Cumple modalidad, Cumple contrato, Cumple viajes o Cumple salario mínimo; se admiten las claves heredadas Remoto España, Indefinido, Viajes ≤1/mes y Fijo ≥32 k€, que el registro conserva y que se refieren siempre a los criterios actuales de la persona, no a España ni a 32 000 €), state Sí/No/Pendiente/Contradicción, proof, url HTTP/HTTPS válida y at con zona horaria, sin adelantar la observación al futuro (tolerancia de reloj: cinco minutos). Conserva at completo como observedAt; la comprobación vigente se determina por el instante real, con orden de guardado solo para empates. fixed opcional para importe fijo anual confirmado; con perfil personalizado exige currency coincidente con la moneda del perfil. Los nombres heredados no fijan el mínimo vigente. |
@@ -130,11 +159,13 @@ Conservar independientes estado de oferta, conocimiento, material, permiso, trab
 
 Comprobar CV, formulario real completo, destino, vigencia y duplicados antes de ui-review. En review, la persona autoriza el paquete final; en auto, el sistema puede autorizar solo la oferta seleccionada después de esas comprobaciones. Cambiar material suspende envíos antiguos en cola. El agente no aprueba en nombre de la persona ni prepara contactos sin petición expresa.
 
-Antes de enviar, revalidar paquete y permiso, usar data/packages/<packageId>/cv.pdf y las respuestas exactas del paquete. Registrar sent solo después de confirmación real, con los campos del catálogo anterior. Luego terminar el encargo. Conservar efectos históricos aunque cambien preferencias, permisos o estado del proceso.
+Antes de enviar, revalidar paquete y permiso, usar data/packages/<packageId>/cv.pdf (adjuntado como copia temporal con el cvUploadName de esa oferta en agent-status, «CV Nombre - Empresa.pdf») y las respuestas exactas del paquete. Registrar sent solo después de confirmación real, con los campos del catálogo anterior. Luego terminar el encargo. Conservar efectos históricos aunque cambien preferencias, permisos o estado del proceso.
 
 Un envío blocked/interrupted requiere ui-delivery-check: sent concilia el recibo original; not_sent tiene una ventana de una hora para un intento revalidado; unknown mantiene bloqueo. cancelled solo si hubo inicio válido y autorización original fechada: sent conserva recibo/revokedAt sin permiso nuevo ni otro formulario; not_sent/unknown mantienen cancelled, sin reencolarlo. Antes de autorizar, crear o iniciar otro envío se exigen comprobaciones not_sent frescas para todos los intentos iniciados aún inciertos de la oferta, además de permiso vigente. Se consumen al inicio real. authorizationAt fija el permiso; approvedAt legado debe ser anterior o igual al inicio. La cancelación anterior al inicio no admite esta vía. No manipular estados o permisos para forzarla.
 
 La conciliación de sent cancela nuevos send todavía queued de la misma oferta y retira sus permisos para evitar duplicar el proceso. Si otro send ya está running, rechaza la conciliación hasta detenerlo desde el chat y comprobarlo; no simula cancelar la acción externa. Durante un send running se rechazan los cambios de material, pero ui-revoke retira inmediatamente el permiso para efectos futuros sin falsear su estado ni borrar su propietario. La persona pide la detención en el chat y el agente comprueba el resultado real; no se promete cancelación instantánea del portal. Un recibo real del intento ya iniciado con autorización válida se puede conciliar sin devolver ese permiso.
+
+16/10/2026 — Un sent con reportedBy user lo registra la persona desde la ficha («Ya la he enviado yo», `ui-user-sent`): no tiene recibo, packageId ni autorización y no se presenta como envío del agente. Cuenta como envío para no repetir el formulario, seguir la candidatura y registrar resultados; sus send pendientes quedaron cancelados con sus permisos retirados. El agente no emite esa operación ni sustituye la indicación de la persona; si encuentra en el portal una solicitud que la persona no ha registrado, se lo dice para que la registre ella. Ver «Solicitud enviada por ti» en [application-contract.md](application-contract.md#contrato-envio-propio).
 
 ## Fuentes y acceso
 
@@ -173,3 +204,5 @@ ui-minimum-reconcile exige expectedRevision vigente y proof del alcance; el lote
 07/10/2026 — Actividad presenta los tres hechos relevantes de la oferta y permite consultar el historial completo. La vista une solo apuntes de la misma acción acreditada; no borra registros ni junta comprobaciones de momentos distintos. ui-availability-check y ui-followup-check conservan checkId en su entrada de historial; las peticiones nuevas conservan requestId y las respuestas modificadas conservan los nombres de los campos. Los registros anteriores siguen siendo válidos. La vista usa cada resultado fechado, sin aplicar el último resultado a consultas antiguas ni mostrar pruebas internas.
 
 07/10/2026 — Resultado final: una oferta formal del puesto (evento offer) se presenta como Lograda y termina el ciclo, aunque aún no se haya aceptado. Las noticias posteriores se conservan sin convertirla en Cerrada o Rechazada. No generar seguimiento, aceptación ni elección de propuestas. La persona puede registrar Lograda/Rechazada/Cerrada mediante ui-bulk-action achieve/mark-rejected/close, con revisión actual y envío confirmado; el agente registra comunicaciones comprobadas mediante event. Se conserva la procedencia user_reported sin inventar prueba de empresa; reject mantiene su antiguo significado de cierre personal. Lograda no admite Deshacer, archivo, reapertura ni encargos. Documentos y recibos originales permanecen. Actividad breve usa tiempos relativos; el historial conserva fechas exactas.
+
+16/10/2026 — El agente elige ofertas solo con `mandate` (palabras literales de la persona, fecha de las últimas 48 h, alcance opcional); sin él, el escritor rechaza la elección y las elecciones antiguas sin mandate no generan autorización automática. `searchContext.requiredSchedule` añade el horario a los mínimos: «Horario real» con proof; incompatible publicado archiva, ausente queda por concretar (sustituido el 18/10/2026: un horario no confirmado también archiva hasta que conste uno compatible). Véase docs/application-contract.md.

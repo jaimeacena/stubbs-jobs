@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import re
+import stat
 import uuid
 import view_cache
 from contextlib import contextmanager
@@ -89,6 +90,36 @@ def execution_scope(request_ids):
     token=_execution_scope.set(sorted(request_ids) if request_ids is not None else None)
     try:yield
     finally:_execution_scope.reset(token)
+
+HUMAN_ACTORS=('Usuario','Usuario')
+AGENT_ACTORS=('Agente','Sistema')
+MANDATE_HOURS=48
+
+def chosen_by_person(actor):
+    """The app's own writer, or a person's name outside an agent execution."""
+    return _execution.get() is _interface_execution or (actor in HUMAN_ACTORS and not execution_id())
+
+def selection_mandate(value):
+    """An agent chooses an offer only with the person's recent, literal instruction."""
+    if not isinstance(value,dict) or set(value)-{'text','at','scope'}:
+        raise ValueError('El agente solo puede elegir una oferta con la indicación expresa de la persona: añade mandate con su texto literal (text) y cuándo lo dijo (at)')
+    text,scope=value.get('text'),value.get('scope')
+    if not isinstance(text,str) or not 3<=len(text.strip())<=1000:
+        raise ValueError('Copia en mandate.text las palabras exactas de la persona que te pidieron elegir esta oferta')
+    if scope is not None and (not isinstance(scope,str) or not scope.strip() or len(scope)>300):
+        raise ValueError('Describe en mandate.scope el alcance de la indicación en un texto breve')
+    said=instant(value.get('at')) if isinstance(value.get('at'),str) and 'T' in value.get('at') else None
+    current=datetime.now(timezone.utc)
+    if said is None or said>current+timedelta(minutes=5):
+        raise ValueError('Indica en mandate.at la fecha real de la indicación, con zona horaria')
+    if current-said>timedelta(hours=MANDATE_HOURS):
+        raise ValueError('La indicación de la persona tiene más de 48 horas; pídele que la confirme de nuevo antes de elegir ofertas')
+    return {'text':text.strip(),'at':value['at'],**({'scope':scope.strip()} if scope else {}),
+            'recordedAt':now(),'executionId':execution_id()}
+
+def selection_authorizes(choice):
+    """Auto mode authorizes a send only for a choice by the person or with their recorded instruction."""
+    return bool(choice and choice.get('selected') and (choice.get('mandate') or choice.get('actor') not in AGENT_ACTORS))
 
 def selection_matches(choice,at,identifier=None):
     # A timestamp is history, not a decision's identity. Missing IDs match only
@@ -286,6 +317,38 @@ def retire_mail(data):
             changed=True
     if changed:record(data,'Búsqueda en correo retirada',actor='Sistema',detail='Configuración y tareas antiguas desactivadas; historial conservado.')
 
+CV_ADAPTATIONS=('adapted','reused')
+PENDING_CV_REASON='Pendiente de selección y revisión.'
+
+def cv_shared_with(data,op_id,cv_hash):
+    """Other offers whose prepared CV or package uses the same PDF."""
+    others=set()
+    for package in state(data)['packages']:
+        if package.get('opportunityId')!=op_id and (package.get('payload') or {}).get('cvHash')==cv_hash:others.add(package['opportunityId'])
+    for row in data['sheets']['Oportunidades']:
+        if row['ID']!=op_id and row.get('CV preparado') and digest(cv_bytes(row) or b'')==cv_hash:others.add(row['ID'])
+    return sorted(others)
+
+def cv_adaptation_issue(data,op_id,raise_error=False):
+    """A reviewed package declares whether its CV was tailored (17/10/2026 contract).
+
+    adapted: a CV made for this offer, so the same PDF is not used by another offer.
+    reused: the general CV, kept on purpose; cvReason explains why it already fits.
+    Packages reviewed before this rule keep their identity and are not reinterpreted.
+    """
+    d=draft(data,op_id);mode=d.get('cvAdaptation');reason=(d.get('cvReason') or '').strip()
+    issue=None
+    if mode not in CV_ADAPTATIONS:
+        issue='Indica en cvAdaptation si el CV se adaptó a esta oferta (adapted) o se reutiliza el general (reused)'
+    elif len(reason)<20 or reason==PENDING_CV_REASON:
+        issue='Explica en cvReason qué se adaptó del CV o por qué el CV general ya encaja con esta oferta'
+    elif mode=='adapted':
+        cv_hash=payload(data,op_id)['cvHash']
+        if cv_hash and cv_shared_with(data,op_id,cv_hash):
+            issue='El CV marcado como adaptado ya se usa en otra oferta: prepara un CV propio para esta o declara cvAdaptation=reused con su motivo'
+    if issue and raise_error:raise ValueError(issue)
+    return issue
+
 def draft(data,op_id):
     return state(data)['drafts'].setdefault(op_id,{'message':'','recipient':row_for(data,op_id)['URL original'],'answers':{},'requiredAnswers':[],'checks':{},'cvReason':'Pendiente de selección y revisión.','changes':'','updatedAt':now()})
 
@@ -313,7 +376,7 @@ def survey_mode(value):
 
 def cv_bytes(row):
     value=row.get('CV preparado')
-    path=(ROOT/value).resolve() if value else None
+    path=view_cache.memo(('cv-path',str(ROOT),value),(ROOT/value).resolve) if value else None
     if not path or not path.is_relative_to(view_cache.memo(('root-real',),ROOT.resolve)) or path.suffix.lower()!='.pdf' or not path.is_file(): return None
     def read():
         try:return path.read_bytes()
@@ -336,7 +399,7 @@ def payload(data,op_id):
         result['fitDecision']={k:fit[k] for k in ('apply','accept')} if fit.get('fingerprint')==context.fit_stamp(data,row) else None
     if d.get('questions'):result['questions']=d['questions']
     # Optional delivery metadata leaves historical package fingerprints intact.
-    for key in ('messageUsage','formAnswerKeys'):
+    for key in ('messageUsage','formAnswerKeys','cvAdaptation'):
         if d.get(key) is not None:result[key]=d[key]
     if 'experience' in state(data):result['experience']=state(data)['experience']
     contacts={k:data['profile'][k] for k in CONTACT_FIELDS if data['profile'].get(k) not in (None,'')}
@@ -433,6 +496,9 @@ def undo_current(data,item):
     app=state(data);kind=item['kind'];key=item.get('opportunityId')
     if kind=='offer-archive':return {key:archived(data,key) for key in item['after']}
     if kind=='profile-field-remove':return context.profile_field_state(data,item['key'])
+    if kind=='user-sent':
+        import user_submission
+        return user_submission.undo_current(data,item)
     if kind=='selection':return selection(data,key)
     if kind=='section':
         from personalization import context as search_context
@@ -445,12 +511,17 @@ def undo_current(data,item):
         req=next((r for r in app['requests'] if r['id']==item['requestId']),None)
         return req.get('instructions',[]) if req and req['status']=='queued' else None
     if kind=='snooze':return app['snoozes'].get(item['key'])
+    if kind=='entries':
+        import pending_entries
+        return pending_entries.undo_current(data,item)
     target=(data['profile'] if item.get('scope')=='global' else draft(data,key)['answers']) if kind=='profile' else draft(data,key)
     return {k:target.get(k) for k in item['after']}
 
 def undo_available(data,item):
     if item['used'] or undo_current(data,item)!=item['after']:return False
     if item['kind']=='offer-archive':return not any(value and value.get('outcome')=='achieved' for value in item['after'].values())
+    # Nothing happened after the person's own send record: no news, checks or closure.
+    if item['kind']=='user-sent':return True
     if item['kind']=='change' and any(r['id']==item['requestId'] and r.get('interpretationOnly') for r in state(data)['requests']):return True
     key=item.get('opportunityId')
     if key and (row_for(data,key)['Estado'] in CLOSED or any(e['type']=='sent' and e['opportunityId']==key for e in data['events'])):return False
@@ -487,12 +558,15 @@ def verify_package(package):
     directory=DATA/'packages'/key
     try:
         resolved_directory=directory.resolve()
-        if directory.is_symlink() or resolved_directory.parent!=(DATA/'packages').resolve():
+        if directory.is_symlink() or resolved_directory.parent!=view_cache.memo(('packages-real',str(DATA)),(DATA/'packages').resolve):
             raise ValueError('Ruta de copia conservada no válida')
         contents={}
         for name in ('cv.pdf','package.json','presentacion.txt'):
-            path=directory/name
-            if path.is_symlink() or path.resolve().parent!=resolved_directory:
+            path=directory/name;entry=os.lstat(path)
+            # An ordinary entry of the resolved folder resolves to itself. Only reparse
+            # points (junctions, placeholders) need the costly full resolution.
+            if stat.S_ISLNK(entry.st_mode) or (getattr(entry,'st_file_attributes',0)&stat.FILE_ATTRIBUTE_REPARSE_POINT
+                                               and path.resolve().parent!=resolved_directory):
                 raise ValueError('Ruta de copia conservada no válida')
             contents[name]=path.read_bytes()
         payload_copy=json.loads(contents['package.json'])
@@ -605,11 +679,32 @@ def handle(data,op):
     if kind in ('ui-add-opportunity','ui-draft','ui-review','ui-cv-review','ui-approve','ui-select-opportunity','ui-contact-draft','ui-request-update','ui-delivery-check','ui-offer-assessment','ui-source-review'):
         from onboarding import require_ready
         require_ready(data)
-    import source_reviews, application_lifecycle, cv_retirement
+    import source_reviews, application_lifecycle, cv_retirement, pending_entries, user_submission
     if cv_retirement.handle(data,op,__import__('sys').modules[__name__]):pass
+    elif user_submission.handle(data,op,__import__('sys').modules[__name__]):pass
+    elif pending_entries.handle(data,op,__import__('sys').modules[__name__]):pass
     elif application_lifecycle.handle(data,op,__import__('sys').modules[__name__]):pass
     elif source_reviews.handle(data,op):pass
     elif context.handle(data,op):pass
+    elif kind=='ui-offer-profile-placement':
+        expect(data['revision'],op.get('expectedRevision'))
+        from search_profiles import get, offer_info
+        if not isinstance(op.get('searchProfileId'),str):
+            raise ValueError('Indica searchProfileId para corregir el grupo visible')
+        row=row_for(data,op_id)
+        if not any(event['type']=='sent' and event['opportunityId']==op_id for event in data['events']) and row['Estado'] not in CLOSED:
+            raise ValueError('Esta corrección de ubicación se reserva para ofertas enviadas o cerradas')
+        if not isinstance(op.get('proof'),str) or not op['proof'].strip():
+            raise ValueError('Explica la corrección de perfil solicitada por la persona')
+        profile=get(data,op.get('searchProfileId'),available=True)
+        placements=app.setdefault('offerProfilePlacements',{})
+        current=offer_info(data,op_id)['displaySearchProfileId']
+        expect(current,op.get('expectedSearchProfileId'))
+        if profile['id']==offer_info(data,op_id)['searchProfileId']:
+            placements.pop(op_id,None)
+        else:
+            placements[op_id]=profile['id']
+        record(data,'Ubicación de oferta corregida',op_id,actor,op['proof'])
     elif kind=='ui-criteria-scope':
         expect(data['revision'],op.get('expectedRevision'))
         if not op.get('proof'):raise ValueError('Explica por qué cambia el criterio de estas ofertas')
@@ -704,14 +799,16 @@ def handle(data,op):
                 raise ValueError('Esta oferta tiene una incompatibilidad o contradicción. Revisa sus condiciones antes de solicitarla')
             mode=op.get('mode')
             if mode not in ('review','auto'):raise ValueError('Indica revisión final o envío automático para esta oferta')
-            choices[op_id]={'id':uuid.uuid4().hex,'selected':True,'mode':mode,'at':now(),'actor':actor}
+            # The person decides which offers to pursue; an agent records their instruction.
+            mandate=None if chosen_by_person(actor) else selection_mandate(op.get('mandate'))
+            choices[op_id]={'id':uuid.uuid4().hex,'selected':True,'mode':mode,'at':now(),'actor':actor,**({'mandate':mandate} if mandate else {})}
             ready=not readiness(data,op_id) and any(p['id']==stamp(data,op_id) for p in app['packages'])
             if ready and mode=='review':row['Siguiente paso']='Revisar el paquete completo y decidir si autorizas su envío.'
             if not (ready and mode=='review') and not any(r.get('opportunityId')==op_id and not r.get('interpretationOnly') and r['status'] in ('queued','running','blocked','interrupted') for r in app['requests']):
                 before=len(app['requests'])
                 request(data,op_id,'review' if payload(data,op_id)['cvHash'] else 'investigate',actor=actor)
                 if len(app['requests'])>before:app['requests'][-1]['fromSelection']=True
-            event=record(data,'Oferta seleccionada',op_id,actor,'Solicitud automática' if mode=='auto' else 'Solicitud con revisión')
+            event=record(data,'Oferta seleccionada',op_id,actor,('Solicitud automática' if mode=='auto' else 'Solicitud con revisión')+(' · Indicación de la persona: «'+mandate['text']+'»' if mandate else ''))
         else:
             if any(r['type']=='send' and r['status']=='running' and r.get('opportunityId')==op_id for r in app['requests']):
                 raise ValueError('El envío está en curso; comprueba su resultado antes de retirar la oferta')
@@ -779,12 +876,14 @@ def handle(data,op):
         if not isinstance(op.get('values'),dict) or not isinstance(op.get('expected'),dict):
             raise ValueError('El borrador necesita campos y valores anteriores válidos')
         d=draft(data,op_id); expect({k:d.get(k) for k in op['values']},op['expected'])
-        if set(op['values'])-{'message','recipient','answers','requiredAnswers','cvReason','changes','questions','messageUsage','formAnswerKeys'}:raise ValueError('Campo de borrador no admitido')
+        if set(op['values'])-{'message','recipient','answers','requiredAnswers','cvReason','changes','questions','messageUsage','formAnswerKeys','cvAdaptation'}:raise ValueError('Campo de borrador no admitido')
         values=op['values']
         if 'questions' in values:context.validate_questions(data,op_id,values['questions'])
         allowed_questions=set(FORM_FIELDS)|{f['key'] for f in values.get('questions',d.get('questions',[]))}
         if 'messageUsage' in values and values['messageUsage'] not in ('form','email','unused','unknown'):
             raise ValueError('Indica dónde se utiliza el texto de presentación')
+        if 'cvAdaptation' in values and values['cvAdaptation'] not in CV_ADAPTATIONS:
+            raise ValueError('Indica si el CV se adaptó a esta oferta (adapted) o se reutiliza el general (reused)')
         keys=values.get('formAnswerKeys',d.get('formAnswerKeys'))
         if keys is not None or 'formAnswerKeys' in values:
             if not isinstance(keys,list) or any(not isinstance(k,str) for k in keys) or len(set(keys))!=len(keys) or set(keys)-allowed_questions:
@@ -807,6 +906,7 @@ def handle(data,op):
             raise ValueError('Comprueba si el destino utiliza presentación e indica messageUsage y formAnswerKeys antes de revisar el paquete; no uses el mínimo interno como respuesta.')
         if set(d['requiredAnswers'])-set(d['formAnswerKeys']):
             raise ValueError('Las preguntas obligatorias deben figurar entre las respuestas que pide el destino')
+        cv_adaptation_issue(data,op_id,raise_error=True)
         if not (selection(data,op_id) or {}).get('selected'):
             raise ValueError('Elige la oferta antes de preparar su envío')
         if not op.get('proof') or not all(op.get('checks',{}).get(k) is True for k in CHECKS):raise ValueError('La revisión necesita las cinco comprobaciones y su prueba')
@@ -822,7 +922,10 @@ def handle(data,op):
             if block['id']=='send-'+op_id:block['status']='resolved'
         record(data,'Paquete listo para tu decisión',op_id,detail=op['proof'],artifact=p['id'])
         choice=selection(data,op_id)
-        if choice and choice.get('selected') and choice.get('mode')=='auto' and not pending_change(data,op_id,exclude_owner=True):
+        if choice and choice.get('selected') and choice.get('mode')=='auto' and not selection_authorizes(choice):
+            # An older agent choice without the person's recorded instruction keeps the final decision with them.
+            record(data,'Envío pendiente de tu permiso',op_id,'Sistema','El agente eligió esta oferta sin una indicación tuya registrada; revisa la solicitud y decide si autorizas su envío.')
+        if choice and choice.get('selected') and choice.get('mode')=='auto' and selection_authorizes(choice) and not pending_change(data,op_id,exclude_owner=True):
             require_delivery_resolved(data,op_id)
             same_authorization=(p.get('approvedAt') and not p.get('revokedAt') and
                 p.get('approvalSource')=='selection' and selection_matches(choice,p.get('selectionAt'),p.get('selectionId')))
@@ -890,6 +993,9 @@ def handle(data,op):
                 if value is None:app['offerArchives'].pop(key,None)
                 else:app['offerArchives'][key]=copy.deepcopy(value)
             record(data,'Archivo deshecho',actor=actor,detail='Ofertas recuperadas sin restaurar selecciones ni permisos de envío.')
+        elif item['kind']=='user-sent':
+            import user_submission
+            user_submission.undo(data,item,__import__('sys').modules[__name__],actor)
         elif item['kind']=='profile-field-remove':
             key=item['key'];before=item['before']
             app['removedProfileFields'].pop(key,None)
@@ -917,6 +1023,9 @@ def handle(data,op):
             if not req['instructions']:req.update(status='cancelled',updatedAt=request_timestamp(req),result='Petición deshecha antes de iniciar.')
         elif item['kind']=='snooze':
             expect(app['snoozes'].get(item['key']),item['after']);app['snoozes'][item['key']]=item['before']
+        elif item['kind']=='entries':
+            import pending_entries
+            pending_entries.undo(data,item)
         else:
             target=(data['profile'] if item.get('scope')=='global' else draft(data,item['opportunityId'])['answers']) if item['kind']=='profile' else draft(data,item['opportunityId'])
             expect({k:target.get(k) for k in item['after']},item['after']);target.update(item['before'])
@@ -924,7 +1033,7 @@ def handle(data,op):
             if item['kind']=='draft' and 'absent' not in item:
                 # Older undo records used None for optional draft fields that did
                 # not exist. Restoring that sentinel would create invalid lists.
-                absent=[key for key in ('questions','messageUsage','formAnswerKeys') if key in item['before'] and item['before'][key] is None]
+                absent=[key for key in ('questions','messageUsage','formAnswerKeys','cvAdaptation') if key in item['before'] and item['before'][key] is None]
             for key in absent:target.pop(key,None)
         item['used']=True;record(data,'Cambio deshecho',item.get('opportunityId'),actor)
     else:raise ValueError('Acción de aplicación desconocida')
@@ -935,7 +1044,7 @@ def auto_review(data,op_id):
     import stubbs_jobs as j
     row=row_for(data,op_id);p=payload(data,op_id)
     for req in state(data)['requests']:
-        if req['opportunityId']==op_id and req['type']=='send' and req['status']=='queued':
+        if req.get('opportunityId')==op_id and req['type']=='send' and req['status']=='queued':
             req.update(status='cancelled',updatedAt=request_timestamp(req),result='El material cambió. Se requiere revisar y autorizar la versión nueva.')
             pack=next(p for p in state(data)['packages'] if p['id']==req['packageId'])
             pack['revokedAt']=now()
@@ -1072,8 +1181,26 @@ def request(data,op_id,kind,package_id=None,actor='Usuario',continuation=None,in
         if kind=='discovery':
             old=r.get('searchKey') or (digest({k:v for k,v in r['round'].items() if k not in ('searchProfileName','profileRevision')}) if r.get('round') else None)
             if old is not None and old!=search_key:continue
+            # A legacy search without a key still belongs to its own profile.
+            if old is None and r.get('searchProfileId') and snapshot.get('searchProfileId') and r['searchProfileId']!=snapshot['searchProfileId']:continue
         if kind=='review' and r['status']=='running' and r.get('materialFingerprint')!=stamp(data,op_id):continue
+        if kind=='discovery' and r['status']=='blocked' and actor in ('Usuario','Usuario'):
+            # The person asking to search again with the same criteria retries that
+            # search with its frozen criteria; automatic planning never retries it.
+            import request_workflow
+            request_workflow.update(data,{'id':r['id'],'status':'queued','actor':actor,
+                'proof':'Nueva petición de búsqueda con los mismos criterios; se reintenta la búsqueda bloqueada.'},sys.modules[__name__])
+            return
         if r['status'] in ('queued','running','blocked','interrupted'):return
+    if kind=='discovery' and snapshot.get('searchProfileId'):
+        # A queued search nobody has started would run with criteria this profile
+        # no longer has. The new one supersedes it; started searches keep theirs.
+        import request_workflow
+        for r in app['requests']:
+            if (r['type']=='discovery' and r['status']=='queued' and not r.get('startedAt') and
+                    (r.get('round') or {}).get('searchProfileId',r.get('searchProfileId'))==snapshot['searchProfileId']):
+                request_workflow.update(data,{'id':r['id'],'status':'cancelled','actor':actor,
+                    'proof':'Sustituida por una búsqueda nueva del mismo perfil con sus criterios actuales; no se había iniciado.'},sys.modules[__name__])
     req={'id':'req-'+digest([now(),len(app['requests']),op_id,kind])[:16],'type':kind,'opportunityId':op_id,'packageId':package_id,'status':'queued','createdAt':now(),'result':'Pendiente de la próxima ejecución del agente.'}
     if snapshot:
         req['round']=copy.deepcopy(snapshot);req['searchKey']=search_key

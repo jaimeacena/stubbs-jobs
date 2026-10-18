@@ -78,7 +78,7 @@ class ClosingFlowsTests(WorkflowFixture, unittest.TestCase):
     def choose(self, mode='review'):
         with w.interface_writer():
             self.apply({'kind': 'ui-select-opportunity', 'opportunityId': 'one',
-                        'selected': True, 'mode': mode, 'expected': None})
+                        'selected': True, 'mode': mode, 'expected': None,'actor':'Usuario'})
         return next(r['id'] for r in self.data['app']['requests']
                     if r.get('opportunityId') == 'one' and r['status'] == 'queued')
 
@@ -92,7 +92,7 @@ class ClosingFlowsTests(WorkflowFixture, unittest.TestCase):
         with w.execution_owner('TEST-preparation'), w.execution_scope([identifier] if scoped else None):
             self.apply({'kind': 'ui-request-update', 'id': identifier,
                         'status': 'running', 'proof': 'TEST: comienza la preparación ficticia.'})
-            self.draft(messageUsage='unused', message='', formAnswerKeys=['custom_weeks'],
+            self.draft(messageUsage='unused', message='', formAnswerKeys=['custom_weeks'], cvAdaptation='reused',cvReason='TEST: el CV general ficticio ya cubre los requisitos.',
                        requiredAnswers=['custom_weeks'],
                        questions=[{'key': 'custom_weeks', 'label': 'Preaviso en semanas (ficticio)',
                                    'type': 'number', 'scope': 'opportunity'}])
@@ -293,7 +293,7 @@ class ClosingFlowsTests(WorkflowFixture, unittest.TestCase):
         with w.execution_owner('TEST-preparation'), w.execution_scope([root]):
             self.apply({'kind': 'ui-request-update', 'id': root, 'status': 'running',
                         'proof': 'TEST: comienza la preparación ficticia.'})
-            self.draft(messageUsage='unused', message='', requiredAnswers=[], formAnswerKeys=[])
+            self.draft(messageUsage='unused', message='', requiredAnswers=[], formAnswerKeys=[], cvAdaptation='reused', cvReason='TEST: el CV general ficticio ya cubre los requisitos.')
             self.assertFalse([r for r in self.data['app']['requests'] if r['status'] == 'queued'])
             with w.interface_writer():
                 self.draft(messageUsage='form', message='TEST: presentación nueva de la persona ficticia.')
@@ -313,7 +313,7 @@ class ClosingFlowsTests(WorkflowFixture, unittest.TestCase):
         with w.execution_owner('TEST-investigation'):
             self.apply({'kind': 'ui-request-update', 'id': root, 'status': 'running',
                         'proof': 'TEST: investigación ficticia iniciada.'})
-            self.draft(messageUsage='unused', message='', requiredAnswers=[], formAnswerKeys=[])
+            self.draft(messageUsage='unused', message='', requiredAnswers=[], formAnswerKeys=[], cvAdaptation='reused', cvReason='TEST: el CV general ficticio ya cubre los requisitos.')
             self.apply({'kind': 'opportunity', 'id': 'one', 'values': {'CV preparado': 'outputs/cv.pdf'},
                         'proof': 'TEST: documento ficticio preparado durante la investigación.'})
             self.final_review()

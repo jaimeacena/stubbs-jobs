@@ -80,7 +80,8 @@ def enrich(data, documents, root, package_issue):
                                       'packageId': package['id']})
 
     for event in data.get('events', []):
-        if event.get('type') != 'sent' or not str(event.get('confirmation') or '').strip():
+        own = event.get('reportedBy') == 'user'
+        if event.get('type') != 'sent' or not (own or str(event.get('confirmation') or '').strip()):
             continue
         package = packages.get(event.get('packageId'))
         if event.get('packageId'):
@@ -90,7 +91,7 @@ def enrich(data, documents, root, package_issue):
                 continue
         location = target(event.get('opportunityId'), package.get('payload') if package else None)
         if location:
-            usage = {**location, 'kind': 'sent', 'at': event.get('at')}
+            usage = {**location, 'kind': 'sent', 'at': event.get('at'), **({'reportedBy': 'user'} if own else {})}
             if package:
                 usage['packageId'] = package['id']
             add(event.get('cvHash'), usage)

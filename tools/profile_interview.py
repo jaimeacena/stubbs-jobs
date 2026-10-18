@@ -12,6 +12,7 @@ FIELDS = (
     ('workMode', 'Modalidad de trabajo', 'busqueda', 'text'),
     ('onsiteLocations', 'Zonas donde aceptas presencial o híbrido (opcional)', 'busqueda', 'text'),
     ('searchPriorities', 'Horario que prefieres', 'busqueda', 'text'),
+    ('requiredSchedule', 'Horario obligatorio (opcional): solo de mañana, solo de tarde o jornada continua', 'busqueda', 'text'),
     ('searchNotes', 'Indicaciones adicionales de búsqueda (opcional)', 'busqueda', 'text'),
     ('name', 'Nombre y apellidos', 'sobre_mi', 'text'),
     ('email', 'Email para solicitudes', 'sobre_mi', 'text'),
@@ -40,7 +41,7 @@ FIELDS = (
     ('cv', 'Currículums que quieres aportar', 'curriculums', 'documents'),
 )
 GUIDANCE = {
-    'busqueda': 'Aclara puestos, zona, modalidad y prioridades; distingue límites firmes de preferencias.',
+    'busqueda': 'Aclara puestos, zona, modalidad y prioridades; distingue límites firmes de preferencias. Usa el horario obligatorio (none, morning, afternoon o continuous) solo si la persona lo confirma como límite: descarta anuncios con un horario publicado incompatible.',
     'sobre_mi': 'Propón lo que conste en el CV para confirmarlo; separa empleo, formación y proyectos. Trata nombre, email, teléfono con prefijo, residencia, código postal, dirección y enlaces; son opcionales y pueden quedar en blanco por decisión expresa. No reutilices silenciosamente datos del CV en lugar de los guardados en Mi perfil. Confirma cada destino con permiso sin patrocinio; no amplíes un permiso nacional a toda Europa. Preaviso admite días laborables/naturales, semanas o texto. No supongas ciudad, permiso ni nivel de idioma.',
     'condiciones': 'Distingue mínimo fijo y salario deseado, siempre bruto anual con moneda. Cero viajes o días es una respuesta, no un vacío.',
     'fuentes': 'Propón palabras clave basadas en lo confirmado. Puede dejar que la IA elija fuentes: confirma qué datos deja en blanco.',

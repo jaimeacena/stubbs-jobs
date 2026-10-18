@@ -65,12 +65,12 @@ class ProfileInterviewTests(unittest.TestCase):
         active.update({'experience', 'currentCity', 'workAuthorizations', 'salaryExpectationFixed',
                        'contract', 'location', 'maxTrips', 'minimumFixed', 'noticeDays', 'cv'})
         self.assertEqual(set(interview.fields(self.data)), active)
-        self.assertEqual(self.coverage()['total'], 32)
+        self.assertEqual(self.coverage()['total'], 33)
 
     def test_new_or_inherited_defaults_are_pending_and_view_does_not_write(self):
         self.data['app']['searchContext']['currency'] = 'EUR'  # Old incomplete installation.
         before = copy.deepcopy(self.data)
-        self.assertEqual(self.coverage()['pending'], 32)
+        self.assertEqual(self.coverage()['pending'], 33)
         self.assertEqual(self.coverage()['blank'], 0)
         self.assertEqual(self.coverage()['provided'], 0)
         self.assertEqual(self.data, before)
@@ -87,7 +87,7 @@ class ProfileInterviewTests(unittest.TestCase):
     def test_a_filled_draft_does_not_count_as_human_confirmation(self):
         self.access()
         self.progress(values=self.values)
-        self.assertEqual(self.coverage()['pending'], 32)
+        self.assertEqual(self.coverage()['pending'], 33)
         self.assertTrue(all(field['status'] == 'pending' for field in self.coverage()['fields']))
 
     def test_related_answers_merge_and_only_missing_fields_drive_next_questions(self):
@@ -148,12 +148,12 @@ class ProfileInterviewTests(unittest.TestCase):
         self.assertFalse(self.data['app']['requests'])
         self.assertFalse(self.data['app']['packages'])
         self.assertFalse(self.data['events'])
-        self.assertEqual(self.coverage()['blank'], 28)
+        self.assertEqual(self.coverage()['blank'], 29)
 
     def test_even_essential_fields_can_be_consciously_blank_but_search_requires_roles_and_location(self):
         self.prepare({})
         self.apply(self.confirmation())
-        self.assertEqual(self.coverage()['blank'], 32)
+        self.assertEqual(self.coverage()['blank'], 33)
         self.assertEqual(self.data['app']['experience'], '')
         with self.assertRaisesRegex(ValueError, 'puestos y la zona'):assistant_flow.plan(self.data)
         self.assertFalse(self.data['app']['requests'])
@@ -296,7 +296,7 @@ class ProfileInterviewTests(unittest.TestCase):
         before = copy.deepcopy(self.data)
         state = onboarding.view(self.data)
         self.assertEqual(state['status'], 'preparing')
-        self.assertEqual(state['coverage']['pending'], 32)
+        self.assertEqual(state['coverage']['pending'], 33)
         self.assertEqual(state['draft'], self.values)
         self.assertEqual(self.data, before)
 
@@ -313,7 +313,7 @@ class ProfileInterviewTests(unittest.TestCase):
         before = copy.deepcopy(self.data)
         for detailed in (False, True):
             shown = agent_context.view(self.data, profile_detail=detailed)
-            self.assertEqual(shown['onboarding']['coverage']['pending'], 32)
+            self.assertEqual(shown['onboarding']['coverage']['pending'], 33)
             self.assertTrue(shown['onboarding']['coverage']['nextQuestions'])
             self.assertFalse(shown['queuedSnapshot'])
         self.assertEqual(self.data, before)
