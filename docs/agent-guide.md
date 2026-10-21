@@ -13,7 +13,7 @@ Identifica carpeta y petición humana. Lee los documentos obligatorios de [AGENT
 | «Continúa» / «Aplica todos los cambios» | Instantánea de queued ya existentes; no añade búsqueda. |
 | «Busca ofertas nuevas» | [job-discovery.md](job-discovery.md): permite plan antes de fijar la tanda; no selecciona por la persona. |
 | Preparar solicitud | Oferta elegida, modo vigente y destino real. |
-| Enviar | Send, paquete y autorización exactos, con comprobaciones actuales. |
+| Enviar | Send, paquete y autorización exactos, con comprobaciones actuales. En Auto-solicitud, [auto-apply.md](auto-apply.md): permisos previos de `autoApply`, una sola confirmación inicial si la herramienta la exige y ninguna parada de la tanda por una oferta. |
 | Comprobar candidatura | Mandato concreto, misma candidatura y portal; disponibilidad del anuncio y resultado personal se comprueban por separado. |
 | Resolver envío incierto | Destino original y `ui-delivery-check`; comprobar antes de repetir. |
 | Retomar chat detenido | Detención comprobada y `ui-request-interrupt` para IDs explícitos; antigüedad no transfiere dueño. |
@@ -102,7 +102,12 @@ Respeta fuentes exclusivas: sourceUrls no vacío limita toda captación a esas w
 runtime/python/python.exe -B tools/stubbs_jobs.py agent-status
 runtime/python/python.exe -B tools/stubbs_jobs.py agent-status --request ID_ENCARGO
 runtime/python/python.exe -B tools/stubbs_jobs.py apply --file LOTE.json --execution-id ID_PROPIO --request-ids ID1,ID2
+runtime/python/python.exe -B tools/stubbs_jobs.py prepare --case ID --file preparacion.json --execution-id ID_PROPIO --request-ids ID1,ID2
+runtime/python/python.exe -B tools/stubbs_jobs.py send-start --case ID --execution-id ID_PROPIO --request-ids ID1,ID2
+runtime/python/python.exe -B tools/stubbs_jobs.py send-finish --case ID --file resultado.json --execution-id ID_PROPIO --request-ids ID1,ID2
 ```
+
+Para preparar y enviar una oferta, preferir `prepare`, `send-start` y `send-finish` ([operations.md](operations.md)): sustituyen los lotes manuales de inicio, hechos, evidencias, valoración, encaje, borrador, respuestas, revisión, inicio de envío y confirmación, y guardan todo o nada.
 
 Una respuesta local perdida se concilia con el lote original exacto; otro contenido necesita otro ID y valores actuales. Un envío externo incierto necesita comprobar el destino. La atomicidad local no incluye el portal.
 

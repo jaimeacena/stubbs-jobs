@@ -342,7 +342,7 @@ def view(data, row):
             # advertisement or the company confirms it, the offer stays discarded.
             # The automatic archive is lifted as soon as a compatible schedule is recorded.
             violations.append({'key': 'Horario', 'unconfirmed': True,
-                               'reason': 'El anuncio no confirma tu horario obligatorio (' + SCHEDULES[schedule] + '). Vuelve a Por decidir cuando conste.'})
+                               'reason': 'El anuncio no confirma tu horario obligatorio (' + SCHEDULES[schedule] + '). Vuelve a Por solicitar cuando conste.'})
     trips = criteria.get('maxTrips')
     if number(trips):
         required_trips = row.get('Viajes mín. al mes')
@@ -379,12 +379,18 @@ def reconcile(data, workflow):
     eligibility never restores a selection, a sending permission or a task.
     """
     app = workflow.state(data)
-    for row in data['sheets']['Oportunidades']:
+    sent = {e['opportunityId'] for e in data['events'] if e['type'] == 'sent'}
+    pending = [row for row in data['sheets']['Oportunidades']
+               if row['Estado'] not in workflow.CLOSED and row['ID'] not in sent]
+    # Decisions read evidence, criteria and search profiles, never archives, so they
+    # are computed together on one unchanged state before any archive is written.
+    # Within the snapshot the evidence index is built once instead of once per offer.
+    with view_cache.snapshot():
+        decisions = {row['ID']: view(data, row) for row in pending}
+    for row in pending:
         key = row['ID']
         existing = app.get('offerArchives', {}).get(key)
-        if row['Estado'] in workflow.CLOSED or any(e['type'] == 'sent' and e['opportunityId'] == key for e in data['events']):
-            continue
-        decision = view(data, row)
+        decision = decisions[key]
         if decision['canApply']:
             if existing and existing.get('source') == 'minimums':
                 app['offerArchives'].pop(key)
@@ -393,7 +399,7 @@ def reconcile(data, workflow):
         if existing and existing.get('source') != 'minimums':
             continue
         reasons = decision['violations']
-        if existing and existing.get('violations') == reasons:
+        if existing and _same_minimum_reasons(existing.get('violations'), reasons):
             continue
         # Reuse the archive action's withdrawal and delivery-preservation contract.
         if not existing:
@@ -406,3 +412,14 @@ def reconcile(data, workflow):
         app['offerArchives'][key].update(source='minimums', violations=reasons,
                                          reason=' '.join(v['reason'] for v in reasons))
         workflow.record(data, 'Descartada por requisitos mínimos', key, 'Sistema', app['offerArchives'][key]['reason'])
+
+
+def _same_minimum_reasons(previous, current):
+    """A renamed destination label is not a new fact about the vacancy."""
+    if not isinstance(previous, list):
+        return False
+    def current_label(items):
+        return [{**item, 'reason': item.get('reason', '').replace(
+            'Vuelve a Por decidir cuando conste.', 'Vuelve a Por solicitar cuando conste.')}
+                for item in items]
+    return current_label(previous) == current_label(current)

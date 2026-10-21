@@ -1,6 +1,51 @@
 # Notas de cambios
 
-## Sin publicar · Horario confirmado y CV adaptado · 18/10/2026
+## Stubbs Jobs 1.0.1 · 21/10/2026
+
+### Búsqueda en portales y fuentes agotadas · 21/10/2026
+
+- **Planes de búsqueda por portal:** para cada búsqueda, el agente recibe enlaces listos de LinkedIn, Indeed, InfoJobs y Tecnoempleo con tus puestos, la modalidad remota y España, limitados a lo publicado desde tu búsqueda anterior (24 horas, 7 días o 15 días). Los parámetros se comprobaron en cada portal; lo que un portal no admite en el enlace (por ejemplo, Teletrabajo en Tecnoempleo) se le indica para marcarlo a mano.
+- **Freno a búsquedas repetidas:** si las últimas búsquedas de un perfil no trajeron nada nuevo, el agente deja de recorrer las mismas webs y pasa a los portales.
+- **Webs de empresa con su rendimiento:** en Lo que busco ves cada web que revisa el agente con sus ofertas, envíos y descartes; las que aportan muchas ofertas descartadas y casi ningún envío llevan «Poco útil». «Dejar de revisar» la retira de las búsquedas sin borrar sus ofertas; «Volver a revisar» la recupera.
+
+### Preparar y enviar en tres comandos · 21/10/2026
+
+- **Comandos compuestos para el agente:** `prepare`, `send-start` y `send-finish` sustituyen los unos 7 lotes JSON escritos a mano por cada solicitud (inicio, datos del anuncio, evidencias, valoración, encaje, borrador, respuestas, revisión, inicio de envío y confirmación). El agente describe la oferta en un solo JSON; el comando calcula las huellas y los valores esperados, aplica cada paso con las mismas comprobaciones de siempre y guarda todo o nada. Si algo falla, el mensaje nombra el paso y el registro no cambia.
+- `send-start` entrega el material exacto para el formulario: el CV del paquete ya copiado con el nombre «CV Nombre - Empresa.pdf», las respuestas con su etiqueta, la presentación solo si se usa y el destino.
+- `send-finish` registra el envío confirmado o, si se detuvo antes de enviar, deja la oferta bloqueada con su motivo, la comprobación «no enviado» del portal y las preguntas nuevas para que las respondas en la app.
+- Cada paso sigue quedando en el historial como hasta ahora; `apply` continúa disponible para lo demás.
+
+### Permisos más claros · 21/10/2026
+
+- Los desplegables de Permisos ocupan mucho menos: cada opción tiene un título corto («Conservar hasta 1 año», «Envío final sin preguntar», «Condiciones del portal»…) y una línea de ayuda, en dos columnas, sin la línea «Autorizado» ni el enlace «Dejar pendiente» en cada fila.
+- «Autorizar todos» y «Ninguno» marcan el grupo entero de una vez.
+- El resumen cerrado es corto: «Todos autorizados», «3 de 6 autorizados · 1 sin decidir»… «Sin decidir» solo aparece en las opciones que aún no has decidido.
+
+### Mi perfil más ordenado · 21/10/2026
+
+- **Sobre mi por temas:** los ~30 campos, antes en una sola lista, se agrupan con títulos ligeros dentro de la misma tarjeta: Contacto, Datos personales, Trabajo y disponibilidad, Salario, Experiencia e idiomas, Otras respuestas para formularios, Encuestas y datos sensibles (opcional) y Permisos.
+- **Lo que busco en orden de decisión:** Qué busco, Dónde y cómo, Condiciones mínimas (contrato, salario mínimo, viajes, horario obligatorio), Preferencias y Fuentes y empresas a evitar.
+- **Salario unificado:** «Salario que pido (bruto anual, para formularios)» pasa de Lo que busco a Sobre mi, junto al salario actual y con su propia moneda, porque es el mismo para todos tus perfiles de búsqueda. El mínimo sigue en cada perfil.
+- «Dispuesto a mudarme» ya no comparte fila con «Discapacidad»: va con trabajo y disponibilidad; la discapacidad, con los datos sensibles opcionales.
+- Nombres más claros: «Puedo trabajar sin patrocinio en», «Preaviso en mi empleo actual», «Disponibilidad para incorporarme», «Otras indicaciones para el agente» y «Buscar solo en estas webs (opcional)». Tus datos y su significado no cambian.
+
+### Auto-solicitud sin interrupciones · 21/10/2026
+
+- **Permisos para Auto-solicitud** en Mi perfil › Sobre mi, con el mismo desplegable que los permisos del CV: enviar sin pedirte confirmación final, aceptar avisos de privacidad de la selección, aceptar condiciones del portal necesarias (sin pagos ni suscripciones), responder preguntas que se deducen de tus datos confirmados, usar tus sesiones abiertas y unirte a bolsas de talento opcionales. Solo tú los concedes desde la app; el agente puede retirarlos si se lo pides. No cambian ningún paquete ni autorizan envíos por sí solos.
+- El agente los lee en `agent-status` (`autoApply`) y sigue la nueva guía `docs/auto-apply.md`: no vuelve a preguntar lo ya autorizado; si su herramienta exige confirmar envíos, lo pide una sola vez al principio con la lista de ofertas; recorre el formulario entero al preparar la solicitud para descubrir todas las preguntas antes de enviar, y una oferta bloqueada (pregunta sin respuesta, acceso, CAPTCHA o condición no autorizada) ya no detiene la tanda: sigue con las demás y al final te da un único resumen con preguntas, accesos y decisiones pendientes.
+- Las instrucciones que la app entrega al agente ya no le piden preguntar los datos desconocidos a mitad de la tanda: los declara, bloquea esa oferta y los reúne al final.
+- Los CAPTCHA, las verificaciones antibots, las contraseñas y la creación de cuentas siguen siendo tuyos: el agente bloquea esa oferta y continúa.
+
+### Revisión de fallos y rendimiento · 20/10/2026
+
+- **Acciones más rápidas:** cada guardado evita recalcular, para cada oferta, un índice de todas las evidencias y lotes anteriores. Los comandos `apply` y `plan` se benefician de la misma mejora.
+- Abrir una ficha ya no descarga el resultado completo de todas las búsquedas anteriores: solo Resumen y sus informes lo reciben.
+- Las copias de seguridad guardan sin volver a comprimir las instantáneas del registro, que ya están comprimidas.
+- El servidor local ya no registra como fallo que la ventana se cierre o cambie de pantalla antes de recibir una respuesta (error 10053 de Windows).
+- Añadir un CV mientras el agente guarda cambios espera unos instantes y, si sigue ocupado, lo explica, en lugar de «No se pudo guardar».
+- El salario publicado ya no se pierde por palabras corrientes que coinciden con códigos de moneda («all», «top», «gel», «ves»): «45.000 € all-in» se lee como 45.000 €. Los códigos se reconocen en mayúsculas, y EUR, USD y GBP también en minúsculas.
+
+### Horario confirmado y CV adaptado · 18/10/2026
 
 - **Horario obligatorio confirmado:** si un perfil exige horario (por ejemplo, solo de mañana), una oferta cuyo anuncio no lo confirma (no lo publica, dice «flexible» o solo habla del verano) se descarta automáticamente con el motivo «El anuncio no confirma tu horario obligatorio». Vuelve sola a Por decidir cuando se registra un horario compatible. Antes quedaba «Por confirmar» y se podía elegir y enviar. La columna Horario distingue «Sin confirmar» de «No cumple». Las solicitudes ya enviadas no cambian.
 - Al descartarse automáticamente una oferta, sus tareas pendientes se cancelan en el mismo momento, en vez de esperar a la siguiente acción.
@@ -8,12 +53,12 @@
 - **CV adaptado con un comando:** `build-cv` prepara un CV de una página en español o inglés para cada oferta con los datos de tu perfil confirmado, elegidos y ordenados según el anuncio. Rechaza cualquier habilidad, herramienta, cifra o puesto que no conste en tu perfil y no usa proyectos ocultos. Cada oferta recibe su propio PDF, que aparece en Currículums y como CV de esa solicitud. Antes no había forma oficial de hacerlo y las solicitudes salían con el CV general.
 - Documentación del agente sincronizada entre la edición personal y la pública (frases duplicadas, notas del 17/10 y nombre del CV adjunto).
 
-## Sin publicar · Revisión de búsqueda y solicitudes · 16/10/2026
+### Revisión de búsqueda y solicitudes · 16/10/2026
 
 - **Arreglo urgente:** los perfiles de búsqueda guardados antes de añadir «Horario obligatorio» impedían abrir `agent-status` («Hay un perfil de búsqueda incompleto o duplicado»). Ahora se leen como «Sin requisito» y se completan sin perder nada.
-- Los anuncios captados antes de existir los perfiles de búsqueda (154 en una instalación real) ya no quedan sin revisar para siempre: pertenecen al perfil predeterminado, cuya próxima búsqueda los revisa contrastándolos con todos los perfiles.
+- Los anuncios captados antes de existir los perfiles de búsqueda ya no quedan sin revisar para siempre: pertenecen al perfil predeterminado, cuya próxima búsqueda los revisa contrastándolos con todos los perfiles.
 - Pedir una búsqueda después de cambiar los criterios de un perfil sustituye a la que seguía en cola sin empezar con los criterios anteriores, en vez de dejar dos búsquedas pendientes.
-- Con un perfil 100 % remoto, el captador deja fuera los anuncios que en su propio título o ubicación dicen solo «Híbrido» o «Presencial» (78 de 267 en una instalación real); los que mencionan una opción remota o no lo dicen siguen llegando.
+- Con un perfil 100 % remoto, el captador deja fuera los anuncios que en su propio título o ubicación dicen solo «Híbrido» o «Presencial»; los que mencionan una opción remota o no lo dicen siguen llegando.
 - El captador reconoce más países y ciudades (Portugal, Francia, Alemania, Países Bajos, Irlanda, Italia, Bélgica… y muchas ciudades españolas), respeta zonas como «Unión Europea» o «Anywhere» y no descarta una lista mixta como «Bilbao; Lisboa».
 - Ofertas recuerda bajo el título la búsqueda guardada o en curso, y Resumen indica con qué perfil se buscará y permite «Cancelar búsqueda» antes de que empiece.
 - La tarea que crea «Solicitar con revisión» se llama «Preparar solicitud», como la ficha («En preparación»), en lugar de «Comprobar solicitud».
@@ -22,14 +67,14 @@
 - El captador lee también las webs de empleo de empresas en Lever (también la región UE), Workable, Personio, SmartRecruiters y Recruitee: al añadir en «Webs» su dirección (jobs.lever.co/empresa, apply.workable.com/empresa, empresa.jobs.personio.de, jobs.smartrecruiters.com/Empresa, empresa.recruitee.com) obtiene el listado completo de su API pública, recorre las páginas hasta comprobar el final y marca como parcial cualquier página o total sin acreditar. Cada vacante conserva una identidad estable en ese portal, y la web exclusiva sigue limitada a esa empresa. Antes quedaban como cobertura parcial sin vacantes.
 - Tras iniciar sesión o completar una verificación del portal que bloqueaba al agente, **Ya he completado el acceso** en la ficha devuelve esa tarea a la cola en un paso. No se ofrece para envíos inciertos, que siguen necesitando comprobar el portal.
 - La prioridad A/B/C ordena, pero ya no impide que la planificación prepare una oferta elegida.
-- Acciones más rápidas: cada acción devuelve el mismo estado breve que la actualización periódica, en lugar del estado completo. Con 99 ofertas reales, la respuesta baja de 5 MB a alrededor de 1 MB.
-- Actualización del estado más ligera: la vista breve que piden la actualización periódica y cada acción solo prepara el detalle (borradores, respuestas, material enviado, evidencias e historial) de las ofertas que tienes abiertas, y la comprobación de los paquetes conservados evita resoluciones de ruta innecesarias en Windows. Con 99 ofertas reales, preparar el estado breve baja de unos 0,8 s a 0,4 s y el completo de 1,1 s a 0,6 s, con el mismo resultado.
+- Acciones más rápidas: cada acción devuelve el mismo estado breve que la actualización periódica, en lugar del estado completo.
+- Actualización del estado más ligera: la vista breve que piden la actualización periódica y cada acción solo prepara el detalle de las ofertas abiertas; la comprobación de los paquetes conservados evita resoluciones de ruta innecesarias en Windows.
 - Resumen y los avisos de la ficha indican cómo iniciar las tareas guardadas («Continúa con Stubbs Jobs»), también tras autorizar un envío, pedir una comprobación o reintentar.
 - El servidor local responde con su mensaje de error aunque una petición rechazada no se haya leído entera; en Windows antes se cortaba la conexión.
 
-## Sin publicar · Preparación para más perfiles · 14/10/2026
+### Preparación para más perfiles · 14/10/2026
 
-- El agente consume mucho menos contexto: `agent-status` lista por páginas de 20 las ofertas abiertas (primero las que tienen encargos o cambios pendientes), deja descartadas y cerradas para `--offers closed|all`, abrevia pruebas largas y, con más de 50 encargos en cola, conserva todos los IDs sin repetir su detalle. Con 66 ofertas reales pasa de 233 KB a 81 KB, y deja de crecer con el historial.
+- El agente consume menos contexto: `agent-status` lista por páginas de 20 las ofertas abiertas (primero las que tienen encargos o cambios pendientes), deja descartadas y cerradas para `--offers closed|all`, abrevia pruebas largas y, con más de 50 encargos en cola, conserva todos los IDs sin repetir su detalle.
 - Lectura obligatoria más corta: AGENTS.md y CLAUDE.md indican qué secciones de la guía, la operación y el contrato leer según la petición, sin cargar el contrato completo por rutina.
 - Guardados mucho más rápidos con muchas ofertas: añadir 100 ofertas con 1.000 ya registradas baja de 73 s a 14 s.
 - Condiciones con nombres neutros para cualquier país: el agente ve y puede usar «Cumple modalidad», «Cumple contrato», «Cumple viajes» y «Cumple salario mínimo»; los registros existentes conservan sus claves.
@@ -43,7 +88,7 @@
 - La construcción de la descarga y del código público se detiene si encuentra datos personales de la instalación; las sustituciones personales viven en private/.
 - Guía de contribución, política de seguridad y plantillas de incidencias para GitHub.
 
-## Sin publicar · Reorganización documental · 14/10/2026
+### Reorganización documental · 14/10/2026
 
 - Presentación en inglés y español, guías en docs/ con nombres en inglés e índice de lectura.
 - Documentos personales separados en private/, fuera de Git y de los insumos de construcción; compatibilidad de lectura y recuperación con nombres anteriores.

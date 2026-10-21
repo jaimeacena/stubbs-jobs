@@ -1,6 +1,6 @@
 # Alcance de Stubbs Jobs 1.0
 
-Versión 1.0.0 · 2026-10-09. Distribución portable para Windows de 64 bits.
+Versión 1.0.1 · 2026-10-21. Distribución portable para Windows de 64 bits.
 
 ## Comprobación por versión
 

@@ -11,6 +11,10 @@
     '¿Has solicitado antes esta oferta o han presentado ya tu perfil al mismo cliente?':'Solicitud o presentación previa',
     'Salario para formularios (€ brutos al año)':'Salario esperado (€ brutos/año)',
     'Salario fijo mínimo anual':'Mínimo fijo (€ brutos/año)',
+    'Disponibilidad orientativa de incorporación':'Disponibilidad para incorporarme',
+    'Dispuesto a mudarse por trabajo':'Dispuesto a mudarme por trabajo',
+    'Salario actual bruto anual (EUR)':'Salario actual (bruto anual, EUR)',
+    'Encuestas demográficas (opcional)':'Encuestas demográficas',
     'He participado en competiciones de programación o hackathons':'Competiciones de programación o hackathons',
     'Competiciones de programación o hackathons y resultados':'Competiciones o hackathons: detalle y resultados',
     "Respuesta a 'Are you a legally protected status person?' (sin definición adicional)":'Estatus legalmente protegido',
@@ -60,55 +64,54 @@
   const snoozed = (model, key, at = new Date()) => new Date(model.snoozes[key] || 0) > at;
   function flowStage(job) {
     if (job.historical || !active(job)) return 'historial';
-    if (job.sent || ['Entrevista','Oferta'].includes(job.state)) return 'seguir';
+    if (job.sent) return 'seguir';
     return job.selection?.selected ? 'solicitar' : 'elegir';
   }
   const offerStates=Object.freeze([
-    ['descartadas','Descartada','archive'],['sin-elegir','Por decidir','choice'],['preparacion','En preparación','file'],
-    ['atencion','Por atender','bell'],['enviando','Enviando','send'],
-    ['seguimiento','Siguiendo','check'],['cerradas','Cerrada','lock'],['rechazadas','Rechazada','close'],['logradas','Lograda','trophy']
+    ['archivadas','Archivada','archive'],['por-solicitar','Por solicitar','choice'],
+    ['en-espera','En espera','check'],['en-proceso','En proceso','file'],
+    ['rechazadas','Rechazada','close'],['logradas','Lograda','trophy']
   ].map(([key,label,icon])=>Object.freeze({key,label,icon})));
   const stateByKey=Object.fromEntries(offerStates.map(state=>[state.key,state]));
-  // One display category, derived from the existing facts. It never grants permission
-  // or substitutes for the operational step, task ownership or a delivery receipt.
-  function offerState(job,at=Date.now()){
+  // Attention is independent of the six mutually exclusive offer categories.
+  function offerAttention(job,at=Date.now()){
     const tasks=(job.requests||[]).filter(request=>!request.interpretationOnly).map(request=>({request,task:Workflow.task(request,at)})).filter(({task})=>!task.superseded);
     const deliveryProblem=!job.sent&&tasks.some(({request,task})=>request.type==='send'&&
       (task.delivery||task.interruptionUnconfirmed||task.stale));
-    if(deliveryProblem)return stateByKey.atencion;
-    if(job.archiveOutcome==='achieved'||['Oferta','Lograda'].includes(job.state))return stateByKey.logradas;
-    if(job.archiveOutcome==='closed'||job.state==='Cerrada')return stateByKey.cerradas;
-    if(job.state==='Rechazada'||job.archiveOutcome==='rejected')return stateByKey.rechazadas;
-    if(!active(job)&&job.sent)return stateByKey.cerradas;
-    if(!job.sent&&job.minimums?.canApply===false)return stateByKey.descartadas;
-    if(job.historical||!active(job))return stateByKey.descartadas;
-    if(tasks.some(({request,task})=>task.stale||['blocked','interrupted'].includes(request.status))||
-      !job.sent&&(job.integrityError||job.pendingChange&&(!job.minimums||job.selection?.selected)||(job.questions||[]).length))return stateByKey.atencion;
-    if(!job.sent&&tasks.some(({request})=>request.type==='send'&&request.status==='running'))return stateByKey.enviando;
-    if(['Pendiente de ti','Pendiente de Usuario'].includes(job.state)&&!(job.minimums?.canApply&&!job.selection?.selected))return stateByKey.atencion;
-    if(job.sent||['Pendiente de empresa','Entrevista','Oferta'].includes(job.state))return stateByKey.seguimiento;
-    // A stored "Enviada" without its receipt is not evidence of delivery.
-    if(job.state==='Enviada')return stateByKey.atencion;
-    if(job.selection?.selected){
+    if(deliveryProblem)return true;
+    if(tasks.some(({request,task})=>task.stale||['blocked','interrupted'].includes(request.status)))return true;
+    if(job.integrityError||job.pendingChange||!job.sent&&(job.questions||[]).length)return true;
+    if(!job.sent&&['Enviada','Pendiente de ti','Pendiente de Usuario'].includes(job.state)&&
+      !(job.minimums?.canApply&&!job.selection?.selected&&job.state!=='Enviada'))return true;
+    if(!job.sent&&job.selection?.selected){
       const waiting=tasks.some(({request})=>['queued','running'].includes(request.status));
-      if(!waiting&&!(job.missing||[]).length&&!approved(job))return stateByKey.atencion;
-      return stateByKey.preparacion;
+      if(!waiting&&!(job.missing||[]).length&&!approved(job))return true;
     }
-    return stateByKey['sin-elegir'];
+    return false;
   }
-  // Resumen shows four totals: every application sent and how those ended.
-  // Closed, rejected and achieved reuse the Ofertas states, names and colours.
-  const outcomeKeys=['seguimiento','cerradas','rechazadas','logradas'];
+  // A display category never grants permission or proves delivery. Stored events,
+  // closure reasons and task ownership retain their separate identities.
+  function offerState(job){
+    if(job.archiveOutcome==='achieved'||['Oferta','Lograda'].includes(job.state))return stateByKey.logradas;
+    if(job.archiveOutcome==='rejected')return stateByKey.rechazadas;
+    if(['closed','discarded'].includes(job.archiveOutcome)||job.state==='Cerrada')return stateByKey.archivadas;
+    if(job.state==='Rechazada')return stateByKey.rechazadas;
+    if(!job.sent&&job.minimums?.canApply===false||job.historical||!active(job))return stateByKey.archivadas;
+    if(job.sent&&(job.selectionProgress||job.state==='Entrevista'))return stateByKey['en-proceso'];
+    if(job.sent)return stateByKey['en-espera'];
+    return stateByKey['por-solicitar'];
+  }
+  // Only an actual sent record counts as sent, including a person-reported send.
   function stateCounts(jobs,at=Date.now()){
-    const counts={enviadas:0,cerradas:0,rechazadas:0,logradas:0};
+    const counts={enviadas:0,archivadas:0,rechazadas:0,logradas:0};
     for(const job of jobs){
       const key=offerState(job,at).key;
-      if(job.sent||outcomeKeys.includes(key))counts.enviadas++;
+      if(job.sent)counts.enviadas++;
       if(key in counts)counts[key]++;
     }
     return [
-      {key:'enviadas',state:'seguimiento',filter:'todas',label:'Enviadas',icon:'send',note:'Solicitudes enviadas en total'},
-      {...stateByKey.cerradas,state:'cerradas',filter:'cerradas',label:'Cerradas',note:'Procesos terminados sin respuesta final'},
+      {key:'enviadas',state:'en-espera',filter:'todas',label:'Enviadas',icon:'send',note:'Solicitudes con envío registrado'},
+      {...stateByKey.archivadas,state:'archivadas',filter:'archivadas',label:'Archivadas',note:'Ofertas descartadas y procesos cerrados'},
       {...stateByKey.rechazadas,state:'rechazadas',filter:'rechazadas',label:'Rechazadas',note:'La empresa no siguió adelante'},
       {...stateByKey.logradas,state:'logradas',filter:'logradas',label:'Logradas',note:'Te han ofrecido el puesto'}
     ].map(stat=>({...stat,value:counts[stat.key]}));
@@ -145,7 +148,7 @@
     if (job.pendingChange) return {label:'Cambios pendientes de comprobar', owner:'agent', action:'Ver ficha', pendingChange:true};
     if (approved(job)) return {label:'Autorizada · aún sin enviar', owner:'agent', action:'Ver ficha'};
     if (requests.some(r=>r.status==='queued')) return {label:'Tarea en cola', owner:'agent', action:'Ver ficha'};
-    if (!job.selection?.selected) return {label:['Sí','Sí, aclarar'].includes(job.apply)?'Por decidir':'Por comprobar', owner:'agent', action:'Ver ficha'};
+    if (!job.selection?.selected) return {label:['Sí','Sí, aclarar'].includes(job.apply)?'Por solicitar':'Por comprobar', owner:'agent', action:'Ver ficha'};
     if (!job.missing.length) return {label:'Lista para revisar', owner:'you', action:'Revisar solicitud'};
     if (job.selection?.selected) return {label:'Oferta seleccionada', owner:'agent', action:'Ver ficha'};
     return {label:'Por comprobar', owner:'agent', action:'Ver ficha'};
@@ -193,11 +196,11 @@
   function detailMessage(job,current=step(job)){
     if(job.historical)return '';
     const state=offerState(job);
-    if(['descartadas','rechazadas','cerradas','logradas'].includes(state.key))return job.lifecycle?.closure?.label||job.archiveReason||(state.key==='logradas'?'La empresa te ofrece el puesto.':'')||(job.minimums?.violations||[]).map(v=>v.reason).join(' ')||({Rechazada:'Candidatura rechazada.',Descartada:'Esta oferta se ha descartado.',Cerrada:'El proceso ha finalizado.'})[job.state]||(job.archivedAt?(job.sent?'Seguimiento cerrado por ti.':'Oferta descartada por ti.'):'');
+    if(['archivadas','rechazadas','logradas'].includes(state.key))return job.lifecycle?.closure?.label||job.archiveReason||(state.key==='logradas'?'La empresa te ofrece el puesto.':'')||(job.minimums?.violations||[]).map(v=>v.reason).join(' ')||({Rechazada:'Candidatura rechazada.',Descartada:'Esta oferta se ha descartado.',Cerrada:'El proceso ha finalizado.'})[job.state]||(job.archivedAt?(job.sent?'Seguimiento cerrado por ti.':'Oferta descartada por ti.'):'');
     if(current.unconfirmed||current.deliveryUnknown||current.deliveryRecheckRequired||
       current.warning||current.blockedPending||current.pendingChange||
       current.action==='answers'||current.action==='review')return current.detail;
-    if(state.key==='atencion'){
+    if(offerAttention(job)){
       const request=(job.requests||[]).find(r=>!Workflow.task(r).superseded&&
         (Workflow.task(r).stale||Workflow.task(r).delivery||['blocked','interrupted'].includes(r.status)));
       if(request)return Workflow.task(request).detail||'Revisa el último paso en el chat del agente.';
@@ -207,7 +210,11 @@
         'Antes de elegirla, revisa el encaje con el agente en su chat.';
       return job.integrityError?'Hay un problema con un documento: lo verás abajo.':'El agente debe revisar lo pendiente antes de continuar.';
     }
-    if(state.key==='seguimiento'){
+    if(state.key==='en-proceso'){
+      const stepLabel={contact:'Contacto de selección',test:'Prueba de selección',interview:'Entrevista'}[job.selectionProgress?.step]||'Entrevista';
+      return stepLabel+(stepLabel==='Entrevista'?' registrada.':' registrado.')+' Consulta el detalle en Actividad.';
+    }
+    if(state.key==='en-espera'){
       if(job.state==='Entrevista')return 'Entrevista: '+(job.next||'consulta el siguiente paso con la empresa.');
       if(job.state==='Oferta')return 'Oferta recibida: '+(job.next||'revisa la propuesta de la empresa.');
       return job.lifecycle?.label||'Sin respuesta conocida de la empresa.';
@@ -289,7 +296,7 @@
     return {operation:{kind:'ui-user-sent',opportunityId:job.id,sentAt,cv:option.cv,...(note?{note}:{}),duplicatesChecked:true,
       ...(choices.reapplication?{reapplication:true}:{}),expected:choices.conciliation}};
   }
-  const api={actionPlace,stateCounts,userSentChoices,userSentOperation,configure,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
+  const api={actionPlace,stateCounts,userSentChoices,userSentOperation,configure,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,offerAttention,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
   if (typeof module!=='undefined') module.exports=api;
   else window.StubbsJobsUI=api;
 })();

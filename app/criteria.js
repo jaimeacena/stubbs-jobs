@@ -16,7 +16,7 @@
     const valuations=new Set([...(effect.assessments||[]),...(effect.fitReviews||[])]).size;
     const out=[];
     if(effect.toDiscarded?.length)out.push(plural(effect.toDiscarded.length,'oferta pasará a descartada','ofertas pasarán a descartadas'));
-    if(effect.toEligible?.length)out.push(plural(effect.toEligible.length,'oferta volverá a Por decidir','ofertas volverán a Por decidir'));
+    if(effect.toEligible?.length)out.push(plural(effect.toEligible.length,'oferta volverá a Por solicitar','ofertas volverán a Por solicitar'));
     if(valuations)out.push(`La valoración de ${plural(valuations,'oferta','ofertas')} dejará de estar al día`);
     if(effect.packages?.length){
       let text=plural(effect.packages.length,'solicitud preparada tendrá que revisarse','solicitudes preparadas tendrán que revisarse');

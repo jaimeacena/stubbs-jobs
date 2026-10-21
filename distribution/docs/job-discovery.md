@@ -63,6 +63,14 @@ Guardar ui-offer-assessment con assessmentFingerprint, reason, references, obser
 
 Preparar solo las ofertas elegidas con modo review/auto actual. Reutilizar respuestas y material válidos; no rehacer un CV por rutina ni inventar logros. Revisar ante cambios de dependencias, preservando los originales.
 
+## Portales de empleo y fuentes agotadas · 21/10/2026
+
+Las webs de empresa configuradas (captador) y los portales de empleo son fuentes distintas. Con `sourceUrls` vacío, `agent-status --request ID` de una búsqueda (y `--search-profile ID`) devuelve:
+
+- **portalPlans:** búsquedas listas para LinkedIn, Indeed, InfoJobs y Tecnoempleo construidas con los puestos breves del perfil, su modalidad y su zona. La ventana de fechas empieza en la búsqueda anterior terminada de ese perfil (últimas 24 horas, 7 días o 15 días), para revisar solo lo nuevo. `filtersApplied` indica lo que ya fija el enlace (comprobado en cada portal el 21/10/2026: LinkedIn `geoId`, `f_WT`, `f_TPR`; Indeed `l=Teletrabajo`, `fromage`; InfoJobs `sinceDate`, `teleworkingIds`; Tecnoempleo `te`, `ult_24h`) y `filtersToSet` lo que hay que marcar a mano en la página. Abrir cada enlace con la sesión de la persona, revisar los anuncios nuevos, promover solo los que cumplen los mínimos y registrar cada portal con `ui-source-review` (sourceUrl = url del plan, alcance y resultado reales). Con un perfil redactado como frase, sin puestos breves, `available` es false: proponer a la persona puestos concretos.
+- **discoveryYield:** cuántas búsquedas seguidas de ese perfil terminaron sin ofertas nuevas. Con `sourcesExhausted`, no repetir el captador ni la misma búsqueda complementaria; con `skipScanner`, las webs configuradas se revisaron hace menos de 24 horas y no se vuelven a recorrer. Pasar directamente a portalPlans.
+- **sourceStats:** ofertas, envíos y descartes de cada web de empresa configurada. `lowYield` señala una web con muchas ofertas, casi ningún envío y la mayoría descartadas por la persona. Solo la persona decide dejar de revisarla (en Lo que busco o pidiéndolo expresamente: `ui-source-toggle` con sourceId, enabled y expected); el captador deja de recorrerla y sus ofertas e historial se conservan.
+
 ## Cerrar la búsqueda dejando un punto de continuación
 
 Conservar fuentes realmente comprobadas, fecha, alcance, pendientes, incidencias y recuento acreditado desde el inicio. Registrar revisión manual mediante ui-source-review dentro de discovery running propio. El resultado combina captador y navegador sin borrar intentos anteriores ni reescribir cobertura antigua.

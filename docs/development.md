@@ -2,7 +2,7 @@
 
 [Español](development.es.md) · [Documentation index](README.md)
 
-Version 1.0.0 · 2026-10-09. The ready-to-use Windows download is available on [GitHub Releases](https://github.com/jaimeacena/stubbs-jobs/releases). Read [AGENTS.md](../AGENTS.md) before changing the product. Commands below run from the project root.
+Version 1.0.1 · 2026-10-21. The ready-to-use Windows download is available on [GitHub Releases](https://github.com/jaimeacena/stubbs-jobs/releases). Read [AGENTS.md](../AGENTS.md) before changing the product. Commands below run from the project root.
 
 ## Set up a development copy
 
@@ -42,8 +42,8 @@ Use the verified embedded Python 3.14.7 runtime for Windows x64. Build the launc
 
 ```powershell
 .\tools\build-launcher.ps1
-& ".\runtime\python\python.exe" -B tools/build-share.py outputs/Stubbs-Jobs-1.0.0-Windows-x64 --runtime runtime/python
-& ".\runtime\python\python.exe" -B tools/build-source.py outputs/Stubbs-Jobs-1.0.0-Windows-x64 outputs/Stubbs-Jobs-1.0.0-Source
+& ".\runtime\python\python.exe" -B tools/build-share.py outputs/Stubbs-Jobs-1.0.1-Windows-x64 --runtime runtime/python
+& ".\runtime\python\python.exe" -B tools/build-source.py outputs/Stubbs-Jobs-1.0.1-Windows-x64 outputs/Stubbs-Jobs-1.0.1-Source
 ```
 
 The builders use explicit allowlists, verify release identity, license and provenance, and produce SHA-256 manifests. They reject existing destinations and mixed source revisions. Public source is prepared from the verified empty distribution; it does not copy a personal installation's Git history or operational data.

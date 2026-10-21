@@ -19,6 +19,7 @@ DOCUMENTS = (*LEGACY_DOCUMENTS, 'private/profile.md', 'private/search-strategy.m
 ARCHIVES = ('packages', 'package-recovery', 'package-staging', 'snapshots', 'migration', 'workbook-backups')
 MAX_FILES = 20000
 MAX_BYTES = 1_000_000_000
+PRECOMPRESSED = ('.gz', '.zip', '.xlsx', '.png', '.jpg', '.jpeg')
 
 
 def personal_document(name):
@@ -92,7 +93,10 @@ def create(root):
                 size += len(content)
                 if size > MAX_BYTES:
                     raise ValueError('La copia supera el tamaño admitido. Pide al agente que prepare una copia completa sin borrar archivos.')
-                archive.writestr(name, content)
+                # Registry snapshots and other compressed formats gain nothing from a
+                # second compression; storing them as they are keeps the copy fast.
+                archive.writestr(name, content, compress_type=zipfile.ZIP_STORED
+                                 if name.lower().endswith(PRECOMPRESSED) else zipfile.ZIP_DEFLATED)
                 manifest['files'][name] = digest(content)
             archive.writestr('stubbs-backup.json', json.dumps(manifest, ensure_ascii=False, indent=2))
         content = buffer.getvalue()

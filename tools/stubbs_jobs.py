@@ -12,7 +12,7 @@ from runtime import configure_stdio, node_path, doctor
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from stubbs_jobs_core import ROOT, DATA, STORE, WORKBOOK, now, digest, lock, atomic_bytes, atomic_json, identity, vacancy_key, read_store, save_store, parse_json, snapshot_path
+from stubbs_jobs_core import ROOT, DATA, STORE, WORKBOOK, now, digest, lock, atomic_bytes, atomic_json, identity, vacancy_key, read_store, save_store, parse_json, snapshot_path, snapshot_bytes
 from state_support import instant
 
 CONDITIONS={'Remoto España':'Remoto España','Indefinido':'Indefinido','Viajes ≤1/mes':'Viajes','Fijo ≥32 k€':'Fijo ≥32 k€'}
@@ -160,6 +160,41 @@ def apply_batch(data,batch):
         data.clear(); data.update(candidate)
     return changed
 
+def repair_selection_reconciliation(data, operation):
+    """Repair only the verified 2026-10 label drift following one user event."""
+    if (data.get('_baseHash')!=operation.get('expectedHash') or
+        data.get('revision')!=operation.get('expectedRevision')):
+        raise ValueError('El registro cambió; no se puede aplicar esta reparación')
+    raw=snapshot_bytes(operation.get('snapshotHash'),DATA)
+    if raw is None or digest(raw)!=operation['snapshotHash']:
+        raise ValueError('Falta la copia exacta anterior al avance')
+    prior=parse_json(raw);app=data['app'];old_app=prior['app']
+    old_history=old_app['history'];history=app['history']
+    old_archives=old_app['offerArchives'];archives=app['offerArchives']
+    changed={key for key in old_archives if old_archives[key]!=archives.get(key)}
+    def rename_only(value):
+        return json.loads(json.dumps(value,ensure_ascii=False).replace(
+            'Vuelve a Por decidir cuando conste.', 'Vuelve a Por solicitar cuando conste.'))
+    tail=history[len(old_history):]
+    if (prior['revision']+1!=data['revision'] or not changed or set(old_archives)!=set(archives) or
+        any(old_archives[key].get('source')!='minimums' or rename_only(old_archives[key])!=archives[key] for key in changed) or
+        history[:len(old_history)]!=old_history or len(tail)!=len(changed)+1 or
+        tail[0].get('eventId')!=operation.get('eventId') or tail[0].get('actor')!='Agente' or
+        {item.get('opportunityId') for item in tail[1:]}!=changed or
+        any(item.get('title')!='Descartada por requisitos mínimos' or item.get('actor')!='Sistema' for item in tail[1:]) or
+        data['events'][:len(prior['events'])]!=prior['events'] or
+        len(data['events'])!=len(prior['events'])+1 or data['events'][-1].get('id')!=operation.get('eventId') or
+        data['sheets']['Oportunidades']!=prior['sheets']['Oportunidades'] or
+        any(data['sheets'][name]!=rows for name,rows in prior['sheets'].items() if name!='Actividad') or
+        data['sheets']['Actividad'][:len(prior['sheets']['Actividad'])]!=prior['sheets']['Actividad'] or
+        len(data['sheets']['Actividad'])!=len(prior['sheets']['Actividad'])+1 or
+        {key:value for key,value in app.items() if key not in ('history','offerArchives')}!=
+        {key:value for key,value in old_app.items() if key not in ('history','offerArchives')}):
+        raise ValueError('La reparación no coincide con el efecto secundario comprobado')
+    for key in changed:archives[key]=copy.deepcopy(old_archives[key])
+    del history[len(old_history)+1:]
+    tail[0]['actor']='Usuario'
+
 def validate_offer_facts(values, proof):
     # Views and the interface read these as text; another type would block every screen.
     for field in ('Empresa','Puesto'):
@@ -281,6 +316,8 @@ def _apply_batch(data,batch):
                 # Backfilled checks remain in history, without replacing a newer
                 # checked condition or its figures in the current projection.
                 row.clear();row.update(previous_row)
+        elif kind=='repair-selection-reconciliation':
+            repair_selection_reconciliation(data,op)
         elif kind=='event':
             event=copy.deepcopy(op['event']); row=get_op(data,event['opportunityId'])
             if event['type'] not in EVENTS or not all(isinstance(event.get(key),str) and event[key].strip() for key in ('id','at','proof')):raise ValueError('Evento incompleto')
@@ -291,6 +328,13 @@ def _apply_batch(data,batch):
                 continue
             from application_lifecycle import validate_event
             validate_event(data,row,event)
+            if event.get('selectionStep') is not None:
+                if event['type']=='interview' and event['selectionStep']!='interview' or\
+                   event['type']=='response' and event['selectionStep'] not in ('contact','test') or\
+                   event['type'] not in ('interview','response'):
+                    raise ValueError('El avance de selección debe ser contacto, prueba o entrevista')
+                if event.get('scope')!='application':
+                    raise ValueError('El avance de selección debe referirse a la candidatura enviada')
             event.update(source=row['Fuente'],family=row.get('Familia'),cohort=event['at'][:7])
             sent=[e for e in data['events'] if e['type']=='sent' and e['opportunityId']==row['ID']]
             if event['type']=='sent':
@@ -331,7 +375,8 @@ def _apply_batch(data,batch):
             project_event(data,row,event)
             if event['type'] not in ('work','note'):
                 import app_workflow as workflow
-                history_item=workflow.record(data,{'ready':'Paquete preparado','sent':'Envío confirmado','response':'Respuesta de empresa','interview':'Entrevista registrada','offer':'Oferta recibida','rejected':'Candidatura rechazada','closed':'Proceso cerrado'}[event['type']],row['ID'],detail=event['proof'],artifact=event.get('packageId'))
+                title={'ready':'Paquete preparado','sent':'Envío confirmado','response':{'contact':'Contacto de selección registrado','test':'Prueba de selección registrada'}.get(event.get('selectionStep'),'Respuesta de empresa'),'interview':'Entrevista registrada','offer':'Oferta recibida','rejected':'Candidatura rechazada','closed':'Proceso cerrado'}[event['type']]
+                history_item=workflow.record(data,title,row['ID'],actor='Usuario' if event.get('reportedBy')=='user' else event.get('actor','Agente'),detail=event['proof'],artifact=event.get('packageId'))
                 history_item['eventId']=event['id']
                 history_item['at']=event['at']
             data['sheets']['Actividad'].append({'Fecha':excel_day(event['at']),'ID oportunidad':row['ID'],'Acción':event['type'],'Estado anterior':old,'Estado nuevo':row['Estado'],'CV / material':event.get('cv'),'Resultado / prueba':event['proof'],'Próximo paso':event.get('next')})
@@ -452,13 +497,15 @@ def view(data):
     result=copy.deepcopy(data)
     if not data['sheets']['Oportunidades']:
         from personalization import OPPORTUNITY_FIELDS
-        result['opportunityFields']=OPPORTUNITY_FIELDS
+        result['opportunityFields']=[*OPPORTUNITY_FIELDS,'Estado visible']
     for item in data.get('app',{}).get('history',[]):
         if item['actor']=='Registro anterior' or item.get('eventId'):continue
         result['sheets']['Actividad'].append({'Fecha':excel_day(item['at']),'ID oportunidad':item.get('opportunityId'),'Acción':item['title'],'Estado anterior':None,'Estado nuevo':None,'CV / material':('data/packages/'+item['packageId']) if item.get('packageId') else None,'Resultado / prueba':item['actor']+': '+item['detail'],'Próximo paso':None})
     result['sheets']['Actividad'].sort(key=lambda item:item.get('Fecha') or 0)
     for row in result['sheets']['Oportunidades']:
         from offer_minimums import current_facts
+        from application_lifecycle import display_state
+        row['Estado visible']=display_state(data,row)
         row.update(current_facts(data,row))
         row['Apta solicitar'],row['Apta aceptar'],row['Evidencias completas']=conditions(data,row)
         if data.get('app',{}).get('offerArchives',{}).get(row['ID']):
@@ -598,11 +645,11 @@ def export(data=None):
 def main():
     configure_stdio()
     ap=argparse.ArgumentParser()
-    ap.add_argument('command',choices=['init','plan','handoff','migrate','upgrade-app','ingest','apply','import-cv','build-cv','export','status','app-status','agent-status','refresh','packages','doctor','maintenance','backup','check-backup','restore','clear-opportunities'])
+    ap.add_argument('command',choices=['init','plan','handoff','migrate','upgrade-app','ingest','apply','import-cv','build-cv','export','status','app-status','agent-status','refresh','packages','doctor','maintenance','backup','check-backup','restore','clear-opportunities','prepare','send-start','send-finish'])
     ap.add_argument('--file'); ap.add_argument('--name'); ap.add_argument('--destination')
     ap.add_argument('--execution-id'); ap.add_argument('--expected-revision',type=int)
     ap.add_argument('--request-ids',help='IDs originales de la tanda, separados por comas')
-    ap.add_argument('--case',help='Detalle de una oferta; en build-cv, la oferta del CV')
+    ap.add_argument('--case',help='Detalle de una oferta; en build-cv, prepare y send-*, la oferta sobre la que se actúa')
     ap.add_argument('--preview',help='build-cv: guarda el PDF en este archivo para revisarlo, sin registrarlo')
     ap.add_argument('--request',help='Detalle de un encargo')
     ap.add_argument('--profile',action='store_true',help='Perfil y antecedentes completos')
@@ -676,6 +723,21 @@ def main():
             import app_workflow as workflow
             with workflow.execution_scope(args.request_ids.split(',') if args.request_ids is not None else None):
                 if apply_batch(data,parse_json(Path(args.file).read_text(encoding='utf-8-sig'))): save_store(data)
+        if args.command in ('prepare','send-start','send-finish'):
+            # Composite commands: one JSON description, the same writer operations, one save.
+            import offer_flow
+            import app_workflow as workflow
+            if not args.case:raise ValueError('Indica la oferta con --case')
+            if args.command!='send-start' and not args.file:raise ValueError('Indica la descripción JSON con --file')
+            spec=parse_json(Path(args.file).read_text(encoding='utf-8-sig')) if args.file else {}
+            with workflow.execution_scope(args.request_ids.split(',') if args.request_ids is not None else None):
+                if args.command=='prepare':result=offer_flow.prepare(data,args.case,spec)
+                elif args.command=='send-finish':result=offer_flow.send_finish(data,args.case,spec)
+                else:
+                    if set(spec)-{'proof'}:raise ValueError('send-start solo admite proof en --file')
+                    result=offer_flow.send_start(data,args.case,spec.get('proof'))
+            save_store(data)
+            print(json.dumps(result,ensure_ascii=False));return
         if args.command=='clear-opportunities':
             if args.expected_revision is None: raise ValueError('Indica --expected-revision')
             counts=clear_opportunities(data,args.expected_revision)

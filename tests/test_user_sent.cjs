@@ -52,10 +52,10 @@ test('the operation carries a real zoned time, the CV, the duplicate check and t
  assert.equal(ui.userSentOperation(value,again,{...base,reapplication:true},Date.parse('2026-10-16T12:00')).operation.reapplication,true);
 });
 
-test('a send recorded by the person reads as Siguiendo, sent by her, and its undo stays visible',()=>{
+test('a send recorded by the person reads as En espera, sent by her, and its undo stays visible',()=>{
  const value=job({state:'Enviada',selfReport:null,sent:{type:'sent',reportedBy:'user',at:'2026-10-16T09:30:00+02:00'},
   requests:[{id:'TEST-send',type:'send',status:'cancelled',packageId:'p',startedAt:'2026-10-16T08:00:00Z'}]});
- assert.equal(ui.offerState(value).label,'Siguiendo');
+ assert.equal(ui.offerState(value).label,'En espera');
  assert.equal(ui.step(value).detail,'Enviada por ti. Esperando novedades.');
  assert.equal(Activity.title({title:'Solicitud enviada',activity:{kind:'event',type:'sent',reportedBy:'user'}}),'Solicitud enviada por ti');
  assert.equal(Activity.title({title:'Solicitud enviada',activity:{kind:'event',type:'sent',reportedBy:'user',retracted:true}}),'Envío registrado por ti · deshecho');

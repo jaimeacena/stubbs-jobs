@@ -200,8 +200,10 @@ def validate_source_configuration(value):
             validate_public_source_url(url)
     return value
 
-def public_sources(data):
-    """User sites replace defaults; blank sites leave discovery unrestricted."""
+def public_sources(data, include_disabled=False):
+    """User sites replace defaults; blank sites leave discovery unrestricted.
+
+    Boards the person stopped checking (app.disabledSources) are left out unless asked."""
     links=[link.strip() for link in context(data)['sourceUrls'].splitlines() if link.strip()]
     sources=[]
     if not links:
@@ -221,7 +223,8 @@ def public_sources(data):
             # The shared portal host does not name the company; its identifier does.
             elif portal:source.update(portal,company=portal['board'])
             if not any(existing.get('url')==link for existing in sources):sources.append(source)
-    return [source for source in validate_source_configuration(sources) if source.get('enabled')]
+    disabled = {} if include_disabled else data.get('app', {}).get('disabledSources', {})
+    return [source for source in validate_source_configuration(sources) if source.get('enabled') and source['id'] not in disabled]
 
 def handle(data,op):
     import app_workflow as w
@@ -263,7 +266,7 @@ def handle(data,op):
     if kind=='ui-profile-section':
         if 'expectedRevision' in op:w.expect(data['revision'],op['expectedRevision'])
         if op.get('searchProfileId'):search_profiles.migrate(data)
-        personal=set(w.PERSONAL)|set(w.CONTACT_FIELDS)|set(w.DEMOGRAPHIC_FIELDS)|{'workAuthorizations','salaryCurrency'}|{k for k,f in c.definitions(data).items() if k.startswith('custom_') and f['scope']=='global'}
+        personal=set(w.PERSONAL)|set(w.CONTACT_FIELDS)|set(w.DEMOGRAPHIC_FIELDS)|set(w.AUTO_APPLY_FIELDS)|{'workAuthorizations','salaryCurrency'}|{k for k,f in c.definitions(data).items() if k.startswith('custom_') and f['scope']=='global'}
         groups={'about':{'name','noticeDays'}|personal,'search':set(search_profiles.SEARCH_FIELDS)|{'languages','previousApplications','salaryExpectationFixed','salaryCurrency'}|set(c.criteria(data)),
                 'sources':{'sourceUrls','checkMail','platforms'}}
         values=op['values'];section=op.get('section')

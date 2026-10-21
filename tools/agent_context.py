@@ -88,6 +88,18 @@ def knowledge_history(data, case, limit=20):
             'remaining': max(0, len(records)-limit)}
 
 
+def auto_apply(data):
+    """Standing permissions for Auto-solicitud, as the person saved them in Mi perfil."""
+    profile = data.get('profile', {})
+    labels = {key: field['label'] for key, field in workflow.AUTO_APPLY_FIELDS.items()}
+    changes = [item for item in data.get('app', {}).get('history', [])
+               if set(item.get('changedFields') or []) & set(labels.values())]
+    return {'permissions': {key: profile.get(key) for key in labels}, 'labels': labels,
+            'updatedAt': changes[-1].get('at') if changes else None, 'guide': 'docs/auto-apply.md',
+            'meaning': 'true: la persona ya autorizó ese paso para las ofertas elegidas en Auto-solicitud; '
+                       'no vuelvas a preguntarlo. false o null: no autorizado; bloquea solo esa oferta y continúa la tanda.'}
+
+
 def view(data, case=None, request_id=None, history=False, limit=20, since=None,profile_detail=False,search_profile_id=None,
          offers='open', page=1, page_size=PAGE_SIZE, entries=False):
     from stubbs_jobs_app import state_view
@@ -158,7 +170,7 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
     for row in listed:
         item = {k: copy.deepcopy(row.get(k)) for k in (
             'id', 'company', 'title', 'state', 'archivedAt', 'archiveReason', 'minimums', 'priority', 'selection', 'apply',
-            'missing', 'integrityError', 'pendingChange', 'fingerprint', 'fitFingerprint',
+            'missing', 'integrityError', 'pendingChange', 'selectionProgress', 'fingerprint', 'fitFingerprint',
             'assessmentFingerprint', 'cvFingerprint','notes','lifecycle',
             'searchProfileId','searchProfileName','displaySearchProfileId','displaySearchProfileName')}
         item['minimums'] = neutral_minimums(item['minimums'])
@@ -209,6 +221,7 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
               'onboarding': {k: state['onboarding'].get(k) for k in
                              ('status', 'token', 'revision', 'workspaceId', 'summary', 'needsWelcome', 'coverage')},
               'applicationVerification': state['applicationVerification'],
+              'autoApply': auto_apply(data),
               'execution': {**{k: execution.get(k) for k in
                                 ('id', 'status', 'updatedAt', 'startedAt', 'presenceUnconfirmed', 'message')},
                             'legacyTracking': True},
@@ -258,6 +271,11 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
             result['searchContext']=personalization.context(effective)
             result['preferences']=app_context.criteria(effective)
             result['searchSourcesExclusive']=bool(result['searchContext'].get('sourceUrls','').strip())
+            import portal_plans
+            profile_id=requested['round'].get('searchProfileId')
+            result['portalPlans']=portal_plans.plans(effective,profile_id)
+            result['discoveryYield']=portal_plans.discovery_yield(data,profile_id)
+            result['sourceStats']=portal_plans.source_stats(data)
     if history and not detail_case:
         result['history'] = copy.deepcopy(data.get('app', {}).get('history', [])[-limit:])
     if profile_detail:
@@ -282,5 +300,8 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         result['searchContext']=personalization.context(data,search_profile_id)
         result['preferences']=app_context.criteria(data,search_profile_id)
         result['searchSourcesExclusive']=bool(result['searchContext'].get('sourceUrls','').strip())
+        import portal_plans
+        result['portalPlans']=portal_plans.plans(data,search_profile_id)
+        result['discoveryYield']=portal_plans.discovery_yield(data,search_profile_id)
         result['scope'].update(kind='search-profile',searchProfileId=search_profile_id)
     return result

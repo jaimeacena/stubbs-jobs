@@ -1,5 +1,6 @@
 """Minimum conditions, honest uncertainty, bulk permissions and reversible archives."""
 import copy
+import json
 import unittest
 from workflow_fixtures import WorkflowFixture
 import app_context as context
@@ -7,6 +8,7 @@ import app_workflow as workflow
 import offer_actions
 import offer_minimums
 import stubbs_jobs as jobs
+from stubbs_jobs_core import digest
 
 
 class MinimumsTests(WorkflowFixture, unittest.TestCase):
@@ -21,6 +23,50 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
         self.apply({'kind': 'evidence', 'id': 'one', 'condition': condition, 'state': value,
                     'proof': 'TEST: dato explícito del anuncio ficticio.',
                     'url': self.row['URL original'], 'at': '2026-10-06T10:00:00+02:00', **extra})
+
+    def test_renaming_the_offer_filter_does_not_rewrite_old_automatic_archives(self):
+        self.data['app']['searchContext']['requiredSchedule']='morning'
+        self.apply({'kind':'ui-minimum-reconcile','expectedRevision':self.data['revision'],
+                    'proof':'TEST: criterio de horario de la persona ficticia'})
+        archive=workflow.archived(self.data,'one')
+        archive['reason']=archive['reason'].replace('Por solicitar','Por decidir')
+        for reason in archive['violations']:
+            reason['reason']=reason['reason'].replace('Por solicitar','Por decidir')
+        before=copy.deepcopy(archive);history_count=len(self.data['app']['history'])
+        self.apply({'kind':'ui-seen','at':workflow.now()})
+        self.assertEqual(workflow.archived(self.data,'one'),before)
+        self.assertEqual(len(self.data['app']['history']),history_count)
+
+    def test_guarded_repair_restores_only_a_verified_label_drift(self):
+        self.data['app']['searchContext']['requiredSchedule']='morning'
+        self.apply({'kind':'ui-minimum-reconcile','expectedRevision':self.data['revision'],
+                    'proof':'TEST: criterio de horario de la persona ficticia'})
+        archive=workflow.archived(self.data,'one')
+        archive['reason']=archive['reason'].replace('Por solicitar','Por decidir')
+        for reason in archive['violations']:
+            reason['reason']=reason['reason'].replace('Por solicitar','Por decidir')
+        old=copy.deepcopy(self.data);old.pop('_baseHash',None)
+        raw=json.dumps(old,ensure_ascii=False).encode('utf-8');old_hash=digest(raw)
+        folder=self.root/'data'/'snapshots';folder.mkdir(parents=True)
+        (folder/f'{old_hash}.json').write_bytes(raw)
+        current=copy.deepcopy(self.data);current['revision']+=1;current['_baseHash']='TEST-current-hash'
+        current['app']['offerArchives']['one']['reason']=archive['reason'].replace('Por decidir','Por solicitar')
+        current['app']['offerArchives']['one']['violations'][0]['reason']=archive['violations'][0]['reason'].replace('Por decidir','Por solicitar')
+        contact={'id':'TEST-contact','opportunityId':'one','type':'response','selectionStep':'contact',
+                 'at':'2026-10-02T10:00:00Z','proof':'TEST: contacto','actor':'Usuario','reportedBy':'user'}
+        current['events'].append(contact)
+        current['sheets']['Actividad'].append({'Acción':'response'})
+        current['app']['history'].append({'id':len(old['app']['history'])+1,'title':'Contacto de selección registrado',
+                                           'eventId':'TEST-contact','actor':'Agente','opportunityId':'one'})
+        current['app']['history'].append({'id':len(old['app']['history'])+2,'title':'Descartada por requisitos mínimos',
+                                           'actor':'Sistema','opportunityId':'one'})
+        operation={'kind':'repair-selection-reconciliation','snapshotHash':old_hash,'expectedHash':'TEST-current-hash',
+                   'expectedRevision':current['revision'],'eventId':'TEST-contact','proof':'TEST: reparación verificada'}
+        jobs.apply_batch(current,{'id':'TEST-repair','operations':[operation]})
+        self.assertEqual(current['app']['offerArchives'],old['app']['offerArchives'])
+        self.assertEqual(len(current['app']['history']),len(old['app']['history'])+1)
+        self.assertEqual(current['app']['history'][-1]['actor'],'Usuario')
+        self.assertEqual(current['events'][-1],contact)
 
     def test_missing_conditions_and_negative_legacy_technical_review_allow_choice(self):
         self.row['Prioridad'] = 'C'

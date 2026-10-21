@@ -41,7 +41,7 @@ sheet('Eventos',['ID evento','Fecha','Tipo','ID oportunidad','Fuente','Familia',
 const eventEnd=Math.max(4,events.length+3);
 wb.worksheets.getItem('Eventos').getRange(`B4:B${eventEnd}`).setNumberFormat('dd/mm/yyyy hh:mm');
 const open=data.blocks.filter(b=>b.status==='open');
-const summary=opp.filter(r=>r.Prioridad==='A').map(r=>({'Empresa':r.Empresa,'Puesto':r.Puesto,'Situación':r.Estado,'Siguiente decisión':r['Siguiente paso'],'Pendiente de':open.filter(b=>b.opportunityId===r.ID).map(b=>b.owner).join(', '),'CV preparado':r['CV preparado']}));
+const summary=opp.filter(r=>r.Prioridad==='A').map(r=>({'Empresa':r.Empresa,'Puesto':r.Puesto,'Situación':r['Estado visible']||r.Estado,'Siguiente decisión':r['Siguiente paso'],'Pendiente de':open.filter(b=>b.opportunityId===r.ID).map(b=>b.owner).join(', '),'CV preparado':r['CV preparado']}));
 if(data.historicalApplications.length||data.historicalReconciliation.expectedCount!=null)
  summary.push({'Empresa':'Historial previo','Puesto':`${data.historicalApplications.length} registros visibles identificados`,'Situación':data.historicalReconciliation.status==='complete'?'Conciliado':'Pendiente','Siguiente decisión':data.historicalReconciliation.status==='complete'?'Consultar antes de repetir solicitudes. Los procesos anteriores no inflan las métricas nuevas.':'Comprobar candidaturas anteriores antes de repetir solicitudes.','Pendiente de':data.historicalReconciliation.status==='complete'?'—':'Agente'});
 sheet('Resumen',['Empresa','Puesto','Situación','Siguiente decisión','Pendiente de','CV preparado'],summary,[23,42,25,66,22,40]);

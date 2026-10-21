@@ -67,6 +67,44 @@ clear-opportunities bloquea el reinicio si queda un envío iniciado sin resultad
 
 La vista general contiene hechos centrales, queuedSnapshot, propietarios, versiones y referencias; no es una orden de trabajo. --profile amplía antecedentes, --case ID --history recupera fundamentos de valoraciones/revisiones desde changes. No mantener otra memoria ni interpretar un historial truncado como ausencia de antecedentes.
 
+## Preparar y enviar una oferta en tres comandos · 21/10/2026
+
+Forma recomendada para preparar y enviar una oferta elegida. Cada comando traduce una descripción JSON breve a las mismas operaciones del escritor que antes se escribían a mano, calcula las huellas y los valores esperados con el estado del paso anterior, registra cada paso como un lote propio (`prepare-…`, `send-start-…`, `send-finish-…`) y guarda una sola vez: si un paso falla, el mensaje empieza por el nombre del paso y el registro no cambia. Usar siempre `--execution-id` y la misma `--request-ids` de la tanda. `apply` sigue disponible para operaciones no cubiertas.
+
+```text
+runtime/python/python.exe -B tools/stubbs_jobs.py prepare --case ID --file preparacion.json --execution-id ID_PROPIO --request-ids ID1,ID2
+runtime/python/python.exe -B tools/stubbs_jobs.py send-start --case ID --execution-id ID_PROPIO --request-ids ID1,ID2
+runtime/python/python.exe -B tools/stubbs_jobs.py send-finish --case ID --file resultado.json --execution-id ID_PROPIO --request-ids ID1,ID2
+```
+
+**prepare.** Inicia la tarea review/investigate abierta de la oferta (o `requestId`) y aplica, en este orden, solo los apartados presentes:
+
+```json
+{
+  "observedAt": "2026-10-21T09:00:00+02:00",
+  "sourceUrl": "https://… (por defecto, el enlace de la oferta)",
+  "facts": {"País": "España", "Modalidad": "Remoto", "Contrato": "Indefinido", "Horario real": "8:00–15:00", "Banda publicada": "40.000–50.000 EUR"},
+  "factsProof": "Lo que dice el anuncio",
+  "evidence": [{"condition": "Cumple modalidad", "state": "Sí", "proof": "…", "fixed": 40000, "fixedMax": 50000, "currency": "EUR"}],
+  "assessment": {"reason": "…", "references": [{"url": "…", "text": "…"}], "unknowns": [], "proof": "…"},
+  "fit": {"accept": true, "proof": "…"},
+  "cv": {"adaptation": "reused", "reason": "…"},
+  "form": {"recipient": "…", "messageUsage": "form|email|unused", "message": "…", "questions": [], "requiredAnswers": [], "formAnswerKeys": [], "answers": {"clave": "valor"}},
+  "review": {"proof": "Formulario recorrido hasta el botón final sin pulsarlo"},
+  "result": {"status": "blocked", "need": "answers", "summary": "…", "proof": "…"}
+}
+```
+
+`evidence` usa `sourceUrl` y `observedAt` por defecto. `fit.apply` toma el valor de los mínimos. `cv` admite `{"build": ESPECIFICACIÓN_DE_BUILD_CV}` (como `build-cv`), `{"use": "ruta de Currículums", "adaptation", "reason"}` o solo `adaptation` y `reason` para el CV ya asignado. `review.checks` marca por defecto las cinco comprobaciones. Con `review` y sin `result`, la tarea termina como done; `result` permite dejarla blocked con su motivo. La respuesta indica pasos aplicados, `missing`, paquete, si quedó autorizado y los envíos en cola; en Auto-solicitud el envío causal queda en `queuedSends` y `next` indica `send-start`.
+
+**send-start.** Justo antes de transmitir, inicia el envío en cola de la oferta (lo repone en cola primero si estaba bloqueado con una comprobación not_sent vigente), comprueba el paquete conservado y devuelve el material exacto: `cvUpload` (copia del CV del paquete con el nombre «CV Nombre - Empresa.pdf», lista para adjuntar), `cvArchived`, destino, enlace, respuestas del formulario con su etiqueta, presentación solo si se usa y los permisos `autoApply`. `--file` opcional admite solo `proof`.
+
+**send-finish.** Registra el resultado real del envío en curso:
+
+- `{"outcome": "sent", "at": "fecha real", "confirmation": "mensaje o recibo del portal", "proof": "…"}`: evento sent con paquete, CV archivado, autorización derivada de la selección o la aprobación y tarea done. `reapplicationAuthorization` cuando coincide con una candidatura anterior.
+- `{"outcome": "not_sent", "need": "answers|access|decision|contact|other", "summary": "…", "proof": "…", "form": {"questions": [], "requiredAnswers": [], "formAnswerKeys": []}}`: no se pulsó el botón final. Deja la tarea blocked con su motivo, registra ui-delivery-check not_sent y, con `form`, declara las preguntas nuevas para que la persona las responda en la app.
+- `{"outcome": "unknown", …}`: se pulsó y no hay recibo; blocked con comprobación unknown. Nunca repetir el formulario sin comprobar.
+
 ## CV adaptado con build-cv · 18/10/2026
 
 Herramienta oficial para el CV adaptado del contrato «Horario obligatorio confirmado y CV adaptado» (docs/application-contract.md). Úsala al preparar una solicitud elegida; no autoriza envíos ni sustituye ui-review.
@@ -157,7 +195,7 @@ Después, releer y utilizar un execution-id nuevo en la continuación expresamen
 
 Conservar independientes estado de oferta, conocimiento, material, permiso, trabajo y acceso. Seleccionada no significa enviada; guardada no significa comprobada; permiso no significa efecto. La prueba escrita debe describir lo observado; una huella o proof no vacío no verifica automáticamente la verdad del anuncio.
 
-Comprobar CV, formulario real completo, destino, vigencia y duplicados antes de ui-review. En review, la persona autoriza el paquete final; en auto, el sistema puede autorizar solo la oferta seleccionada después de esas comprobaciones. Cambiar material suspende envíos antiguos en cola. El agente no aprueba en nombre de la persona ni prepara contactos sin petición expresa.
+Comprobar CV, formulario real completo, destino, vigencia y duplicados antes de ui-review. En review, la persona autoriza el paquete final; en auto, el sistema puede autorizar solo la oferta seleccionada después de esas comprobaciones. Cambiar material suspende envíos antiguos en cola. El agente no aprueba en nombre de la persona ni prepara contactos sin petición expresa. Desde el 21/10/2026, en auto los pasos habituales del portal (privacidad de la selección, condiciones necesarias, sesiones abiertas, respuestas deducibles, bolsa de talento y botón final) siguen los permisos previos `autoApply` que la persona guarda en Mi perfil; el procedimiento completo está en [auto-apply.md](auto-apply.md).
 
 Antes de enviar, revalidar paquete y permiso, usar data/packages/<packageId>/cv.pdf (adjuntado como copia temporal con el cvUploadName de esa oferta en agent-status, «CV Nombre - Empresa.pdf») y las respuestas exactas del paquete. Registrar sent solo después de confirmación real, con los campos del catálogo anterior. Luego terminar el encargo. Conservar efectos históricos aunque cambien preferencias, permisos o estado del proceso.
 
@@ -168,6 +206,8 @@ La conciliación de sent cancela nuevos send todavía queued de la misma oferta 
 16/10/2026 — Un sent con reportedBy user lo registra la persona desde la ficha («Ya la he enviado yo», `ui-user-sent`): no tiene recibo, packageId ni autorización y no se presenta como envío del agente. Cuenta como envío para no repetir el formulario, seguir la candidatura y registrar resultados; sus send pendientes quedaron cancelados con sus permisos retirados. El agente no emite esa operación ni sustituye la indicación de la persona; si encuentra en el portal una solicitud que la persona no ha registrado, se lo dice para que la registre ella. Ver «Solicitud enviada por ti» en [application-contract.md](application-contract.md#contrato-envio-propio).
 
 ## Fuentes y acceso
+
+Desde el 21/10/2026, `agent-status --request ID` de una búsqueda añade portalPlans, discoveryYield y sourceStats; el procedimiento está en [job-discovery.md](job-discovery.md), «Portales de empleo y fuentes agotadas». `ui-source-toggle` (sourceId, enabled, expected) deja de revisar o vuelve a revisar una web de empresa configurada, a petición de la persona.
 
 tools/scan_boards.py es el captador público. Leer webs comprobadas, fecha, pendientes, errores y último éxito. Fuente configurada, prioridad guardada y sesión accesible no acreditan ofertas revisadas. Sin fuentes, el captador declara omisión; la búsqueda adicional requiere herramientas y alcance adecuados. Una cobertura parcial no prueba ausencia de vacantes.
 

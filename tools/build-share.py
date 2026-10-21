@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 MODULES=('stubbs_jobs.py','stubbs_jobs_core.py','stubbs_jobs_app.py','window_icon.py','cv_usage.py','app_workflow.py','app_context.py','assistant_flow.py','agent_runner.py','agent_context.py','source_reviews.py','personalization.py','onboarding.py','profile_interview.py','runtime.py','maintenance.py','backup.py','request_workflow.py','offer_quality.py','view_cache.py','state_support.py','scan_boards.py','export-tracker.mjs')
 MODULES+=('offer_actions.py','offer_minimums.py','application_lifecycle.py','search_profiles.py','criteria_preview.py')
-MODULES+=('cv_retirement.py','user_submission.py','build_cv.py','pending_entries.py')
+MODULES+=('cv_retirement.py','user_submission.py','build_cv.py','pending_entries.py','offer_flow.py','portal_plans.py')
 APP_FILES=('index.html','app.js','icons.js','client.js','formatting.js','activity.js','workflow.js','recovery.js','explanations.js','presentation.js','drafts.js','setup.js','theme.js','release.js','redesign.css','criteria.js')
 APP_ASSETS=('stubbs.png','stubbs.ico')
 DOCUMENTS=('AGENTS.md','README.en.md','README.es.md','CHANGELOG.md','LICENSE',
@@ -21,7 +21,7 @@ DOCUMENTS=('AGENTS.md','README.en.md','README.es.md','CHANGELOG.md','LICENSE',
            'docs/operations.md','private/profile-template.md','docs/scheduling.md',
            'docs/user-guide.md','docs/third-party-notices.md','docs/limits.md',
            'docs/authorship.md','docs/backup-and-recovery.md','docs/system-design.md',
-           'docs/agent-guide.md','docs/work-plan.md','docs/job-discovery.md',
+           'docs/agent-guide.md','docs/auto-apply.md','docs/work-plan.md','docs/job-discovery.md',
            'docs/development.md','docs/development.es.md')
 SOURCE_TESTS=('test_distribution.py','test_distribution_runtime.py','test_review_20261002.py','test_workflow_fresh_audit.py','test_window_icon.py','test_cv_usage.py','test_fresh_audit.py','test_export_tracker.py','test_client.cjs','test_recovery.cjs','test_activity.cjs','test_presentation.cjs','test_browser_flow.cjs','test_workflow.cjs','workflow_fixtures.py','test_profile_interview.py','test_delivery_recovery.py','test_request_continuity.py','test_system_contracts.py','test_backup.py','test_offer_quality.py','test_best_argument.py','test_agent_context.py','test_source_reviews.py','test_source_scan.py','quality_cases.json')
 SOURCE_TESTS+=('test_bulk_actions.py','test_minimums.py','test_profile_contacts.py','test_offer_display.py','test_review_corrections.py')

@@ -122,6 +122,7 @@ def definitions(data,op_id=None):
     result['workAuthorizations']={'key':'workAuthorizations','label':'Permiso de trabajo sin patrocinio en','type':'multiselect','scope':'global'}
     result.update({k:{'key':k,'type':'text','scope':'global',**definition} for k,definition in w.CONTACT_FIELDS.items()})
     result.update({k:{'key':k,'scope':'global',**definition} for k,definition in w.DEMOGRAPHIC_FIELDS.items()})
+    result.update({k:{'key':k,'label':f['label'],'type':'boolean','scope':'global'} for k,f in w.AUTO_APPLY_FIELDS.items()})
     if data.get('app',{}).get('personalized'):
         from personalization import context
         if data['profile'].get('workAuthorizations') is None:result['workPermitWithoutSponsorship']['label']='Permiso de trabajo en el destino, sin patrocinio (dato anterior)'

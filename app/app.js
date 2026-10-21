@@ -303,10 +303,10 @@ function setupReady(){
 }
 function sectionDefinitions(section){
  const context=window.StubbsJobsSetup.context,contact=window.StubbsJobsSetup.contact;
- const preferences={contract:{label:'Contrato',type:'text',placeholder:'Ej.: indefinido'},location:{label:'Zona de búsqueda',type:'text',placeholder:'Países o zonas donde quieres trabajar'},maxTrips:{label:'Viajes al mes (máximo)',type:'number'},minimumFixed:{label:'Salario fijo mínimo bruto anual',type:'number'},keywords:{label:'Palabras clave',type:'text',placeholder:'Términos relevantes para tu sector'},noticeDays:{label:'Preaviso',type:'text',placeholder:'Ej.: 15 días laborables, 3 semanas o inmediato'},searchPriorities:{...context.searchPriorities,label:'Horario que prefiero',placeholder:'Ej.: mañana, flexible o sin turnos de noche'}};
+ const preferences={contract:{label:'Contrato',type:'text',placeholder:'Ej.: indefinido'},location:{label:'Zona de búsqueda',type:'text',placeholder:'Países o zonas donde quieres trabajar'},maxTrips:{label:'Viajes al mes (máximo)',type:'number'},minimumFixed:{label:'Salario fijo mínimo bruto anual',type:'number'},keywords:{label:'Palabras clave',type:'text',placeholder:'Términos relevantes para tu sector'},noticeDays:{label:'Preaviso en mi empleo actual',type:'text',placeholder:'Ej.: 15 días laborables, 3 semanas o inmediato'},searchPriorities:{...context.searchPriorities,label:'Horario que prefiero',placeholder:'Ej.: mañana, flexible o sin turnos de noche'}};
  const keys=section==='about'?Object.values(aboutLayout()).flat(2):section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','requiredSchedule','searchNotes','languages','previousApplications']:section==='sources'?['sourceUrls','platforms']:[];
  const personal={currentCity:{label:'Ciudad actual',type:'text'},workPermitWithoutSponsorship:{label:'Permiso de trabajo sin patrocinio',type:'boolean'},salaryExpectationFixed:{label:'Salario fijo esperado al año',type:'number'},noticeDays:{label:'Días de preaviso',type:'number'}};
- const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Permiso de trabajo sin patrocinio en',type:'multiselect'},gender:{...window.StubbsJobsSetup.demographics.gender,...model.fieldDefinitions?.gender,help:null,descriptionId:null},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000}};
+ const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Puedo trabajar sin patrocinio en',type:'multiselect'},gender:{...window.StubbsJobsSetup.demographics.gender,...model.fieldDefinitions?.gender,help:null,descriptionId:null},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000}};
  return Object.fromEntries(keys.map(k=>[k,{...(defs[k]||{label:k,type:'text'}),...(section==='about'&&window.StubbsJobsSetup.aboutOptions.choices[k]?{options:window.StubbsJobsSetup.aboutOptions.choices[k]}:{})}]));
 }
 // A flat, occupation-independent order keeps related personal data together.
@@ -316,8 +316,9 @@ function aboutCustomGroup(key,definition){
  if(/consent|retention|processing|privacy|gdpr|rgpd|autoriz|conserv/.test(text))return 'consent';
  if(/birth|nacimiento|nationality|nacionalidad/.test(text))return 'identity';
  if(definition?.inputType==='url'||/github|gitlab|portfolio|web.?url|website|perfil.*url/.test(text))return 'link';
- if(/driving|conducir|carnet|vehicle|vehiculo/.test(text))return 'mobility';
- if(/availability|incorporacion|disponibilidad|current.*salary|salario actual|self.?employ|autonomo/.test(text))return 'work';
+ if(/salary|salario|sueldo|compensation|remuneraci/.test(text))return 'salary';
+ if(/driving|conducir|carnet|vehicle|vehiculo|relocat|mudar|reubica|traslad/.test(text))return 'mobility';
+ if(/availability|incorporacion|disponibilidad|self.?employ|autonomo/.test(text))return 'work';
  return 'answer';
 }
 function aboutCustomRank(key,definition){
@@ -335,14 +336,16 @@ function aboutLayout(){
   if(partner){used.add(partner);answers.push(type==='boolean'?[key,partner]:[partner,key]);}else answers.push(key);
  }
  const demographic=group('demographic');
- // These two short answers otherwise leave separate half-empty rows around
- // the full-width permissions field. Keep their DOM and visual order together.
- const relocation=answers.indexOf('custom_open_to_relocation'),disability=demographic.indexOf('custom_disability');
- if(relocation!==-1&&disability!==-1){answers.splice(relocation+1,0,demographic.splice(disability,1)[0]);}
- return {contact:['name','email','phone','linkedinUrl','websiteUrl',...group('link'),...group('identity'),'currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays',...group('work'),...group('mobility')],answers,consent:group('consent'),demographic:['demographicSurveyParticipation','gender',...demographic]};
+ // Related data share a titled group; within each group the order is fixed by meaning.
+ return {contact:['name','email','phone','linkedinUrl','websiteUrl',...group('link')],
+  personal:[...group('identity'),'currentCountry','currentCity','address','postalCode'],
+  work:['workAuthorizations','noticeDays',...group('work'),...group('mobility')],
+  salary:[...group('salary'),'salaryExpectationFixed'],
+  answers,consent:group('consent'),demographic:['demographicSurveyParticipation','gender',...demographic],
+  autoApply:(window.StubbsJobsSetup.autoApplyPermissions||[]).map(item=>item.key).filter(key=>definitions[key])};
 }
 function aboutFieldsHtml(keys,values,defs){
- const permissions=window.StubbsJobsSetup.aboutOptions.permissions.filter(item=>defs[item.key]);
+ const groups=permissionGroups().map(group=>({...group,items:group.items.filter(item=>defs[item.key])}));
  return keys.map(item=>{
   if(Array.isArray(item)){
    const [question,detail]=item,labelId='profile-pair-'+question+'-label';
@@ -351,7 +354,9 @@ function aboutFieldsHtml(keys,values,defs){
    }
    return `<div class="profile-field-wide field-pair" role="group" aria-labelledby="${esc(labelId)}"><span class="field-pair-label" id="${esc(labelId)}">${esc(fieldLabel(UI.answerTitle(defs[question].label)))}</span><div class="field-pair-controls">${fieldHtml(question,{...defs[question],labelClass:'sr-only'},values[question])}${fieldHtml(detail,{...defs[detail],labelClass:'sr-only',placeholder:defs[detail].placeholder||'Detalle y resultados'},values[detail])}</div></div>`;
   }
-  if(permissions.some(permission=>permission.key===item))return item===permissions[0].key?profilePermissionsField(permissions,values):'';
+  const group=groups.find(candidate=>candidate.items.some(permission=>permission.key===item));
+  if(group)return item===group.items[0].key?profilePermissionsField(group,values):'';
+  if(item==='salaryExpectationFixed')return `<div class="field"><label for="profile-about-salaryExpectationFixed">Salario que pido (bruto anual, para formularios)</label><span class="amount-input"><input id="profile-about-salaryExpectationFixed" name="salaryExpectationFixed" data-type="number" type="number" ${numberAttributes(item)} value="${esc(values.salaryExpectationFixed)}"><input name="salaryCurrency" data-type="text" class="currency-input" type="text" value="${esc(values.salaryCurrency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario que pido, código de tres letras"></span></div>`;
   if(item==='custom_demographic_decline_consent')return `<div data-profile-legacy-consent hidden>${fieldHtml(item,defs[item],values[item])}</div>`;
   const html=fieldHtml(item,defs[item],values[item]);
   if(item==='gender')return `<div data-profile-gender${surveyMode(values.demographicSurveyParticipation)==='use_saved'?'':' hidden'}>${html}</div>`;
@@ -361,11 +366,23 @@ function aboutFieldsHtml(keys,values,defs){
 function surveyMode(value){return value===true?'use_saved':value===false?'decline':['decline','omit','use_saved'].includes(value)?value:null;}
 function projectSurveyShown(form){const key='demographicSurveyParticipation';if(form.elements.namedItem(key)?.dataset.type==='choice'&&typeof form._shown[key]==='boolean')form._shown[key]=surveyMode(form._shown[key]);}
 function permissionSummary(permissions,values){
- const allowed=permissions.filter(item=>values[item.key]===true).map(item=>item.short),pending=permissions.filter(item=>values[item.key]!==true&&values[item.key]!==false).length;
- return [...allowed,...(pending?[pending===permissions.length?'Sin decidir':`${pending} sin decidir`]:[])].join(' · ')||'Ninguno autorizado';
+ const allowed=permissions.filter(item=>values[item.key]===true),pending=permissions.filter(item=>values[item.key]!==true&&values[item.key]!==false).length;
+ if(pending===permissions.length)return 'Sin decidir';
+ if(allowed.length===permissions.length)return permissions.length>1?'Todos autorizados':allowed[0].short;
+ // A short summary: names while they fit at a glance, a count beyond that.
+ const main=!allowed.length?'Ninguno autorizado':allowed.length<=2?allowed.map(item=>item.short).join(' · '):`${allowed.length} de ${permissions.length} autorizados`;
+ return pending?`${main} · ${pending} sin decidir`:main;
 }
-function profilePermissionsField(permissions,values){
- return `<div class="field profile-field-wide"><span id="profile-cv-permissions-label">Permisos sobre mi CV y contacto</span><details id="profile-cv-permissions" class="work-authorizations profile-permissions" data-profile-permissions><summary aria-labelledby="profile-cv-permissions-label profile-cv-permissions-value"><span id="profile-cv-permissions-value">${esc(permissionSummary(permissions,values))}</span></summary><div class="profile-permission-options" role="group" aria-labelledby="profile-cv-permissions-label">${permissions.map(item=>`<div class="profile-permission-option"><input type="hidden" name="${esc(item.key)}" data-type="boolean" value="${values[item.key]===true?'true':values[item.key]===false?'false':''}"><label class="permit-option"><input type="checkbox" data-profile-permission="${esc(item.key)}" aria-describedby="permission-state-${esc(item.key)}"${values[item.key]===true?' checked':''}><span>${esc(item.label)}</span></label><small class="helper" id="permission-state-${esc(item.key)}" data-permission-state="${esc(item.key)}">${values[item.key]===true?'Autorizado':values[item.key]===false?'No autorizado':'Sin decidir'}</small><button type="button" class="link-button" data-permission-clear="${esc(item.key)}"${values[item.key]===true||values[item.key]===false?'':' hidden'} aria-label="Dejar pendiente: ${esc(item.label)}">Dejar pendiente</button></div>`).join('')}</div></details><small class="helper">Solo para selección en las candidaturas que elijas. Cada permiso es independiente.</small></div>`;
+// Two independent sets share one native control: CV and contact clauses, and the
+// steps the agent may take without asking in offers chosen for Auto-solicitud.
+function permissionGroups(){return [
+ {id:'profile-cv-permissions',title:'Permisos sobre mi CV y contacto',help:'Solo para la selección de las candidaturas que elijas.',items:window.StubbsJobsSetup.aboutOptions.permissions},
+ {id:'profile-auto-permissions',title:'Permisos para Auto-solicitud',help:'Lo que el agente hace sin preguntarte. Lo no marcado detiene solo esa oferta. CAPTCHA, contraseñas y cuentas nuevas siempre son tuyos.',items:window.StubbsJobsSetup.autoApplyPermissions||[]}];}
+function profilePermissionsField(group,values){
+ const permissions=group.items,id=group.id,state=key=>values[key]===true?'true':values[key]===false?'false':'';
+ // One line per permission: a short title, its scope as help and a mark only while undecided.
+ const option=item=>`<label class="profile-permission-option"><input type="hidden" name="${esc(item.key)}" data-type="boolean" value="${state(item.key)}"><input type="checkbox" data-profile-permission="${esc(item.key)}" aria-describedby="permission-help-${esc(item.key)}"${values[item.key]===true?' checked':''}><span class="permission-text"><span class="permission-title">${esc(item.label)}<small class="permission-pending" data-permission-state="${esc(item.key)}"${state(item.key)?' hidden':''}>Sin decidir</small></span><small class="permission-help" id="permission-help-${esc(item.key)}">${esc(item.help||'')}</small></span></label>`;
+ return `<div class="field profile-field-wide"><span id="${id}-label">${esc(group.title)}</span><details id="${id}" class="work-authorizations profile-permissions" data-profile-permissions="${id}"><summary aria-labelledby="${id}-label ${id}-value"><span id="${id}-value">${esc(permissionSummary(permissions,values))}</span></summary><div class="permission-bulk"><button type="button" class="link-button" data-permission-all="${id}" data-permission-value="true">Autorizar todos</button><button type="button" class="link-button" data-permission-all="${id}" data-permission-value="false">Ninguno</button></div><div class="profile-permission-options" role="group" aria-labelledby="${id}-label">${permissions.map(option).join('')}</div></details><small class="helper">${esc(group.help)}</small></div>`;
 }
 function syncProfileOptions(form){
  if(form?.dataset.form!=='about')return;
@@ -373,9 +390,13 @@ function syncProfileOptions(form){
  const gender=form.querySelector?.('[data-profile-gender]');if(gender)gender.hidden=surveyMode(read('demographicSurveyParticipation'))!=='use_saved';
  for(const box of form.querySelectorAll?.('[data-profile-detail]')||[]){const key=box.dataset.profileDetail,detail=window.StubbsJobsSetup.aboutOptions.details[key],content=box.querySelector('[data-profile-detail-content]');if(content){content.hidden=read(key)!==true&&sameFieldValue(read(detail),form._shown?.[detail]);if(!content.hidden)for(const field of content.querySelectorAll('textarea[data-auto-grow]'))growField(field);}}
  const previous=form.querySelector?.('[data-profile-legacy-consent]');if(previous)previous.hidden=sameFieldValue(read('custom_demographic_decline_consent'),form._shown?.custom_demographic_decline_consent);
- const permissions=window.StubbsJobsSetup.aboutOptions.permissions.filter(item=>form.elements.namedItem(item.key)),values=Object.fromEntries(permissions.map(item=>[item.key,read(item.key)]));
- const summary=form.querySelector?.('#profile-cv-permissions-value');if(summary)summary.textContent=permissionSummary(permissions,values);
- for(const checkbox of form.querySelectorAll?.('[data-profile-permission]')||[]){const key=checkbox.dataset.profilePermission,value=values[key];checkbox.checked=value===true;checkbox.indeterminate=value===null;const state=form.querySelector(`[data-permission-state="${key}"]`);if(state)state.textContent=value===true?'Autorizado':value===false?'No autorizado':'Sin decidir';const clear=form.querySelector(`[data-permission-clear="${key}"]`);if(clear)clear.hidden=value===null;}
+ const values={};
+ for(const group of permissionGroups()){
+  const permissions=group.items.filter(item=>form.elements.namedItem(item.key));
+  for(const item of permissions)values[item.key]=read(item.key);
+  const summary=form.querySelector?.(`#${group.id}-value`);if(summary)summary.textContent=permissionSummary(permissions,values);
+ }
+ for(const checkbox of form.querySelectorAll?.('[data-profile-permission]')||[]){const key=checkbox.dataset.profilePermission,value=values[key];checkbox.checked=value===true;checkbox.indeterminate=value===null;const state=form.querySelector(`[data-permission-state="${key}"]`);if(state)state.hidden=value!==null;}
 }
 function numberAttributes(key){
  if(key.startsWith('custom_'))return 'step="any" min="-1000000" max="1000000"';
@@ -413,7 +434,7 @@ function searchOptionsControls(sources){
  const context=model.searchContext||{},platforms=(context.platforms||'').split(',').filter(Boolean);
  const priorities=platforms.length?`<div class="source-priorities"><p>Fuentes priorizadas: ${esc(platforms.map(id=>platformNames[id]||id).join(', '))}</p><button type="button" class="link-button" data-clear-platforms="1">Quitar prioridades</button></div>`:'';
  return `<div class="source-controls"><input type="hidden" name="platforms" value="${esc(context.platforms||'')}">${priorities}
-  <div class="source-webs"><label class="field profile-field-wide"><span id="profile-sourceUrls-label">Especificar webs de búsqueda (opcional)</span><textarea name="sourceUrls" id="profile-sourceUrls" data-auto-grow="1" aria-labelledby="profile-sourceUrls-label" aria-describedby="profile-sourceUrls-help" rows="1" maxlength="3000" placeholder="Una dirección por línea">${esc(sources.sourceUrls)}</textarea><small class="helper" id="profile-sourceUrls-help">Si indicas webs, buscaré solo en ellas. Si lo dejas vacío, elegiré las fuentes.</small></label></div>
+  <div class="source-webs"><label class="field profile-field-wide"><span id="profile-sourceUrls-label">Buscar solo en estas webs (opcional)</span><textarea name="sourceUrls" id="profile-sourceUrls" data-auto-grow="1" aria-labelledby="profile-sourceUrls-label" aria-describedby="profile-sourceUrls-help" rows="1" maxlength="3000" placeholder="Una dirección por línea">${esc(sources.sourceUrls)}</textarea><small class="helper" id="profile-sourceUrls-help">Si indicas webs, buscaré solo en ellas. Si lo dejas vacío, elegiré las fuentes.</small></label></div>
  </div>`;
 }
 function portalAccessDetails(context=model){
@@ -574,13 +595,13 @@ function flowToolbar(tab,choices){
 }
 function bulkExitButton(){return `<button class="icon-button bulk-clear" data-bulk-clear="1" aria-label="Salir de la selección múltiple" title="Salir de la selección múltiple (Esc)">${icon('close')}</button>`;}
 function requestButtonContent(mode,label=requestModes[mode].label){return `<span class="request-icon" aria-hidden="true">${icon(requestModes[mode].icon)}</span>${esc(label)}`;}
-const autoHelp='El agente la enviará sin esperar tu aprobación, con tu cuenta del portal. Algunos portales, como LinkedIn, no permiten automatizar y pueden restringir la cuenta.';
+const autoHelp='El agente la enviará sin esperar tu aprobación, con tu cuenta del portal. En Mi perfil › Sobre mi › Permisos para Auto-solicitud eliges qué puede aceptar sin preguntarte. Algunos portales, como LinkedIn, no permiten automatizar y pueden restringir la cuenta.';
 function selectionButtons(j){return `<button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="review" title="Revisarás la solicitud antes de que se envíe.">${requestButtonContent('review')}</button><button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="auto" title="${esc(autoHelp)}" aria-describedby="offer-auto-help-${esc(j.id)}">${requestButtonContent('auto')}</button><span id="offer-auto-help-${esc(j.id)}" class="sr-only">${esc(autoHelp)}</span>`;}
 function bulkOptions(j){
  if(j.historical)return [];
  const step=UI.step(j),options=[],category=UI.offerState(j).key;
- if(category==='sin-elegir')options.push(['discard','Descartar']);
- if(category==='seguimiento'&&j.sent)options.push(['close','Cerrar seguimiento']);
+ if(category==='por-solicitar'&&!j.selection?.selected)options.push(['discard','Descartar']);
+ if(['en-espera','en-proceso'].includes(category)&&j.sent)options.push(['close','Cerrar seguimiento']);
  if(step.action==='recovery')return [['recovery:'+step.cta,step.cta]];
  if(!active(j))return [];
  if(UI.canChoose(j))options.push(['select-review',requestModes.review.label],['select-auto',requestModes.auto.label]);
@@ -650,9 +671,9 @@ async function bulkAction(key,shownIds=null,total=tableSelection.size){
 }
 function flowRecord(j,kind){
  const category=UI.offerState(j);
- const tone=category.key==='atencion'?'blocked':['descartadas','rechazadas'].includes(category.key)?'past':j.sent?'sent':UI.canChoose(j)?'action':'working';
+ const attention=UI.offerAttention(j),tone=attention?'blocked':['archivadas','rechazadas'].includes(category.key)?'past':j.sent?'sent':UI.canChoose(j)?'action':'working';
  const latest=j.lastActivityAt||(model.history||[]).filter(h=>h.opportunityId===j.id).reduce((at,h)=>{const next=tableTimestamp(h.at),previous=tableTimestamp(at);return next!==null&&(previous===null||next>previous)?h.at:at;},'');
- return {j,kind,category,status:category.label,tone,activityAt:latest||j.sent?.at||historicalDate(j.lastActivityLabel),activity:j.historical?j.lastActivityLabel||'—':latest||j.sent?.at?date(latest||j.sent.at):'—'};
+ return {j,kind,category,status:category.label,attention,tone,activityAt:latest||j.sent?.at||historicalDate(j.lastActivityLabel),activity:j.historical?j.lastActivityLabel||'—':latest||j.sent?.at?date(latest||j.sent.at):'—'};
 }
 const fold=window.StubbsJobsFormatting.fold;
 const displayCase=window.StubbsJobsFormatting.displayCase;
@@ -713,11 +734,11 @@ function tableFilterLabel(record,key){
  return value?date(value):['company','title'].includes(key)?displayCase(tableValue(record,key)):tableValue(record,key);
 }
 function defaultTableOrder(tab){
- return tab==='solicitar'?({descartadas:'discarded',seguimiento:'sent',logradas:'achieved',cerradas:'closed',rechazadas:'rejected'})[flowFilters[tab]]||'firstSeen':'firstSeen';
+ return tab==='solicitar'?({archivadas:'archived','en-espera':'sent','en-proceso':'activity',logradas:'achieved',rechazadas:'rejected'})[flowFilters[tab]]||'firstSeen':'firstSeen';
 }
 function defaultTableTimestamp(record,key){
  const j=record.j;
- return tableTimestamp(key==='discarded'?j.discardedAt||j.archivedAt:key==='sent'?j.sent?.at||j.appliedAt:key==='achieved'?j.lifecycle?.achievedAt:key==='closed'?j.lifecycle?.closure?.at||j.archivedAt:key==='rejected'?j.rejectedAt||(j.archiveOutcome==='rejected'?j.archivedAt:null):j.firstSeenAt);
+ return tableTimestamp(key==='archived'?j.lifecycle?.closure?.at||j.archivedAt||j.discardedAt:key==='discarded'?j.discardedAt||j.archivedAt:key==='sent'?j.sent?.at||j.appliedAt:key==='achieved'?j.lifecycle?.achievedAt:key==='closed'?j.lifecycle?.closure?.at||j.archivedAt:key==='rejected'?j.rejectedAt||(j.archiveOutcome==='rejected'?j.archivedAt:null):j.firstSeenAt);
 }
 function sortedFilteredRecords(tab,records){
  const state=tableState[tab],columns=tableFilterColumns();
@@ -739,7 +760,7 @@ function sortedFilteredRecords(tab,records){
 function flowRow(record,selectable=bulkSelectionMode){
  const {j,status,tone}=record;
  const state=tableValue(record,'status');
- return `<tr class="flow-table-row" data-tone="${tone}" data-anchor="job-${esc(j.id)}" data-job-row="${esc(j.id)}" data-offer-state="${record.category.key}">${selectable?`<td class="selection-cell"><label class="offer-select-control"><input type="checkbox" id="bulk-offer-${esc(j.id)}" data-bulk-select="${esc(j.id)}" aria-label="Marcar ${esc(j.company)}: ${esc(j.title)}" ${tableSelection.has(j.id)?'checked':''}></label></td>`:''}<td>${firstSeenDay(j)?`<time data-found-at="${esc(j.firstSeenAt)}" datetime="${esc(j.firstSeenAt)}" title="Primera detección: ${esc(date(j.firstSeenAt))}">${esc(tableValue(record,'firstSeen'))}</time>`:cellText('—')}</td><td class="company-cell"><div class="company-selection"><button class="table-job-link company-identity" data-job="${esc(j.id)}" title="${esc(j.company)}" aria-label="Abrir ficha de ${esc(j.company)}: ${esc(j.title)}"><span class="company-name">${esc(displayCase(j.company))}</span>${icon('chevron-right','company-open')}</button></div></td><td title="${esc(j.title)}"><span class="offer-title-text">${esc(displayCase(j.title))}</span></td><td>${cellText(tableValue(record,'country'))}</td><td>${cellText(tableValue(record,'mode'))}</td><td>${cellText(tableValue(record,'contract'))}</td><td title="${esc(j.schedule||'Sin dato')}">${cellText(tableValue(record,'schedule'))}</td><td>${salaryCell(j)}</td><td title="${esc(status)}"><span data-offer-state="${record.category.key}" class="flow-status">${icon(record.category.icon,'offer-state-icon','solid')}${esc(state)}</span></td></tr>`;
+ return `<tr class="flow-table-row" data-tone="${tone}" data-anchor="job-${esc(j.id)}" data-job-row="${esc(j.id)}" data-offer-state="${record.category.key}">${selectable?`<td class="selection-cell"><label class="offer-select-control"><input type="checkbox" id="bulk-offer-${esc(j.id)}" data-bulk-select="${esc(j.id)}" aria-label="Marcar ${esc(j.company)}: ${esc(j.title)}" ${tableSelection.has(j.id)?'checked':''}></label></td>`:''}<td>${firstSeenDay(j)?`<time data-found-at="${esc(j.firstSeenAt)}" datetime="${esc(j.firstSeenAt)}" title="Primera detección: ${esc(date(j.firstSeenAt))}">${esc(tableValue(record,'firstSeen'))}</time>`:cellText('—')}</td><td class="company-cell"><div class="company-selection"><button class="table-job-link company-identity" data-job="${esc(j.id)}" title="${esc(j.company)}" aria-label="Abrir ficha de ${esc(j.company)}: ${esc(j.title)}"><span class="company-name">${esc(displayCase(j.company))}</span>${icon('chevron-right','company-open')}</button></div></td><td title="${esc(j.title)}"><span class="offer-title-text">${esc(displayCase(j.title))}</span></td><td>${cellText(tableValue(record,'country'))}</td><td>${cellText(tableValue(record,'mode'))}</td><td>${cellText(tableValue(record,'contract'))}</td><td title="${esc(j.schedule||'Sin dato')}">${cellText(tableValue(record,'schedule'))}</td><td>${salaryCell(j)}</td><td title="${esc(status)}${record.attention?' · Por atender':''}"><span data-offer-state="${record.category.key}" class="flow-status">${icon(record.category.icon,'offer-state-icon','solid')}${esc(state)}</span>${record.attention?'<span class="offer-attention-indicator">Por atender</span>':''}</td></tr>`;
 }
 function workflowTable(tab,records,empty){
  const selectable=tab==='solicitar'&&bulkSelectionMode;
@@ -755,7 +776,7 @@ function workflowTable(tab,records,empty){
  }).join('');
  const filterColumns=tableFilterColumns(),filters=filterColumns.filter(([key])=>Object.hasOwn(state.filters,key));
  const applied=filters.length||state.sort?`<div class="active-filters" role="group" aria-label="Filtros y orden aplicados">${filters.map(([key,label])=>{const values=state.filters[key],names=values.map(value=>{const record=records.find(record=>tableFilterValue(record,key)===value);return record?tableFilterLabel(record,key):tableDateKeys.has(key)&&Number.isFinite(Number(value))?date(new Date(Number(value)).toISOString()):value;}),description=names.length?names.slice(0,2).join(', ')+(names.length>2?' y '+(names.length-2)+' más':''):'Ningún valor';return `<button type="button" data-clear-column="${key}" data-table-tab="${tab}" title="${esc(names.join(', ')||description)}" aria-label="Quitar filtro de ${label.toLowerCase()}: ${esc(description)}">${esc(label)}: ${esc(description)}<span aria-hidden="true">×</span></button>`;}).join('')}${state.sort?`<button type="button" class="table-order" data-clear-order="${tab}" aria-label="Quitar orden por ${esc(filterColumns.find(([key])=>key===state.sort)?.[1]||state.sort)}">Orden: ${esc(filterColumns.find(([key])=>key===state.sort)?.[1]||state.sort)} ${state.direction===1?'↑':'↓'}<span aria-hidden="true">×</span></button>`:''}</div>`:'';
- return `${applied}<p class="table-scroll-hint">Desliza la tabla. La empresa permanece visible; abre su ficha para ver todos los datos.</p><div class="workflow-table-wrap" role="region" aria-label="Ofertas; desplázate horizontalmente para ver todas las columnas" tabindex="0"><table class="workflow-table${selectable?' workflow-table-selectable':''}"><caption class="sr-only">Ofertas y solicitudes guardadas. Usa las opciones de cada columna para filtrar y ordenar.</caption><thead><tr>${selectHead}${head}</tr></thead><tbody>${shown.length?shown.map(record=>flowRow(record,selectable)).join(''):`<tr><td colspan="${columns.length+(selectable?1:0)}" class="table-empty">${emptyMessage}${filters.length?`<p><button data-clear-table="${tab}">Mostrar todas las ofertas de este estado</button></p>`:''}</td></tr>`}</tbody></table></div><div class="table-footer"><span>${visible.length>shown.length?`${shown.length} de `:''}${visible.length} ${visible.length===1?'oferta':'ofertas'}${visible.length!==records.length?` de ${records.length}`:''}</span>${!state.sort?`<span class="table-default-order">Orden: ${({firstSeen:'búsqueda',discarded:'descarte',sent:'solicitud',achieved:'puesto ofrecido',closed:'cierre',rejected:'rechazo'})[defaultTableOrder(tab)]}, de más reciente a más antiguo</span>`:''}${filters.length?`<button class="link-button" data-clear-table="${tab}">Limpiar filtros</button>`:''}${visible.length>limit?'<button data-more-history="1">Cargar más</button>':''}</div>`;
+ return `${applied}<p class="table-scroll-hint">Desliza la tabla. La empresa permanece visible; abre su ficha para ver todos los datos.</p><div class="workflow-table-wrap" role="region" aria-label="Ofertas; desplázate horizontalmente para ver todas las columnas" tabindex="0"><table class="workflow-table${selectable?' workflow-table-selectable':''}"><caption class="sr-only">Ofertas y solicitudes guardadas. Usa las opciones de cada columna para filtrar y ordenar.</caption><thead><tr>${selectHead}${head}</tr></thead><tbody>${shown.length?shown.map(record=>flowRow(record,selectable)).join(''):`<tr><td colspan="${columns.length+(selectable?1:0)}" class="table-empty">${emptyMessage}${filters.length?`<p><button data-clear-table="${tab}">Mostrar todas las ofertas de este estado</button></p>`:''}</td></tr>`}</tbody></table></div><div class="table-footer"><span>${visible.length>shown.length?`${shown.length} de `:''}${visible.length} ${visible.length===1?'oferta':'ofertas'}${visible.length!==records.length?` de ${records.length}`:''}</span>${!state.sort?`<span class="table-default-order">Orden: ${({firstSeen:'búsqueda',archived:'archivo',sent:'solicitud',activity:'actividad',achieved:'puesto ofrecido',rejected:'rechazo'})[defaultTableOrder(tab)]}, de más reciente a más antiguo</span>`:''}${filters.length?`<button class="link-button" data-clear-table="${tab}">Limpiar filtros</button>`:''}${visible.length>limit?'<button data-more-history="1">Cargar más</button>':''}</div>`;
 }
 function columnMenuFor(element){return element?.closest?.('.column-menu')||element?.closest?.('.column-menu-panel')?._columnMenu||null;}
 function columnPanel(menu){return menu?._panel||menu?.querySelector('.column-menu-panel');}
@@ -805,15 +826,15 @@ function applyPage(){
  const all=[...model.opportunities,...UI.archive(model)].filter(j=>!offerProfileFilter||(j.displaySearchProfileId||j.searchProfileId)===offerProfileFilter);
  const stage=j=>UI.flowStage(j);
  const categories=new Map(all.map(j=>[j.id,UI.offerState(j)]));
- const legacy={elegidas:'preparacion',enviadas:'seguimiento',archivadas:'descartadas'};
+ const legacy={elegidas:'por-solicitar',preparacion:'por-solicitar',enviando:'por-solicitar',atencion:'todas','sin-elegir':'por-solicitar',enviadas:'en-espera',seguimiento:'en-espera',descartadas:'archivadas',cerradas:'archivadas'};
  flowFilters.solicitar=legacy[flowFilters.solicitar]||flowFilters.solicitar;
  if(!['todas',...UI.offerStates.map(state=>state.key)].includes(flowFilters.solicitar))flowFilters.solicitar='todas';
  const counts=Object.fromEntries(UI.offerStates.map(state=>[state.key,0]));
  for(const category of categories.values())counts[category.key]++;
- const priority=j=>categories.get(j.id).key==='atencion'?0:stage(j)==='historial'?8:['Entrevista','Oferta'].includes(j.state)?1:UI.step(j).owner==='you'?2:UI.canChoose(j)?3:stage(j)==='solicitar'?4:stage(j)==='seguir'?6:j.apply==='No'?7:5;
+ const priority=j=>UI.offerAttention(j)?0:stage(j)==='historial'?8:categories.get(j.id).key==='en-proceso'?1:UI.step(j).owner==='you'?2:UI.canChoose(j)?3:stage(j)==='solicitar'?4:stage(j)==='seguir'?6:j.apply==='No'?7:5;
  const visible=all.filter(j=>flowFilters.solicitar==='todas'||categories.get(j.id).key===flowFilters.solicitar).sort((a,b)=>priority(a)-priority(b)||(a.externalDeadline||'9999').localeCompare(b.externalDeadline||'9999')||(a.company||'').localeCompare(b.company||''));
  const records=visible.map(j=>flowRecord(j,stage(j)==='elegir'?'elegir':stage(j)==='solicitar'?'solicitar':'seguir'));
- const choices=[['todas','Todas',all.length],...UI.offerStates.filter(state=>['descartadas','sin-elegir','seguimiento','logradas','cerradas','rechazadas'].includes(state.key)||counts[state.key]>0||flowFilters.solicitar===state.key).map(state=>[state.key,({descartadas:'Descartadas',logradas:'Logradas',cerradas:'Cerradas',rechazadas:'Rechazadas'})[state.key]||state.label,counts[state.key]])];
+ const choices=[['todas','Todas',all.length],...UI.offerStates.map(state=>[state.key,({archivadas:'Archivadas',rechazadas:'Rechazadas',logradas:'Logradas'})[state.key]||state.label,counts[state.key]])];
   const searchLabel=searchRunLabel(),empty=all.length?'No hay ofertas en este grupo.':`Aún no hay ofertas. Pulsa «${searchLabel}» y pide «Continúa con Stubbs Jobs» en el chat de tu agente.`;
   const table=all.length?workflowTable('solicitar',records,empty):`<div class="empty-state"><p>Aún no hay ofertas. Pulsa «${searchLabel}» y pide «Continúa con Stubbs Jobs» en el chat de tu agente, o añade una oferta.</p></div>`;
   return flowShell('solicitar',`<div class="offers-heading"><div><h1>Ofertas</h1><p class="page-lead">Compara las ofertas, elige dónde solicitar y consulta cada resultado.</p>${searchStatusNote()}</div><div class="offers-heading-actions">${searchRunButton()}<button class="offers-add" data-screen="nueva">${icon('plus')}Añadir oferta</button></div></div>${activityWork()}${offerProfileControls()}${pendingEntriesPanel()}${flowToolbar('solicitar',choices)}${table}`);
@@ -945,7 +966,7 @@ async function openUserSent(id){
    duplicatesChecked:form.elements.namedItem('duplicatesChecked').checked,reapplication:form.elements.namedItem('reapplication').checked};
   const plan=UI.userSentOperation(job,choices,values);
   if(plan.error){error.textContent=plan.error;return;}
-  if(await action(plan.operation,null,form)){dialog.close('done');changeToast('Envío registrado. La oferta pasa a Siguiendo.');render(true);return;}
+ if(await action(plan.operation,null,form)){dialog.close('done');changeToast('Envío registrado. La oferta pasa a En espera.');render(true);return;}
   job=getJob(id);const next=job&&UI.userSentChoices(job,model.cvLibrary);
   if(!next){dialog.close('cancel');render(true);return;}
   if(form._conflict){choices=next;fill();error.textContent='La oferta ha cambiado mientras registrabas el envío. Revisa los datos actualizados y vuelve a confirmar.';}
@@ -958,8 +979,28 @@ async function openUserSent(id){
 function outcomePicker(j){
  const category=UI.offerState(j).key;
  if(!j.sent||category==='logradas'||j.requests.some(r=>r.type==='send'&&r.status==='running'))return '';
- const label=['cerradas','rechazadas'].includes(category)?'Cambiar resultado':'Registrar resultado';
- return `<details id="offer-outcome-${esc(j.id)}" class="offer-outcome-picker"><summary>${label}</summary><div class="offer-outcome-options">${[['achieve','Lograda','logradas'],['mark-rejected','Rechazada','rechazadas'],['close','Cerrada','cerradas']].map(([action,label,key])=>`<button data-offer-outcome="${action}" data-job-id="${esc(j.id)}"${category===key?' disabled aria-label="'+label+' (actual)"':''}>${label}</button>`).join('')}</div></details>`;
+ const label=['archivadas','rechazadas'].includes(category)?'Cambiar resultado':'Registrar resultado';
+ return `<details id="offer-outcome-${esc(j.id)}" class="offer-outcome-picker"><summary>${label}</summary><div class="offer-outcome-options">${[['achieve','Lograda','logradas'],['mark-rejected','Rechazada','rechazadas'],['close','Cerrar seguimiento','archivadas']].map(([action,text,key])=>`<button data-offer-outcome="${action}" data-job-id="${esc(j.id)}"${category===key?' disabled aria-label="'+text+' (actual)"':''}>${text}</button>`).join('')}</div></details>`;
+}
+async function openSelectionProgress(id){
+ const job=getJob(id),dialog=document.querySelector('#selection-progress-dialog'),form=dialog?.querySelector('form');
+ if(!job?.sent||UI.offerState(job).key==='logradas'||!form){toast('Esta candidatura ya no admite ese avance. Actualiza su ficha.');return;}
+ const error=form.querySelector('.selection-progress-error'),at=form.elements.namedItem('at');
+ form.reset();error.textContent='';at.value=window.StubbsJobsFormatting.localInputValue();at.max=at.value;
+ const eventId=crypto.randomUUID();
+ const submit=async event=>{
+  if(event.submitter?.value!=='ok')return;
+  event.preventDefault();error.textContent='';
+  const step=form.elements.namedItem('selectionStep').value,proof=form.elements.namedItem('proof').value.trim(),when=window.StubbsJobsFormatting.zonedInstant(at.value);
+  if(!['contact','test','interview'].includes(step)||!proof||!when||Date.parse(when)>Date.now()+300000){error.textContent='Indica el avance concreto, cuándo ocurrió y qué te comunicaron.';return;}
+  if(Date.parse(when)<Date.parse(job.sent.at)){error.textContent='El avance no puede ser anterior al envío registrado.';return;}
+  const recorded={id:eventId,opportunityId:id,type:step==='interview'?'interview':'response',selectionStep:step,
+   at:when,proof,actor:'Usuario',reportedBy:'user',scope:'application',channel:'user_reported'};
+  if(await action({kind:'event',event:recorded},null,form)){dialog.close('done');changeToast('Avance registrado para esta candidatura.');render(true);}
+  else if(form._conflict)error.textContent='La candidatura ha cambiado. Actualiza la ficha y comprueba el avance antes de repetirlo.';
+ };
+ form.addEventListener('submit',submit);dialog.returnValue='cancel';dialog.showModal();form.elements.namedItem('selectionStep').focus();
+ await new Promise(resolve=>dialog.addEventListener('close',resolve,{once:true}));form.removeEventListener('submit',submit);
 }
 function caseHistory(j){return window.StubbsJobsActivity.caseHistory(j,model);}
 function recentCaseHistory(j,limit=3){return window.StubbsJobsActivity.recent(caseHistory(j),model,limit).reverse();}
@@ -990,7 +1031,7 @@ function detail(){
  const action=UI.canChoose(j)?selectionButtons(j):primaryAction(j,step,true)||(canInvestigate?`<button class="primary" data-investigate="${esc(j.id)}">Pedir comprobación</button>`:'');
  const stateDetail=UI.detailMessage(j,step),where=UI.actionPlace(j,step);
  // Only the decision for the current state stays visible; rarer actions live in Más acciones.
- const statusActions=`<div class="offer-status-actions"><div class="actions offer-actions">${action}${followupActions(j)}${category.key==='sin-elegir'?`<button class="offer-change" data-offer-outcome="discard" data-job-id="${esc(j.id)}">Descartar</button>`:''}${outcomePicker(j)}</div>${where?`<p class="helper offer-where">${esc(where)}</p>`:''}</div>`;
+ const statusActions=`<div class="offer-status-actions"><div class="actions offer-actions">${action}${followupActions(j)}${j.sent&&category.key!=='logradas'?`<button class="offer-change" data-selection-progress="${esc(j.id)}">Registrar avance</button>`:''}${category.key==='por-solicitar'&&!j.selection?.selected?`<button class="offer-change" data-offer-outcome="discard" data-job-id="${esc(j.id)}">Descartar</button>`:''}${outcomePicker(j)}</div>${where?`<p class="helper offer-where">${esc(where)}</p>`:''}</div>`;
  const contacts=(j.contactDrafts||[]).length?`<details class="case-disclosure"><summary>Borradores de contacto (${j.contactDrafts.length})</summary><p class="helper">No enviados.</p>${j.contactDrafts.map((c,i)=>`<div class="case-piece"><strong>${esc(c.purpose)}</strong><p>${esc(c.recipient)}</p><p class="note-text">${esc(c.message)}</p><button data-copy-contact="${i}">Copiar</button></div>`).reverse().join('')}</details>`:'';
  const formAnswers=UI.formAnswers(material);
  const cvMissing=j.sent?'CV enviado no disponible':'Pendiente de preparar';
@@ -999,7 +1040,7 @@ function detail(){
   const answers=answerList(formAnswers,cvAnswer+presentationAnswer),assessment=offerAssessment(j),criteriaActions=offerCriteriaControls(j);
  return `<div class="detail-wrap offer-detail">${offerHeading(j)}${offerTimeline(j)}
   <div class="offer-layout"><div class="offer-columns"><aside class="offer-rail" aria-label="Decisión y condiciones">
-  <section class="case-status offer-status" data-offer-section="status" data-offer-state="${UI.offerState(j).key}" aria-label="Situación y acciones"><div class="offer-status-copy"><div class="offer-status-line"><strong data-offer-state="${category.key}">${icon(category.icon,'offer-state-icon','solid')}${esc(category.label)}</strong>${j.selection?.selected&&!j.sent?`<span class="offer-selection-mode">${j.selection.mode==='auto'?'Auto-solicitud':'Solicitud con revisión'}</span>`:''}</div>${selectionOrigin(j)}${stateDetail&&stateDetail!==step.label?`<p>${esc(stateDetail)}</p>`:''}${followupStatus(j)}${!assessment&&j.displaySearchProfileId&&j.displaySearchProfileId!==j.searchProfileId?`<p class="helper offer-profile-placement">${esc(offerProfileBasis(j))}</p>`:''}${UI.nextAction(j)?`<p class="offer-next-action">${esc(UI.nextAction(j))}</p>`:''}${active(j)&&j.externalDeadline?`<p class="offer-deadline">Plazo: ${date(j.externalDeadline)}</p>`:''}</div>${statusActions}</section>
+  <section class="case-status offer-status" data-offer-section="status" data-offer-state="${UI.offerState(j).key}" aria-label="Situación y acciones"><div class="offer-status-copy"><div class="offer-status-line"><strong data-offer-state="${category.key}">${icon(category.icon,'offer-state-icon','solid')}${esc(category.label)}</strong>${UI.offerAttention(j)?'<span class="offer-attention-indicator">Por atender</span>':''}${j.selection?.selected&&!j.sent?`<span class="offer-selection-mode">${j.selection.mode==='auto'?'Auto-solicitud':'Solicitud con revisión'}</span>`:''}</div>${selectionOrigin(j)}${stateDetail&&stateDetail!==step.label?`<p>${esc(stateDetail)}</p>`:''}${UI.offerAttention(j)&&['archivadas','rechazadas'].includes(category.key)?`<p>${esc(step.detail||'Revisa el paso pendiente en esta oferta.')}</p>`:''}${followupStatus(j)}${!assessment&&j.displaySearchProfileId&&j.displaySearchProfileId!==j.searchProfileId?`<p class="helper offer-profile-placement">${esc(offerProfileBasis(j))}</p>`:''}${UI.nextAction(j)?`<p class="offer-next-action">${esc(UI.nextAction(j))}</p>`:''}${active(j)&&j.externalDeadline?`<p class="offer-deadline">Plazo: ${date(j.externalDeadline)}</p>`:''}</div>${statusActions}</section>
   ${j.integrityError?`<div class="error" role="alert">${esc(j.integrityError)}</div>`:''}
   <section class="case-section offer-conditions" data-offer-section="conditions"><div class="section-heading"><h2>Condiciones</h2></div>${offerConditions(j)}</section>
   <details class="case-disclosure case-more" id="offer-more-${esc(j.id)}"><summary>Más acciones</summary><div class="more-links">${category.key!=='logradas'?`<button data-change="${esc(j.id)}">Pedir cambio</button>`:''}${userSentButton(j)}${j.selection?.selected&&!j.sent&&!sending?`<button data-unselect="${esc(j.id)}">Dejar de solicitar</button>`:''}${approved&&!j.sent?`<button data-revoke="${esc(current.id)}">Retirar permiso de envío</button>`:''}</div>${criteriaActions}${offerNotes(j)}</details></aside>
@@ -1078,7 +1119,7 @@ function workAuthorizationOption(name,checked){return `<label class="permit-opti
 function workAuthorizationOptions(selected){return [...new Set([...commonWorkDestinations,...selected])].map(name=>workAuthorizationOption(name,selected.includes(name))).join('');}
 function workAuthorizationField(value,association){
  const selected=workAuthorizationValues(value);
- return `<div class="field"><span id="work-authorizations-label">Permiso de trabajo sin patrocinio en</span><input type="hidden" name="workAuthorizations" data-type="multiselect"${association} value="${esc(JSON.stringify(value??null))}"><details class="work-authorizations" data-work-authorizations="1"><summary aria-labelledby="work-authorizations-label work-authorizations-value"><span id="work-authorizations-value">${esc(selected.join(', ')||'Sin especificar')}</span></summary><div class="permit-options" role="group" aria-labelledby="work-authorizations-label">${workAuthorizationOptions(selected)}</div><div class="permit-add"><input type="text" data-permit-other="1" maxlength="100" placeholder="Otro país o zona" aria-label="Otro país o zona con permiso de trabajo"><button type="button" data-permit-add="1" aria-label="Añadir país o zona">+</button></div></details></div>`;
+ return `<div class="field"><span id="work-authorizations-label">Puedo trabajar sin patrocinio en</span><input type="hidden" name="workAuthorizations" data-type="multiselect"${association} value="${esc(JSON.stringify(value??null))}"><details class="work-authorizations" data-work-authorizations="1"><summary aria-labelledby="work-authorizations-label work-authorizations-value"><span id="work-authorizations-value">${esc(selected.join(', ')||'Sin especificar')}</span></summary><div class="permit-options" role="group" aria-labelledby="work-authorizations-label">${workAuthorizationOptions(selected)}</div><div class="permit-add"><input type="text" data-permit-other="1" maxlength="100" placeholder="Otro país o zona" aria-label="Otro país o zona con permiso de trabajo"><button type="button" data-permit-add="1" aria-label="Añadir país o zona">+</button></div></details></div>`;
 }
 function syncWorkAuthorizations(){
  for(const widget of main.querySelectorAll('[data-work-authorizations]')){
@@ -1135,7 +1176,7 @@ function profileForm(){
  }
  const about=formSource('about'),layout=aboutLayout(),defs=sectionDefinitions('about');
  return `<div class="profile-layout"><div class="profile-heading"><h1>Mi perfil</h1><p class="page-lead">Tus datos y preferencias para preparar solicitudes con precisión.</p></div><div class="profile-workspace"><nav class="profile-section-nav" aria-label="Secciones de Mi perfil">${profileSections.map(([id,label])=>`<a href="#${id}" data-profile-section="${id}"${profileSection===id?' aria-current="location"':''}>${label}</a>`).join('')}</nav><div class="profile-content">${legacyRecovery()}
-  <section class="profile-card" id="profile-about"><h2>Sobre mi</h2><div class="profile-fields"><form data-form="about" id="profile-about-form" class="profile-fields-form"><div class="form-grid">${aboutFieldsHtml(layout.contact,about,defs)}<div class="profile-field-wide">${fieldHtml('text',{label:'Mi experiencia',type:'longtext',rows:10,form:'profile-experience-form'},model.experience)}</div><div class="profile-field-wide">${fieldHtml('languages',{...sectionDefinitions('search').languages,form:'profile-search-form'},formSource('search').languages)}</div>${aboutFieldsHtml([...layout.answers,...layout.consent,...layout.demographic],about,defs)}</div>${formErrors()}</form>
+  <section class="profile-card" id="profile-about"><h2>Sobre mi</h2><div class="profile-fields"><form data-form="about" id="profile-about-form" class="profile-fields-form"><div class="form-grid">${profileGroup('Contacto',aboutFieldsHtml(layout.contact,about,defs))}${profileGroup('Datos personales',aboutFieldsHtml(layout.personal,about,defs))}${profileGroup('Trabajo y disponibilidad',aboutFieldsHtml(layout.work,about,defs))}${profileGroup('Salario',aboutFieldsHtml(layout.salary,about,defs))}${profileGroup('Experiencia e idiomas',`<div class="profile-field-wide">${fieldHtml('text',{label:'Mi experiencia',type:'longtext',rows:10,form:'profile-experience-form'},model.experience)}</div><div class="profile-field-wide">${fieldHtml('languages',{...sectionDefinitions('search').languages,form:'profile-search-form'},formSource('search').languages)}</div>`)}${profileGroup('Otras respuestas para formularios',aboutFieldsHtml(layout.answers,about,defs))}${profileGroup('Encuestas y datos sensibles (opcional)',aboutFieldsHtml(layout.demographic,about,defs))}${profileGroup('Permisos',aboutFieldsHtml([...layout.consent,...layout.autoApply],about,defs))}</div>${formErrors()}</form>
   <form data-form="experience" id="profile-experience-form" class="profile-fields-form">${formErrors()}</form>${formErrors('search')}
   </div></section>
   ${searchSettingsPanels()}
@@ -1143,6 +1184,8 @@ function profileForm(){
   </div></div><aside class="profile-savebar" data-profile-savebar aria-label="Guardar cambios de Mi perfil" hidden><div class="profile-savebar-inner"><span data-profile-pending>Cambios sin guardar</span><button type="button" class="primary" data-save-profile="1" title="Guardar cambios (Ctrl+S)">Guardar cambios</button></div></aside>
  </div>`;
 }
+// A titled run of fields inside one card; not a panel. Empty groups are omitted.
+function profileGroup(title,html){return html.trim()?`<h3 class="profile-group-title">${esc(title)}</h3>${html}`:'';}
 function legacyRecoveryItems(){
  let recovered=[];try{recovered=JSON.parse(draftStorage.getItem('stubbs_jobs-recovered-drafts')||'[]');if(!Array.isArray(recovered))recovered=[];}catch{}
  return window.StubbsJobsDrafts.legacyDrafts(sessionStorage,localStorage).filter(item=>!recovered.includes(JSON.stringify(item)));
@@ -1174,10 +1217,17 @@ function searchSettingsPanels(){
  const searchPlace=visibleSearchLocation(search.location,search.workMode,search.regions);search.location=searchPlace.location;search.workMode=searchPlace.workMode;
  const profile=currentSearchProfile(),scope=profile?` data-search-profile-id="${esc(profile.id)}"`:'';
  return `<section class="profile-card" id="profile-work"><h2>Lo que busco</h2>${searchProfileControls()}${profile?'<hr class="search-profile-separator" aria-hidden="true">':''}<div class="profile-fields"><form data-form="search" id="profile-search-form" class="profile-fields-form"${scope}>
-  ${searchCriteriaFields(search,['targetRoles','keywords','searchPriorities','requiredSchedule',...(profile?['searchNotes']:[]),'location','workMode','onsiteLocations','contract','maxTrips','minimumFixed','salaryExpectationFixed'])}${formErrors('search')}</form>
-  ${searchCriteriaFields(search,['previousApplications'],'profile-search-form',{flat:true})}
-  ${profile?'<p class="helper">Idiomas, empresas a evitar y salario para formularios son comunes a todos los perfiles. El mínimo salarial y su moneda pertenecen a este perfil.</p>':''}
-  <form data-form="sources" class="profile-fields-form"${scope}>${searchOptionsControls(sources)}${formErrors()}</form></div></section>`;
+  <div class="form-grid">${profileGroup('Qué busco',searchCriteriaFields(search,['targetRoles','keywords'],null,{flat:true}))}${profileGroup('Dónde y cómo',searchCriteriaFields(search,['location','workMode','onsiteLocations'],null,{flat:true}))}${profileGroup('Condiciones mínimas',searchCriteriaFields(search,['contract','minimumFixed','maxTrips','requiredSchedule'],null,{flat:true}))}${profileGroup('Preferencias',searchCriteriaFields(search,['searchPriorities',...(profile?['searchNotes']:[])],null,{flat:true}))}${profileGroup('Fuentes y empresas a evitar',searchCriteriaFields(search,['previousApplications'],null,{flat:true}))}</div>${formErrors('search')}</form>
+  <form data-form="sources" class="profile-fields-form"${scope}>${searchOptionsControls(sources)}${formErrors()}</form>${String(sources.sourceUrls||'').trim()?'':sourceYieldList()}
+  ${profile?'<p class="helper">Empresas a evitar e idiomas son comunes a todos los perfiles, y el salario que pides en los formularios está en Sobre mi. El mínimo salarial y su moneda pertenecen a este perfil.</p>':''}</div></section>`;
+}
+// Company boards the scanner checks, with what each one has produced for this person.
+function sourceYieldList(){
+ const stats=model.sourceStats||[];if(!stats.length)return '';
+ const plural=(n,one,many)=>`${n} ${n===1?one:many}`;
+ const rows=stats.map(s=>`<li class="source-yield-row${s.enabled?'':' source-yield-row--off'}"><div class="source-yield-text"><span class="source-yield-name">${esc(s.company||s.id)}${s.lowYield&&s.enabled?'<span class="source-badge">Poco útil</span>':''}${s.enabled?'':'<span class="source-badge source-badge--off">No se revisa</span>'}</span><small>${esc([plural(s.offers,'oferta','ofertas'),plural(s.sent,'enviada','enviadas'),plural(s.discardedByYou,'descartada por ti','descartadas por ti')].join(' · '))}</small></div><button type="button" class="link-button" data-source-toggle="${esc(s.id)}" data-source-enabled="${s.enabled?'false':'true'}">${s.enabled?'Dejar de revisar':'Volver a revisar'}</button></li>`).join('');
+ const low=stats.filter(s=>s.lowYield&&s.enabled).length;
+ return `<div class="source-yield profile-field-wide"><span class="source-yield-title">Webs de empresa que revisa el agente</span><ul class="source-yield-list">${rows}</ul><small class="helper">${low?esc(plural(low,'web aporta','webs aportan')+' muchas ofertas que descartas y casi ningún envío. '):''}Común a todas tus búsquedas. Dejar de revisar una web conserva sus ofertas e historial; los portales de empleo se buscan aparte.</small></div>`;
 }
 function currentSearchProfile(){return model.searchProfiles?.find(p=>p.id===searchProfileId)||null;}
 function searchProfileIconButton(action,label,name){return `<button type="button" class="profile-action-icon" data-search-profile-action="${action}" aria-label="${label}" title="${label}">${icon(name)}</button>`;}
@@ -1562,7 +1612,8 @@ document.addEventListener('click',async e=>{
  if(b.dataset.searchProfileTrash){openDeletedSearchProfiles();return;}
  if(b.dataset.searchProfileRestore){await searchProfileAction('restore',b.dataset.searchProfileRestore);return;}
  if(b.dataset.offerCriteriaChange){await changeOfferCriteria(b.dataset.offerCriteriaChange);return;}
- if(b.dataset.permissionClear!==undefined){const form=controlForm(b),field=form?.elements.namedItem(b.dataset.permissionClear);if(field){field.value='';form._lastEditedField=field.name;rememberForm(form);syncProfileOptions(form);}return;}
+ if(b.dataset.sourceToggle){const enabled=b.dataset.sourceEnabled==='true',source=(model.sourceStats||[]).find(s=>s.id===b.dataset.sourceToggle);if(!source)throw new Error('Actualiza el estado para ver esta web.');if(await action({kind:'ui-source-toggle',sourceId:source.id,enabled,expected:source.enabled})){toast(enabled?'La web vuelve a revisarse en tus búsquedas.':'Web retirada de tus búsquedas. Sus ofertas se conservan.');render(true);}return;}
+ if(b.dataset.permissionAll){const form=controlForm(b),group=permissionGroups().find(item=>item.id===b.dataset.permissionAll);if(!form||!group)return;for(const item of group.items){const field=form.elements.namedItem(item.key);if(field){field.value=b.dataset.permissionValue;form._lastEditedField=field.name;}}rememberForm(form);syncProfileOptions(form);return;}
  if(b.dataset.permitAdd!==undefined){const widget=b.closest('[data-work-authorizations]'),input=widget.querySelector('[data-permit-other]'),name=input.value.trim();if(!name)return;if(name.length>100){input.reportValidity();return;}let option=[...widget.querySelectorAll('[data-permit-option]')].find(item=>item.dataset.permitOption.toLocaleLowerCase()===name.toLocaleLowerCase());if(!option){widget.querySelector('.permit-options').insertAdjacentHTML('beforeend',workAuthorizationOption(name,true));option=[...widget.querySelectorAll('[data-permit-option]')].find(item=>item.dataset.permitOption===name);}option.checked=true;saveWorkAuthorizationChoices(widget);input.value='';input.focus();return;}
  if(b.dataset.copyRecovery){const request=model.requests.find(r=>r.id===b.dataset.copyRecovery);if(!request)throw new Error('Actualiza el estado para consultar esta tarea.');const message=window.StubbsJobsRecovery.taskPrompt(model.workspacePath,request);try{await navigator.clipboard.writeText(message);toast('Petición copiada. Pégala en el chat del agente.');}catch{await confirmAction('Mensaje para tu agente',message);}return;}
  if(b.dataset.copyBackup!==undefined&&backupResult){const message=window.StubbsJobsRecovery.backupPrompt(model.workspacePath,backupResult.name);try{await navigator.clipboard.writeText(message);toast('Petición copiada. Pégala en el chat del agente.');}catch{await confirmAction('Mensaje para tu agente',message);}return;}
@@ -1591,9 +1642,10 @@ document.addEventListener('click',async e=>{
  if(b.dataset.clearTable){tableState[b.dataset.clearTable].filters={};historyLimit=30;render(true);return;}
  if(b.dataset.clearColumn){delete tableState[b.dataset.tableTab].filters[b.dataset.clearColumn];historyLimit=30;render(true);return;}
  if(b.dataset.userSent){await openUserSent(b.dataset.userSent);return;}
+ if(b.dataset.selectionProgress){await openSelectionProgress(b.dataset.selectionProgress);return;}
  if(b.dataset.offerOutcome){
   const j=getJob(b.dataset.jobId),outcome=b.dataset.offerOutcome,category=j?UI.offerState(j).key:'';
-  const allowed=j&&(outcome==='discard'?category==='sin-elegir':outcome==='reopen-followup'?j.lifecycle?.canReopen&&category!=='logradas':j.sent&&category!=='logradas'&&!j.requests.some(r=>r.type==='send'&&r.status==='running'));
+  const allowed=j&&(outcome==='discard'?category==='por-solicitar'&&!j.selection?.selected:outcome==='reopen-followup'?j.lifecycle?.canReopen&&category!=='logradas':j.sent&&category!=='logradas'&&!j.requests.some(r=>r.type==='send'&&r.status==='running'));
   if(!allowed)throw new Error('La oferta ha cambiado. Revisa su estado actual.');
   if(await action({kind:'ui-bulk-action',action:outcome,targets:[{id:j.id}],expectedRevision:model.revision})){changeToast(({discard:'Oferta descartada.',achieve:'Solicitud lograda.', 'mark-rejected':'Rechazo registrado.',close:'Seguimiento cerrado por ti.', 'reopen-followup':'Seguimiento reabierto; permisos anteriores retirados.'})[outcome]);render(true);}
   return;

@@ -67,6 +67,17 @@ LOG_LOCK=threading.Lock()
 def content_type(name):
     return CONTENT_TYPES.get(Path(name).suffix.lower()) or mimetypes.guess_type(name)[0] or 'application/octet-stream'
 
+def validate_user_selection_event(operation):
+    """The UI may report a selection step, but cannot submit arbitrary events."""
+    event=operation.get('event')
+    fields={'id','opportunityId','type','selectionStep','at','proof','actor','reportedBy','scope','channel'}
+    if (set(operation)!={'kind','event'} or not isinstance(event,dict) or set(event)!=fields or
+        any(not isinstance(event.get(key),str) or not event[key].strip() for key in fields) or
+        (event['type'],event['selectionStep']) not in {('response','contact'),('response','test'),('interview','interview')} or
+        event['actor']!='Usuario' or event['reportedBy']!='user' or
+        event['scope']!='application' or event['channel']!='user_reported'):
+        raise ValueError('El avance debe ser un contacto, prueba o entrevista de esta candidatura')
+
 def log_failure(method,path):
     """Keep unexpected failures diagnosable without request bodies or query values."""
     import traceback
@@ -132,9 +143,11 @@ def state_view(data=None,brief=False,case=None,history=False,since=None,pure=Fal
         version=state_version(data,brief,case,history,execution=execution)
         if since==version:return {'unchanged':True,'version':version}
         # The brief view only details the offers it names: the rest are never built.
+        # Task results and search reports are read only by Resumen and its reports,
+        # which name no offer; an offer's screens receive only that offer's detail.
         result=build_state(data,include_export=not brief,include_instructions=not brief,execution=execution,
                            detail=cases if brief else None,history_scope=cases if brief and not (history and not cases) else None,
-                           request_detail=cases if brief and not history else None)
+                           request_detail=cases if brief and (cases or not history) else None)
         if brief:
             if not history:result['history']=[h for h in result['history'] if h.get('opportunityId') in cases][-3:] if cases else []
             elif cases:result['history']=[h for h in result['history'] if h.get('opportunityId') in cases]
@@ -196,7 +209,7 @@ def legacy_sent_cv(row,sent):
 
 
 BRIEF_OMITTED=('draft','answers','answerOverrides','sentMaterial','evidence','fieldDefinitions','changes','contactDrafts')
-REQUEST_DETAIL=('result','instructions')
+REQUEST_DETAIL=('result','instructions','activityResult','scanChecks','discoveredOpportunityIds','newOpportunityIds')
 
 def without(item,keys):return {k:v for k,v in item.items() if k not in keys}
 
@@ -231,6 +244,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
         sent=next((e for e in events.get(op_id,[]) if e['type']=='sent'),None)
         archive=w.archived(data,op_id) or {}
         lifecycle=application_lifecycle.view(data,row)
+        selection_progress=application_lifecycle.selection_progress(data,op_id)
         rejection_dates=[e.get('at') for e in events.get(op_id,[]) if e['type']=='rejected' and instant(e.get('at'))]
         if archive.get('source')=='employer' and archive.get('outcome')=='rejected' and instant(archive.get('at')):
             rejection_dates.append(archive['at'])
@@ -269,7 +283,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
                      'conditions':{k:numbers.get(k,row.get(k)) for k in j.CONDITIONS},'salary':row.get('Banda publicada'),'schedule':row.get('Horario real'),'firstSeenAt':discovery_dates.get(op_id),
                      'country':row.get('País'), 'place':row.get('Ubicación'), 'round':app.get('offerRounds',{}).get(op_id), **profile_info, 'scheduleChecks':schedule_checks, 'workMode':row.get('Modalidad') or ('Remoto' if numbers.get('Remoto España',row.get('Remoto España'))=='Sí' else None), 'contract':row.get('Contrato'),
                      'technologies':row.get('Tecnologías'),'requirements':row.get('Requisitos de la oferta'),'notes':row.get('Notas de seguimiento'),
-                     'lifecycle':lifecycle, 'minimums':offer_minimums.view(data,row), 'archiveReason':(w.archived(data,op_id) or {}).get('reason'), 'archiveOutcome':application_lifecycle.archive_outcome(data,row),
+                     'lifecycle':lifecycle, 'selectionProgress':selection_progress, 'minimums':offer_minimums.view(data,row), 'archiveReason':(w.archived(data,op_id) or {}).get('reason'), 'archiveOutcome':application_lifecycle.archive_outcome(data,row),
                      'fixedSalary':numbers.get('Fijo mín. confirmado'),
                      'fixedSalaryMax':numbers.get('Fijo máx. confirmado'), 'minimumTrips':numbers.get('Viajes mín. al mes'),
                      'fixedSalaryCurrency':numbers.get('Moneda fijo confirmado') or ('EUR' if not app.get('personalized') else None),
@@ -307,7 +321,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
             'cycles':cycles,'export':export,'execution':agent_runner.view() if execution is None else execution,
             'handoff':f'Continúa los encargos pendientes o bloqueados de Stubbs Jobs en {ROOT}. Lee AGENTS.md, status y app-status. Revisa el motivo de cada bloqueo; no repitas un posible envío sin comprobar el portal. No autorices nuevos paquetes en mi nombre.',
             'historical':[{**record,'canonicalKey':vacancy_key(record)} for record in data['historicalApplications']],'entries':data['sheets']['Entradas'],'pendingEntries':pending_entries.pending(data),
-            'cvLibrary':cv_library(data)}
+            'cvLibrary':cv_library(data),'sourceStats':__import__('portal_plans').source_stats(data)}
 
 @view_cache.cached(lambda data:(id(data),str(ROOT)))
 def cv_library(data):
@@ -431,8 +445,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'")
         for k,v in (extra or {}).items():self.send_header(k,v)
         self.end_headers()
+        # The window may close or navigate before the reply is written. Windows
+        # reports it as ConnectionAbortedError (WinError 10053), not a reset.
         try:self.wfile.write(body)
-        except (BrokenPipeError,ConnectionResetError,TimeoutError):pass
+        except (ConnectionError,TimeoutError):pass
     def do_GET(self):
         if not self.headers_ok():return self.send(403,{'error':'Acceso local no válido'})
         path=urlsplit(self.path).path
@@ -499,9 +515,16 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/import-cv':
                 import base64
                 content=base64.b64decode(body['content'],validate=True)
-                with lock():
-                    data=read_store()
-                    if j.import_cv(data,body['name'],content):save_store(data)
+                for retry in range(12):
+                    try:
+                        with lock():
+                            data=read_store()
+                            if j.import_cv(data,body['name'],content):save_store(data)
+                        break
+                    except RuntimeError:
+                        # Same busy-writer contract as transact: retry briefly, then explain.
+                        if retry==11:raise ValueError('El registro está ocupado. Vuelve a añadir el PDF en unos segundos.')
+                        time.sleep(.15)
                 return self.send(200,{'state':self.requested_state()})
             if path=='/api/run':
                 raise ValueError('Abre tu agente y pídele que continúe con Stubbs Jobs; leerá el estado actual')
@@ -523,8 +546,9 @@ class Handler(BaseHTTPRequestHandler):
             kind=operation.get('kind')
             allowed={'ui-setup-retry','ui-setup-finish','ui-profile-section','ui-assistant-settings','ui-search-context','ui-add-opportunity','ui-profile','ui-preferences','ui-experience','ui-responses','ui-change','ui-offer-note','ui-inherit','ui-draft','ui-request','ui-approve','ui-revoke','ui-request-update','ui-snooze','ui-seen','ui-undo','ui-automation-settings','ui-select-opportunity','ui-criteria-scope'}
             allowed.add('ui-search-profile')
-            allowed.update(('ui-bulk-action','ui-followup-plan','ui-entry-decision','ui-user-sent'))
+            allowed.update(('ui-bulk-action','ui-followup-plan','ui-entry-decision','ui-user-sent','event','ui-source-toggle'))
             if kind not in allowed:raise ValueError('Acción no disponible desde la aplicación')
+            if kind=='event':validate_user_selection_event(operation)
             if kind=='ui-request' and operation.get('type')=='send':raise ValueError('Revisa y autoriza el paquete antes de solicitar su envío')
             if kind=='ui-request-update' and operation.get('status') not in ('queued','cancelled'):raise ValueError('Solo el agente confirma la ejecución de un encargo')
             if kind=='ui-profile':

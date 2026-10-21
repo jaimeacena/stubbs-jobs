@@ -90,6 +90,7 @@ def history_view(data, opportunities=None):
         if len(exact) == 1:
             event = exact[0]
             item['activity'] = {'kind': 'event', 'type': event.get('type'), 'scope': event.get('scope'),
+                                'selectionStep': event.get('selectionStep'),
                                 'packageId': event.get('packageId'), 'sourceUrl': event.get('sourceUrl')}
             if event.get('reportedBy') == 'user':
                 item['activity']['reportedBy'] = 'user'
@@ -121,6 +122,23 @@ def business_events(data, key):
     sent = any(e.get('opportunityId') == key and e.get('type') == 'sent' for e in data['events'])
     return [e for e in data['events'] if e.get('opportunityId') == key and e.get('type') in BUSINESS
             and not (sent and e.get('scope') == 'advertisement')]
+
+
+def selection_progress(data, key):
+    """Only a dated, explicit selection step proves active recruitment.
+
+    A generic response or a portal's 'reviewing' status does not.
+    """
+    events = business_events(data, key)
+    sent = latest([e for e in events if e['type'] == 'sent'])
+    if not sent:
+        return None
+    steps = [e for e in events if instant(e.get('at')) and instant(e['at']) >= instant(sent['at'])
+             and (e['type'] == 'interview' or e['type'] == 'response' and
+                  e.get('selectionStep') in ('contact', 'test'))]
+    event = latest(steps)
+    return {'step': event.get('selectionStep') or 'interview', 'at': event['at'],
+            'eventId': event['id'], 'reportedBy': event.get('reportedBy')} if event else None
 
 
 def achievement(data, row):
@@ -178,6 +196,26 @@ def archive_outcome(data, row):
     if archive.get('outcome') == 'rejected' and archive.get('source') not in ('employer', 'user_reported'):
         return 'closed'
     return archive.get('outcome')
+
+
+def display_state(data, row):
+    """Read-only category for exported offers; raw Estado remains operational."""
+    key = row['ID']; raw = row['Estado']; archive = archive_outcome(data, row)
+    sent = any(e.get('type') == 'sent' for e in business_events(data, key))
+    if achievement(data, row):
+        return 'Lograda'
+    if archive == 'rejected':
+        return 'Rechazada'
+    if archive in ('closed', 'discarded') or raw == 'Cerrada':
+        return 'Archivada'
+    if raw == 'Rechazada':
+        return 'Rechazada'
+    from offer_minimums import view as minimums
+    if archive or raw == 'Descartada' or not sent and not minimums(data, row)['canApply']:
+        return 'Archivada'
+    if sent and (selection_progress(data, key) or raw == 'Entrevista'):
+        return 'En proceso'
+    return 'En espera' if sent else 'Por solicitar'
 
 
 def view(data, row, at=None):
