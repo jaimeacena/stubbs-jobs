@@ -59,6 +59,53 @@ class LifecycleTests(WorkflowFixture, unittest.TestCase):
             self.assertIsNone(life.achievement(self.data,self.data['sheets']['Oportunidades'][0]))
             self.assertIsNotNone(life.view(self.data,self.data['sheets']['Oportunidades'][0])['nextCheckAt'])
 
+    def test_only_explicit_post_send_selection_news_projects_as_progress(self):
+        self.sent()
+        self.apply({'kind':'event','event':{'id':'generic','type':'response','opportunityId':'one',
+                    'at':'2026-10-02T10:00:00Z','proof':'TEST: acuse genérico'}})
+        self.assertIsNone(life.selection_progress(self.data,'one'))
+        self.assertEqual(jobs.view(self.data)['sheets']['Oportunidades'][0]['Estado visible'],'En espera')
+        self.apply({'kind':'event','event':{'id':'contact','type':'response','selectionStep':'contact',
+                    'scope':'application','opportunityId':'one','at':'2026-10-03T10:00:00Z',
+                    'proof':'TEST: reclutadora convoca una conversación','reportedBy':'user'}})
+        self.data['updatedAt']=w.now()
+        before=copy.deepcopy(self.data)
+        self.assertEqual(life.selection_progress(self.data,'one'),
+                         {'step':'contact','at':'2026-10-03T10:00:00Z','eventId':'contact','reportedBy':'user'})
+        self.assertEqual(self.data['app']['history'][-1]['actor'],'Usuario')
+        self.assertEqual(jobs.view(self.data)['sheets']['Oportunidades'][0]['Estado visible'],'En proceso')
+        with patch.object(ui,'ROOT',self.root):
+            projected=ui.build_state(self.data)['opportunities'][0]
+        self.assertEqual(projected['selectionProgress']['step'],'contact')
+        self.assertEqual(self.data,before)
+        self.apply({'kind':'event','event':{'id':'later-generic','type':'response','opportunityId':'one',
+                    'at':'2026-10-04T10:00:00Z','proof':'TEST: respuesta sin nueva etapa'}})
+        self.assertEqual(life.selection_progress(self.data,'one')['eventId'],'contact')
+
+    def test_selection_progress_requires_a_submitted_application_and_matching_scope(self):
+        event={'id':'test','type':'response','selectionStep':'test','scope':'application',
+               'opportunityId':'one','at':'2026-10-02T10:00:00Z','proof':'TEST: prueba de selección'}
+        with self.assertRaisesRegex(ValueError,'envío previo'):self.apply({'kind':'event','event':event})
+        self.assertIsNone(life.selection_progress(self.data,'one'))
+        self.sent()
+        with self.assertRaisesRegex(ValueError,'candidatura enviada'):
+            self.apply({'kind':'event','event':{**event,'scope':'advertisement'}})
+        self.assertIsNone(life.selection_progress(self.data,'one'))
+        self.apply({'kind':'event','event':event})
+        self.assertEqual(life.selection_progress(self.data,'one')['step'],'test')
+
+    def test_newer_employer_rejection_supersedes_older_manual_closure_in_display(self):
+        self.sent()
+        self.data['app']['offerArchives']={'one':{'outcome':'closed','at':'2026-10-02T10:00:00Z',
+                                                 'reason':'TEST: cierre de seguimiento'}}
+        self.row['Estado']='Cerrada'
+        self.assertEqual(life.display_state(self.data,self.row),'Archivada')
+        self.apply({'kind':'event','event':{'id':'employer-rejection','type':'rejected',
+                    'opportunityId':'one','at':'2026-10-03T10:00:00Z',
+                    'proof':'TEST: la empresa comunicó el rechazo'}})
+        self.assertEqual(life.archive_outcome(self.data,self.row),'rejected')
+        self.assertEqual(life.display_state(self.data,self.row),'Rechazada')
+
     def test_history_projects_each_legacy_check_without_changing_the_store(self):
         self.sent()
         for outcome, at in [('waiting','2026-10-06T08:00:00Z'),('reviewing','2026-10-06T10:00:00Z')]:

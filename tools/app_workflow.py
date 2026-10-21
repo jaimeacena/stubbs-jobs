@@ -38,6 +38,17 @@ DEMOGRAPHIC_FIELDS={
                          {'value':'use_saved','label':'Sí, usar mis datos'}],
               'descriptionId':'profile-demographic-help','help':'Solo para encuestas opcionales de las candidaturas que elijas.'},
 }
+# Standing permissions for offers chosen in Auto-solicitud (21/10/2026). Only the
+# person grants them from Mi perfil; true lets the agent take that step without
+# asking again, false or None keeps it as a reason to stop that offer only.
+AUTO_APPLY_FIELDS={
+    'autoApplySubmit':{'label':'Enviar sin pedirme confirmación final las ofertas que elija en Auto-solicitud','short':'Envío final sin preguntar'},
+    'autoApplyPrivacy':{'label':'Aceptar avisos de privacidad y tratamiento de mis datos limitados a la selección de esa oferta','short':'Privacidad de la selección'},
+    'autoApplyTerms':{'label':'Aceptar las condiciones de uso del portal necesarias para presentar la solicitud, sin pagos ni suscripciones','short':'Condiciones del portal'},
+    'autoApplyDerivedAnswers':{'label':'Responder preguntas que se deducen sin ambigüedad de mis datos confirmados (años según las fechas de mi experiencia, Sí o No según lo que figura en ella, equivalencias estándar de idioma)','short':'Respuestas deducidas'},
+    'autoApplySessions':{'label':'Usar las sesiones que tenga abiertas en el navegador del agente (LinkedIn, InfoJobs…) para solicitar','short':'Sesiones abiertas'},
+    'autoApplyTalentPool':{'label':'Unirme a la bolsa de talento de la empresa cuando sea opcional','short':'Bolsas de talento'},
+}
 FORM_FIELDS=(*PERSONAL,'noticeDays',*CONTACT_FIELDS,*DEMOGRAPHIC_FIELDS)
 CHECKS=('cv','form','destination','vacancy','duplicates')
 CLOSED=('Rechazada','Descartada','Cerrada','Lograda','Oferta')
@@ -452,6 +463,9 @@ def validate_answer(key,value,definition=None):
             raise ValueError('Usa una moneda de tres letras para el salario de formularios')
         return
     if definition and key.startswith('custom_'):return context.validate_custom(definition,value)
+    if key in AUTO_APPLY_FIELDS:
+        if value is not None and type(value) is not bool:raise ValueError('Elige Sí, No o Sin decidir para este permiso')
+        return
     if key in DEMOGRAPHIC_FIELDS:
         if value is None:return
         if key=='demographicSurveyParticipation':
@@ -705,6 +719,9 @@ def handle(data,op):
         else:
             placements[op_id]=profile['id']
         record(data,'Ubicación de oferta corregida',op_id,actor,op['proof'])
+    elif kind=='ui-source-toggle':
+        import portal_plans
+        portal_plans.toggle(data,op,__import__('sys').modules[__name__])
     elif kind=='ui-criteria-scope':
         expect(data['revision'],op.get('expectedRevision'))
         if not op.get('proof'):raise ValueError('Explica por qué cambia el criterio de estas ofertas')
@@ -839,6 +856,11 @@ def handle(data,op):
                 if re.sub(r'[^a-z0-9]','',field['key'][7:].lower()) in canonical:
                     raise ValueError('Utiliza el campo personal existente, sin duplicarlo')
         values=op['values']; before={k:target.get(k) for k in values}; absent=[k for k in values if k not in target]
+        granted=[k for k in values if k in AUTO_APPLY_FIELDS]
+        if granted and scope!='global':raise ValueError('Los permisos de Auto-solicitud se guardan en Mi perfil')
+        # The agent may withdraw a standing permission when asked, never grant one.
+        if any(values[k] is True for k in granted) and not chosen_by_person(actor):
+            raise ValueError('Solo la persona concede permisos de Auto-solicitud, desde Mi perfil')
         if 'minimumFixed' in values and 'searchProfiles' in app:
             raise ValueError('Guarda el mínimo en el perfil de búsqueda mediante ui-preferences y searchProfileId')
         expect(before,op['expected'])

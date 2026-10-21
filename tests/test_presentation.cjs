@@ -46,10 +46,12 @@ test('achieved results stay final and never suggest accepting, choosing or reope
 });
 
 test('ad closure, company rejection and manual follow-up closure have separate meanings',()=>{
- assert.equal(ui.offerState(job({state:'Cerrada',sent:{at:'2026-10-01'}})).label,'Cerrada');
- assert.equal(ui.offerState(job({state:'Enviada',sent:{at:'2026-10-01'},archiveOutcome:'closed',archivedAt:'2026-10-02'})).label,'Cerrada');
+ assert.equal(ui.offerState(job({state:'Cerrada',sent:{at:'2026-10-01'}})).label,'Archivada');
+ assert.equal(ui.offerState(job({state:'Enviada',sent:{at:'2026-10-01'},archiveOutcome:'closed',archivedAt:'2026-10-02'})).label,'Archivada');
+ assert.equal(ui.offerState(job({state:'Rechazada',archiveOutcome:'closed'})).label,'Archivada');
+ assert.equal(ui.offerState(job({state:'Cerrada',archiveOutcome:'rejected'})).label,'Rechazada');
  assert.equal(ui.offerState(job({state:'Rechazada',sent:{at:'2026-10-01'}})).label,'Rechazada');
- assert.equal(ui.offerState(job({sent:{at:'2026-10-01'},lifecycle:{availability:{outcome:'closed'}}})).label,'Siguiendo');
+ assert.equal(ui.offerState(job({sent:{at:'2026-10-01'},lifecycle:{availability:{outcome:'closed'}}})).label,'En espera');
 });
 
 test('an agent verification blocker does not ask the person for an unspecified input',()=>{
@@ -58,15 +60,15 @@ test('an agent verification blocker does not ask the person for an unspecified i
 });
 test('minimum conditions alone gate choice and pending technical investigation remains selectable',()=>{
  const value=job({apply:'Sí, aclarar',priority:'C',minimums:{canApply:true,unknowns:['Fijo']},requests:[{type:'investigate',status:'queued'}]});
- assert.equal(ui.canChoose(value),true);assert.equal(ui.offerState(value).label,'Por decidir');
+ assert.equal(ui.canChoose(value),true);assert.equal(ui.offerState(value).label,'Por solicitar');
  value.minimums={canApply:false,violations:[{reason:'La oferta exige trabajo híbrido.'}]};
- assert.equal(ui.canChoose(value),false);assert.equal(ui.offerState(value).label,'Descartada');
+ assert.equal(ui.canChoose(value),false);assert.equal(ui.offerState(value).label,'Archivada');
  assert.equal(ui.detailMessage(value),'La oferta exige trabajo híbrido.');
- value.sent={at:'2026-10-01'};assert.equal(ui.offerState(value).label,'Siguiendo');
+ value.sent={at:'2026-10-01'};assert.equal(ui.offerState(value).label,'En espera');
  value.sent=null;value.minimums={canApply:true};value.state='Pendiente de ti';
- assert.equal(ui.offerState(value).label,'Por decidir');
+ assert.equal(ui.offerState(value).label,'Por solicitar');
  value.requests=[{type:'send',status:'interrupted',interruptionUnconfirmed:true}];
- assert.equal(ui.canChoose(value),false);assert.equal(ui.offerState(value).label,'Por atender');
+ assert.equal(ui.canChoose(value),false);assert.equal(ui.offerState(value).label,'Por solicitar');assert.equal(ui.offerAttention(value),true);
 });
 test('form responses exclude internal answers without changing their stored meaning',()=>{
   const material={answers:{custom_email:'persona@example.com',minimumFixed:35000,custom_solicitud_previa:false},formAnswerKeys:['custom_email']};
@@ -92,39 +94,42 @@ test('a presentation is visible only when its actual use is confirmed',()=>{
 
 test('manual closure separates prospects from submissions and interpretation work does not reopen either',()=>{
  const discarded=job({archivedAt:'2026-10-01',archiveOutcome:'discarded'}),rejected=job({sent:{at:'2026-10-01'},archivedAt:'2026-10-02',archiveOutcome:'rejected'});
- assert.equal(ui.offerState(discarded).key,'descartadas');assert.equal(ui.offerState(rejected).key,'rechazadas');
+ assert.equal(ui.offerState(discarded).key,'archivadas');assert.equal(ui.offerState(rejected).key,'rechazadas');
  rejected.requests=[{type:'change',status:'blocked',interpretationOnly:true}];
- assert.equal(ui.offerState(rejected).key,'rechazadas');assert.equal(ui.offerState(discarded).key,'descartadas');
- const follow=job({sent:{at:'2026-10-01'},requests:rejected.requests});assert.equal(ui.offerState(follow).key,'seguimiento');
+ assert.equal(ui.offerState(rejected).key,'rechazadas');assert.equal(ui.offerState(discarded).key,'archivadas');
+ const follow=job({sent:{at:'2026-10-01'},requests:rejected.requests});assert.equal(ui.offerState(follow).key,'en-espera');
  const reopened=job({apply:'Sí, aclarar',requests:[{type:'change',status:'queued',interpretationOnly:true}]});
- assert.equal(ui.offerState(reopened).key,'sin-elegir');assert.equal(ui.canChoose(reopened),true);
+ assert.equal(ui.offerState(reopened).key,'por-solicitar');assert.equal(ui.canChoose(reopened),true);
  const sending=job({requests:[{type:'send',status:'running',updatedAt:new Date().toISOString()},...rejected.requests]});
- assert.equal(ui.offerState(sending).key,'enviando');
+ assert.equal(ui.offerState(sending).key,'por-solicitar');
 });
 function job(values={}){return {id:'a',state:'Preparar',questions:[],packages:[],requests:[],missing:['review'],due:null,cvUrl:'/cv',...values};}
 function model(jobs,values={}){return {opportunities:jobs,requests:[],snoozes:{},...values};}
-test('nine exclusive offer categories distinguish selection, preparation, attention, delivery, follow-up and archive without writes',()=>{
+test('six exclusive offer categories keep work and attention independent without writes',()=>{
  const now=Date.now(),fresh=new Date(now).toISOString();
- assert.deepEqual(ui.offerStates.map(s=>s.label),['Descartada','Por decidir','En preparación','Por atender','Enviando','Siguiendo','Cerrada','Rechazada','Lograda']);
+ assert.deepEqual(ui.offerStates.map(s=>s.label),['Archivada','Por solicitar','En espera','En proceso','Rechazada','Lograda']);
  const cases=[
-  [job({apply:'Sí'}),'sin-elegir'],[job({apply:'No'}),'sin-elegir'],
-  [job({requests:[{type:'investigate',status:'queued'}]}),'sin-elegir'],
-  [job({selection:{selected:true,mode:'review'},requests:[{type:'review',status:'queued'}]}),'preparacion'],
-  [job({selection:{selected:true,mode:'auto'},packages:[{isCurrent:true,approvedAt:fresh}],requests:[{type:'send',status:'queued'}]}),'preparacion'],
-  [job({selection:{selected:true},missing:[]}),'atencion'],
-  [job({questions:[{key:'city'}]}),'atencion'],[job({pendingChange:true}),'atencion'],
-  [job({integrityError:'TEST broken document'}),'atencion'],
-  [job({requests:[{type:'investigate',status:'blocked'}]}),'atencion'],
-  [job({requests:[{type:'send',status:'running',updatedAt:fresh}]}),'enviando'],
-  [job({sent:{at:fresh}}),'seguimiento'],[job({state:'Pendiente de empresa'}),'seguimiento'],[job({state:'Entrevista'}),'seguimiento'],[job({state:'Oferta'}),'logradas'],[job({state:'Lograda'}),'logradas'],
-  [job({state:'Pendiente de ti'}),'atencion'],[job({state:'Pendiente de Usuario'}),'atencion'],
-  [job({state:'Enviada'}),'atencion'],
-  [job({state:'Rechazada',sent:{at:fresh}}),'rechazadas'],...['Cerrada','Descartada'].map(state=>[job({state,sent:{at:fresh}}),'cerradas']),
-  [job({historical:true,originalState:'Enviada'}),'descartadas']
+  [job({apply:'Sí'}),'por-solicitar'],[job({apply:'No'}),'por-solicitar'],
+  [job({requests:[{type:'investigate',status:'queued'}]}),'por-solicitar'],
+  [job({selection:{selected:true,mode:'review'},requests:[{type:'review',status:'queued'}]}),'por-solicitar'],
+  [job({selection:{selected:true,mode:'auto'},packages:[{isCurrent:true,approvedAt:fresh}],requests:[{type:'send',status:'queued'}]}),'por-solicitar'],
+  [job({selection:{selected:true},missing:[]}),'por-solicitar'],
+  [job({questions:[{key:'city'}]}),'por-solicitar'],[job({pendingChange:true}),'por-solicitar'],
+  [job({integrityError:'TEST broken document'}),'por-solicitar'],
+  [job({requests:[{type:'investigate',status:'blocked'}]}),'por-solicitar'],
+  [job({requests:[{type:'send',status:'running',updatedAt:fresh}]}),'por-solicitar'],
+  [job({sent:{at:fresh}}),'en-espera'],[job({sent:{at:fresh},selectionProgress:{step:'test'}}),'en-proceso'],
+  [job({state:'Entrevista',sent:{at:fresh}}),'en-proceso'],[job({state:'Oferta'}),'logradas'],[job({state:'Lograda'}),'logradas'],
+  [job({state:'Pendiente de ti'}),'por-solicitar'],[job({state:'Pendiente de Usuario'}),'por-solicitar'],
+  [job({state:'Enviada'}),'por-solicitar'],
+  [job({state:'Rechazada',sent:{at:fresh}}),'rechazadas'],...['Cerrada','Descartada'].map(state=>[job({state,sent:{at:fresh}}),'archivadas']),
+  [job({historical:true,originalState:'Enviada'}),'archivadas']
  ];
  for(const [value,key] of cases){const before=structuredClone(value);assert.equal(ui.offerState(value,now).key,key);assert(ui.offerStates.includes(ui.offerState(value,now)));assert.deepEqual(value,before);}
+ assert.equal(ui.offerAttention(job({requests:[{type:'investigate',status:'blocked'}]})),true);
+ assert.equal(ui.offerAttention(job({sent:{at:fresh},selectionProgress:{step:'test'}})),false);
 });
-test('uncertain and withdrawn delivery takes precedence over archive and cannot be mistaken for an active send',()=>{
+test('uncertain delivery keeps its category and shows independent attention',()=>{
  const now=Date.now(),fresh=new Date(now).toISOString(),old=new Date(now-7200001).toISOString();
  for(const state of ['Preparar','Enviada','Entrevista','Oferta','Cerrada','Descartada','Rechazada']){
   for(const request of [
@@ -133,17 +138,21 @@ test('uncertain and withdrawn delivery takes precedence over archive and cannot 
    {type:'send',status:'running',updatedAt:old},
    {type:'send',status:'running',updatedAt:'invalid'},
    {type:'send',status:'cancelled',packageId:'TEST-package',startedAt:old}
-  ])assert.equal(ui.offerState(job({state,requests:[request]}),now).key,'atencion');
+  ]){
+   const value=job({state,requests:[request]});
+   assert.equal(ui.offerAttention(value,now),true);
+   assert.notEqual(ui.offerState(value).key,'en-espera');
+  }
  }
  const request={type:'send',status:'cancelled',packageId:'TEST-package',startedAt:old,deliveryCheck:{outcome:'not_sent',packageId:'TEST-package',at:fresh,proof:'TEST portal checked'}};
- assert.equal(ui.offerState(job({requests:[request]}),now).key,'sin-elegir');
- assert.equal(ui.offerState(job({state:'Cerrada',requests:[request]}),now).key,'cerradas');
- request.deliveryCheck.at=old;assert.equal(ui.offerState(job({state:'Cerrada',requests:[request]}),now).key,'atencion');
- request.supersededByRequestId='next-attempt';assert.equal(ui.offerState(job({state:'Cerrada',requests:[request]}),now).key,'cerradas');
+ assert.equal(ui.offerState(job({requests:[request]}),now).key,'por-solicitar');
+ assert.equal(ui.offerState(job({state:'Cerrada',requests:[request]}),now).key,'archivadas');
+ request.deliveryCheck.at=old;assert.equal(ui.offerAttention(job({state:'Cerrada',requests:[request]}),now),true);
+ request.supersededByRequestId='next-attempt';assert.equal(ui.offerAttention(job({state:'Cerrada',requests:[request]}),now),false);
 });
 test('attention keeps a useful reason and follow-up identifies interviews without claiming a receipt',()=>{
  const value=job({selection:{selected:true},missing:[]});assert.match(ui.detailMessage(value),/autoriza el envío/);
- assert.match(ui.detailMessage(job({state:'Entrevista',next:'Confirma tu disponibilidad.'})),/^Entrevista: Confirma tu disponibilidad/);
+ assert.match(ui.detailMessage(job({state:'Entrevista',sent:{at:'2026-10-05'},next:'Confirma tu disponibilidad.'})),/^Entrevista registrada/);
  assert.equal(ui.detailMessage(job({state:'Oferta',next:'Revisa el salario.'})),'La empresa te ofrece el puesto.');
  assert.match(ui.detailMessage(job({sent:{at:'2026-10-05'}})),/Sin respuesta conocida/);
  assert.match(ui.detailMessage(job({state:'Enviada'})),/No consta una confirmación/);
@@ -156,9 +165,9 @@ test('summary shows only sent, closed, rejected and achieved totals',()=>{
  const jobs=[job({id:'decide',apply:'Sí'}),job({id:'follow',state:'Enviada',sent:{at:'2026-10-01'}}),job({id:'won',state:'Lograda',sent:{at:'2026-10-01'}}),
   job({id:'no',state:'Rechazada',sent:{at:'2026-10-01'}}),job({id:'closed',archiveOutcome:'closed',sent:{at:'2026-10-01'}})],before=structuredClone(jobs);
  const stats=ui.stateCounts(jobs);
- assert.deepEqual(stats.map(stat=>stat.key),['enviadas','cerradas','rechazadas','logradas']);
- assert.deepEqual(stats.map(stat=>stat.label),['Enviadas','Cerradas','Rechazadas','Logradas']);
- assert.deepEqual(Object.fromEntries(stats.map(stat=>[stat.key,stat.value])),{enviadas:4,cerradas:1,rechazadas:1,logradas:1});
+ assert.deepEqual(stats.map(stat=>stat.key),['enviadas','archivadas','rechazadas','logradas']);
+ assert.deepEqual(stats.map(stat=>stat.label),['Enviadas','Archivadas','Rechazadas','Logradas']);
+ assert.deepEqual(Object.fromEntries(stats.map(stat=>[stat.key,stat.value])),{enviadas:4,archivadas:1,rechazadas:1,logradas:1});
  assert.deepEqual(jobs,before);
 });
 test('a process moves through choosing, applying, following and history without treating uncertainty as a send',()=>{

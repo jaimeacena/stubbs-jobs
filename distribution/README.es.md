@@ -8,11 +8,11 @@
 
 Stubbs Jobs es una app para Windows que reúne tu perfil, ofertas, currículums y candidaturas. Trabaja con un agente de IA desde su chat: el agente busca y prepara; tú decides a qué ofertas presentarte y cómo autorizar cada solicitud.
 
-**Versión 1.0.0 · Windows de 64 bits · En español**
+**Versión 1.0.1 · Windows de 64 bits · En español**
 
 ## Descargar y empezar
 
-1. [Descarga Stubbs Jobs para Windows](https://github.com/jaimeacena/stubbs-jobs/releases/download/v1.0.0/Stubbs-Jobs-1.0.0-Windows-x64.zip).
+1. [Descarga Stubbs Jobs para Windows](https://github.com/jaimeacena/stubbs-jobs/releases/download/v1.0.1/Stubbs-Jobs-1.0.1-Windows-x64.zip).
 2. Haz clic derecho en el ZIP → **Propiedades** → marca **Desbloquear** si aparece. Extrae **todo el ZIP** en una carpeta local que no sincronicen OneDrive, Dropbox ni Google Drive (por ejemplo `C:\StubbsJobs`) y abre **Abrir Stubbs Jobs.exe**. Python y las bibliotecas necesarias ya están incluidos.
    El acceso todavía no tiene firma digital. Si Windows muestra «Windows protegió su PC», elige **Más información → Ejecutar de todas formas**. Antes puedes comparar el ZIP con `SHA256SUMS.txt` de la misma publicación.
 3. Abre un agente de IA que pueda trabajar con archivos de tu ordenador (consulta [Qué necesitas](#qué-necesitas)). Añade esa carpeta como proyecto, pega en un chat nuevo el mensaje que muestra la app y responde a sus preguntas. Puedes adjuntar tu CV o empezar sin él.

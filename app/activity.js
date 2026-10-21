@@ -161,7 +161,7 @@
     const results=completed.filter(r=>['discovery','send','review','change','investigate'].includes(r.type)).map(request=>({at:Workflow.taskAt(request),request}));
     // Keep business outcomes; permissions, saves and internal checks remain in
     // the original history. Matching completions must appear only once.
-    const useful=/^(?:Envío confirmado|Solicitud enviada|Respuesta recibida|Respuesta de empresa|Entrevista\b|Oferta recibida|Solicitud lograda|Proceso cerrado|Candidatura rechazada|Rechazo registrado por ti|Seguimiento cerrado por ti|Disponibilidad comprobada|Seguimiento comprobado|Paquete listo para tu decisión|Paquete revisado|Solicitud lista para revisar|Solicitud revisada)\b/i;
+    const useful=/^(?:Envío confirmado|Solicitud enviada|Respuesta recibida|Respuesta de empresa|Contacto de selección registrado|Prueba de selección registrada|Entrevista\b|Oferta recibida|Solicitud lograda|Proceso cerrado|Candidatura rechazada|Rechazo registrado por ti|Seguimiento cerrado por ti|Disponibilidad comprobada|Seguimiento comprobado|Paquete listo para tu decisión|Paquete revisado|Solicitud lista para revisar|Solicitud revisada)\b/i;
     const events=(model.history||[]).filter(item=>useful.test(item.title||'')&&!done.some(request=>matchesCompletion(item,request)));
     const seen=new Set();
     for(const item of chronological(events).reverse()){
@@ -196,6 +196,7 @@
     investigate:['oferta revisada','ofertas revisadas','search'],review:['solicitud revisada','solicitudes revisadas','file'],
     send:['solicitud enviada','solicitudes enviadas','check'],availability:['anuncio comprobado','anuncios comprobados','search'],
     followup:['candidatura comprobada','candidaturas comprobadas','eye'],response:['respuesta recibida','respuestas recibidas','bell'],
+    selection:['avance de selección','avances de selección','file'],
     interview:['candidatura con entrevista','candidaturas con entrevista','clock'],offer:['puesto ofrecido','puestos ofrecidos','trophy'],
     rejected:['candidatura rechazada','candidaturas rechazadas','close'],closed:['proceso cerrado','procesos cerrados','lock'],
     change:['solicitud actualizada','solicitudes actualizadas','pencil'],profile:['actualización del perfil','actualizaciones del perfil','pencil'],
@@ -214,6 +215,7 @@
     if(fact.kind==='availability'||/^(Disponibilidad comprobada|Anuncio disponible)/i.test(text))return 'availability';
     if(fact.kind==='followup'||/^Seguimiento comprobado/i.test(text))return 'followup';
     if(fact.type==='sent'||/^(Envío confirmado|Solicitud enviada)/i.test(text))return 'send';
+    if(fact.selectionStep||/^(Contacto|Prueba) de selección registrado/i.test(text))return 'selection';
     if(fact.type==='interview'||/^Entrevista\b/i.test(text))return 'interview';
     if(fact.type==='offer'||/^(Oferta recibida|Solicitud lograda)/i.test(text))return 'offer';
     if(fact.type==='response'||/^Respuesta/i.test(text))return 'response';

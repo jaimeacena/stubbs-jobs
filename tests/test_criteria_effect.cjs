@@ -10,7 +10,7 @@ test('the effect on offers judged with current criteria is stated in counts',()=
  const effect={...none,toDiscarded:['a','b'],toEligible:['c'],assessments:['a'],fitReviews:['a','c'],packages:['a'],authorizedPackages:['a']};
  const result=Criteria.summary(effect,null,[]);
  assert.equal(result.needed,true);
- assert.deepEqual(result.lines,['2 ofertas pasarán a descartadas','1 oferta volverá a Por decidir',
+ assert.deepEqual(result.lines,['2 ofertas pasarán a descartadas','1 oferta volverá a Por solicitar',
   'La valoración de 2 ofertas dejará de estar al día',
   '1 solicitud preparada tendrá que revisarse (una tenía tu autorización de envío y no se enviará sin revisarla de nuevo)']);
  assert.doesNotMatch(result.lines.join(' '),/%/);
@@ -22,7 +22,7 @@ test('earlier rounds are offered only with the additional effect of moving them'
  assert.equal(result.needed,true);
  assert.deepEqual(result.rounds.ids,['old']);
  assert.match(result.rounds.label,/1 oferta encontrada en búsquedas anteriores/);
- assert.match(result.rounds.note,/1 oferta volverá a Por decidir\.$/);
+ assert.match(result.rounds.note,/1 oferta volverá a Por solicitar\.$/);
  assert.doesNotMatch(result.rounds.note,/valoración/);
 });
 test('rounds that would not change are only mentioned, not offered',()=>{

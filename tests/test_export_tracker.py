@@ -110,6 +110,20 @@ class ExportTrackerTests(unittest.TestCase):
     def sources(self, output):
         return {row['values']['A']: row['values'] for row in worksheet_rows(output, 'Fuentes') if row['number'] >= 4}
 
+    def test_visible_state_is_separate_from_operational_state_in_reopened_workbook(self):
+        data=self.projection()
+        data['sheets']['Oportunidades'][0].update({'Prioridad':'A','Estado':'Entrevista','Estado visible':'En proceso'})
+        output=self.export(data)
+        summary=next(row['values'] for row in worksheet_rows(output,'Resumen') if row['number']==4)
+        self.assertEqual(summary['C'],'En proceso')
+        rows=worksheet_rows(output,'Oportunidades')
+        header=next(row['values'] for row in rows if row['number']==3)
+        values=next(row['values'] for row in rows if row['number']==4)
+        state_column=next(column for column,name in header.items() if name=='Estado')
+        visible_column=next(column for column,name in header.items() if name=='Estado visible')
+        self.assertEqual(values[state_column],'Entrevista')
+        self.assertEqual(values[visible_column],'En proceso')
+
     def test_search_profiles_preserve_one_application_and_context_in_reopened_xlsx(self):
         import copy
         import search_profiles

@@ -2,7 +2,7 @@
 
 [English](development.md) · [Índice de documentación](README.md)
 
-Edición 1.0.0 · 2026-10-09. La descarga para usar la app está en [GitHub Releases](https://github.com/jaimeacena/stubbs-jobs/releases). Trabaja en una copia del [repositorio de código](https://github.com/jaimeacena/stubbs-jobs) y lee [AGENTS.md](../AGENTS.md) antes de modificar el producto.
+Edición 1.0.1 · 2026-10-21. La descarga para usar la app está en [GitHub Releases](https://github.com/jaimeacena/stubbs-jobs/releases). Trabaja en una copia del [repositorio de código](https://github.com/jaimeacena/stubbs-jobs) y lee [AGENTS.md](../AGENTS.md) antes de modificar el producto.
 
 ## Preparar el código
 
@@ -42,8 +42,8 @@ Usa el runtime de la descarga, que contiene Python embebido 3.14.7 para Windows 
 
 ```powershell
 .\tools\build-launcher.ps1
-& ".\runtime\python\python.exe" -B tools/build-share.py outputs/Stubbs-Jobs-1.0.0-Windows-x64 --runtime runtime/python
-& ".\runtime\python\python.exe" -B tools/build-source.py outputs/Stubbs-Jobs-1.0.0-Windows-x64 outputs/Stubbs-Jobs-1.0.0-Codigo
+& ".\runtime\python\python.exe" -B tools/build-share.py outputs/Stubbs-Jobs-1.0.1-Windows-x64 --runtime runtime/python
+& ".\runtime\python\python.exe" -B tools/build-source.py outputs/Stubbs-Jobs-1.0.1-Windows-x64 outputs/Stubbs-Jobs-1.0.1-Codigo
 ```
 
 Los constructores utilizan listas explícitas, verifican versión, licencia y procedencia y generan manifiestos SHA-256. Rechazan destinos existentes y mezclas de revisiones. El código público se prepara desde la descarga verificada; no copia el historial ni los datos de una instalación personal.

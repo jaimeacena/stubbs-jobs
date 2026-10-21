@@ -33,7 +33,7 @@ test('the result selector writes exactly the personal outcome and disappears whe
  const t=setup(),job={id:'one',company:'Empresa ficticia',state:'Enviada',sent:{at:'2026-10-01T10:00:00Z'},requests:[],packages:[],questions:[],missing:[],draft:{},answers:{}};
  t.model.opportunities=[job];t.a.setSelected(job.id);const before=structuredClone(t.model),html=t.a.detail();
  assert.match(html,/<details id="offer-outcome-one" class="offer-outcome-picker"><summary>Registrar resultado/);
- for(const [action,label] of [['achieve','Lograda'],['mark-rejected','Rechazada'],['close','Cerrada']])assert.match(html,new RegExp(`data-offer-outcome="${action}" data-job-id="one">${label}</button>`));
+  for(const [action,label] of [['achieve','Lograda'],['mark-rejected','Rechazada'],['close','Cerrar seguimiento']])assert.match(html,new RegExp(`data-offer-outcome="${action}" data-job-id="one">${label}</button>`));
  assert.deepEqual(t.model,before);const calls=[];
  t.env.fetch=async(path,options)=>{calls.push(JSON.parse(options.body).operation);return {ok:true,json:async()=>({state:t.model})};};
  for(const action of ['mark-rejected','close','achieve'])await t.click({dataset:{offerOutcome:action,jobId:'one'}});
@@ -111,8 +111,8 @@ test('answer changes show short field labels and escape content without exposing
 test('follow-up fits in status and activity while keeping ad closure separate from the candidature',()=>{
  const t=setup();t.model.opportunities=[{id:'one',company:'Empresa ficticia',title:'Analista',state:'Enviada',sent:{at:'2026-10-01T10:00:00Z'},requests:[],packages:[],questions:[],missing:[],draft:{messageUsage:'unused'},answers:{},lifecycle:{sentAt:'2026-10-01T10:00:00Z',label:'Sin respuesta conocida',availability:{outcome:'closed',observedAt:'2026-10-06T10:00:00Z',sourceUrl:'https://example.org/123',fresh:true},lastCheck:{outcome:'reviewing',observedAt:'2026-10-06T10:00:00Z',fresh:true},nextCheckAt:'2026-10-13T10:00:00Z',plan:null}}];
  t.a.setSelected('one');const before=structuredClone(t.model),html=t.a.detail(),status=html.match(/<section[^>]*data-offer-section="status"[\s\S]*?<\/section>/)[0];
- assert.match(status,/Siguiendo/);assert.match(status,/Sin respuesta conocida/);assert.match(status,/Enviada: <time[^>]*datetime="2026-10-01T10:00:00Z"/);assert.match(status,/Última comprobación: <time[^>]*datetime="2026-10-06T10:00:00Z"/);assert.match(status,/En revisión según el portal/);assert.match(status,/El anuncio ya no acepta nuevas solicitudes/);
- assert.match(status,/data-followup-check="one">Pedir comprobación/);assert.match(status,/Registrar resultado/);assert.match(status,/data-offer-outcome="close"[^>]*>Cerrada/);
+  assert.match(status,/En espera/);assert.match(status,/Sin respuesta conocida/);assert.match(status,/Enviada: <time[^>]*datetime="2026-10-01T10:00:00Z"/);assert.match(status,/Última comprobación: <time[^>]*datetime="2026-10-06T10:00:00Z"/);assert.match(status,/En revisión según el portal/);assert.match(status,/El anuncio ya no acepta nuevas solicitudes/);
+  assert.match(status,/data-followup-check="one">Pedir comprobación/);assert.match(status,/Registrar resultado/);assert.match(status,/data-offer-outcome="close"[^>]*>Cerrar seguimiento/);
  const activity=html.match(/<section[^>]*data-offer-section="activity"[\s\S]*?<\/section>/)[0];assert.match(activity,/<ol class="offer-timeline-steps">/);assert.match(activity,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong><button[^>]*>Estado comprobado: en revisión<\/button><\/strong><small>/);assert.match(activity,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong><button[^>]*>El anuncio ya no acepta solicitudes<\/button><\/strong><small>/);assert.match(activity,/<li class="offer-timeline-step"[^>]*><span class="offer-timeline-dot" aria-hidden="true"><\/span><strong>Solicitud enviada<\/strong><small>/);assert.match(activity,/>Ver todo /);assert.doesNotMatch(activity,/<details|offer-receipt|offer-check-evidence|Constancia del envío|Detalles de las comprobaciones/);
  assert.doesNotMatch(html,/data-offer-section="followup"|data-followup-(?:plan|date)|Próxima revisión|Guardar fecha|no hay vigilancia automática|data-offer-outcome="reject"/);assert.deepEqual(t.model,before);
 });
@@ -484,7 +484,7 @@ test('the header offers task destinations, search, back and theme',()=>{
 });
 test('Agente reports real web coverage and dates without retired features',()=>{
  const t=setup();Object.assign(t.model,{health:[{sourceId:'one',company:'Source',status:'ok',checkedAtUtc:'2026-09-22T09:50:00Z'}],publicSources:[{id:'one'},{id:'two'}],lastMail:'2026-09-22T10:00:00Z',lastFullSuccess:'2026-09-22T11:00:00Z',searchContext:{checkMail:true}});
- const settings=t.a.searchSettingsPanels();assert.match(settings,/Especificar webs de búsqueda \(opcional\)/);assert.doesNotMatch(settings,/Incluir mi correo|name="checkMail"|data-mail-check|data-platform=|<legend>Plataformas/);
+ const settings=t.a.searchSettingsPanels();assert.match(settings,/Buscar solo en estas webs \(opcional\)/);assert.doesNotMatch(settings,/Incluir mi correo|name="checkMail"|data-mail-check|data-platform=|<legend>Plataformas/);
  const agent=t.a.agentPage();assert.doesNotMatch(agent,/webs revisadas|pendiente|09:50/);assert.doesNotMatch(agent,/<dt>Correo|Búsqueda completa|No incluida|9 de 9/);
  const detail=t.a.coverage();assert.match(detail,/1 de 2 webs revisadas/);assert.doesNotMatch(detail,/Ciclo completo|Sin búsqueda completa registrada/);
 });
@@ -513,7 +513,7 @@ test('Búsqueda shows search settings directly and Perfil shows personal informa
 });
 test('all search fields and saved webs are directly visible',()=>{
  const t=setup();t.model.searchContext={languages:'Inglés C1',sourceUrls:'https://example.org/jobs'};
- let html=t.a.searchSettingsPanels();assert.match(t.a.profileForm(),/name="languages" form="profile-search-form"[^>]*>Inglés C1<\/textarea>/);assert.doesNotMatch(html,/name="languages"/);assert.match(html,/<span id="profile-sourceUrls-label">Especificar webs de búsqueda \(opcional\)<\/span><textarea[^>]*>https:\/\/example.org\/jobs<\/textarea>/);
+ let html=t.a.searchSettingsPanels();assert.match(t.a.profileForm(),/name="languages" form="profile-search-form"[^>]*>Inglés C1<\/textarea>/);assert.doesNotMatch(html,/name="languages"/);assert.match(html,/<span id="profile-sourceUrls-label">Buscar solo en estas webs \(opcional\)<\/span><textarea[^>]*>https:\/\/example.org\/jobs<\/textarea>/);
  assert.doesNotMatch(html,/<details|<summary/);
  t.storage.set('stubbs_jobs-draft:busqueda:global','{}');t.storage.set('stubbs_jobs-draft:fuentes:global','{}');
  html=t.a.searchSettingsPanels();assert.match(t.a.profileForm(),/name="languages" form="profile-search-form"/);assert.match(html,/name="sourceUrls"/);
@@ -522,10 +522,14 @@ test('Búsqueda puts related fields together and has one save for all sources',(
  const t=setup();t.model.searchContext={platforms:'linkedin',checkMail:true,currency:'EUR',sourceUrls:'https://example.org/jobs'};
  t.model.profile={salaryExpectationFixed:35000};t.model.preferences={minimumFixed:35000};
  const html=t.a.searchSettingsPanels();
- const order=['name="targetRoles"','name="keywords"','name="searchPriorities"','name="location"','name="workMode"','name="contract"','name="maxTrips"','name="minimumFixed"','name="salaryExpectationFixed"','name="previousApplications"'];
+ const order=['name="targetRoles"','name="keywords"','name="location"','name="workMode"','name="contract"','name="minimumFixed"','name="maxTrips"','name="searchPriorities"','name="previousApplications"'];
+ assert.deepEqual([...html.matchAll(/<h3 class="profile-group-title">([^<]+)<\/h3>/g)].map(match=>match[1]),['Qué busco','Dónde y cómo','Condiciones mínimas','Preferencias','Fuentes y empresas a evitar']);
  for(let i=1;i<order.length;i++)assert.ok(html.indexOf(order[i-1])<html.indexOf(order[i]),`${order[i-1]} antes de ${order[i]}`);
  for(const key of ['targetRoles','keywords'])assert.match(html,new RegExp(`name="${key}"[^>]*rows="1"`));
- assert.match(html,/name="minimumFixed"[^>]*value="35000"[^>]*><input name="currency"[^>]*value="EUR"[\s\S]*name="salaryExpectationFixed"[^>]*value="35000"[^>]*><span data-salary-currency="1">EUR<\/span>/);
+ assert.match(html,/name="minimumFixed"[^>]*value="35000"[^>]*><input name="currency"[^>]*value="EUR"/);
+ // The salary asked for in forms is common to every search profile and lives in Sobre mi with its own currency.
+ assert.doesNotMatch(html,/name="salaryExpectationFixed"|data-salary-currency/);
+ assert.match(t.a.profileForm().split('id="profile-about"')[1],/<h3 class="profile-group-title">Salario<\/h3>[\s\S]*name="salaryExpectationFixed"[^>]*value="35000"><input name="salaryCurrency"[^>]*value="EUR"/);
  const sources=html.split('data-form="sources"')[1];for(const field of ['platforms','sourceUrls'])assert.match(sources,new RegExp(`name="${field}"`));
  assert.equal((sources.match(/type="submit"/g)||[]).length,0);assert.doesNotMatch(sources,/Guardar fuentes/);assert.equal((t.a.profileForm().match(/data-save-profile="1"/g)||[]).length,1);
  assert.match(sources,/Fuentes priorizadas: LinkedIn/);assert.match(sources,/data-clear-platforms="1">Quitar prioridades/);assert.doesNotMatch(sources,/data-platform=|Sin limitar plataformas|Webs adicionales/);
@@ -584,13 +588,13 @@ test('direct selection uses its explicit mode and retains the stage, column filt
  const t=setup(),base={company:'Empresa',title:'Analista',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:['review']};
  t.model.automation={applicationMode:'auto',contactMode:'ask'};
  t.model.opportunities=[{...base,id:'one',salary:'40.000 EUR'},{...base,id:'two',salary:'35.000 EUR'},{...base,id:'three',salary:'45.000 EUR'},{...base,id:'other',company:'Otra',salary:'37.000 EUR'}];
- t.a.setFlowFilter('solicitar','sin-elegir');t.a.setTableFilter('solicitar','company',['Empresa']);t.a.setTableSort('solicitar','salary',-1);
+  t.a.setFlowFilter('solicitar','por-solicitar');t.a.setTableFilter('solicitar','company',['Empresa']);t.a.setTableSort('solicitar','salary',-1);
  const before=t.a.applyPage();assert(before.indexOf('data-job-row="three"')<before.indexOf('data-job-row="one"'));
  let submitted;
  t.env.fetch=async(path,options)=>{assert.match(path,/^\/api\/action\?brief=1(?:&|$)/);submitted=JSON.parse(options.body).operation;const state=structuredClone(t.model);state.opportunities[0].selection={selected:true,mode:submitted.mode};state.opportunities[0].requests=[{type:'review',status:'queued'}];return {ok:true,json:async()=>({state})};};
  assert.equal(await t.a.selectOpportunity('one','review'),true);
  assert.equal(submitted.mode,'review');assert.equal(submitted.opportunityId,'one');
- const after=t.a.applyPage();assert.match(after,/data-flow-filter="sin-elegir"[^>]*aria-pressed="true"/);assert.doesNotMatch(after,/data-job-row="one"|data-job-row="other"/);
+  const after=t.a.applyPage();assert.match(after,/data-flow-filter="por-solicitar"[^>]*aria-pressed="true"/);assert.match(after,/data-job-row="one"/);assert.doesNotMatch(after,/data-job-row="other"/);
  assert(after.indexOf('data-job-row="three"')<after.indexOf('data-job-row="two"'));assert.match(after,/data-clear-table="solicitar"/);
 });
 
@@ -635,7 +639,7 @@ test('one offers list shows each process exactly once and keeps its state',()=>{
  assert.match(all,/data-tone="action" data-anchor="job-choose"/);assert.match(all,/data-tone="working" data-anchor="job-checking"/);
  assert.match(all,/data-tone="sent" data-anchor="job-sent"/);assert.match(all,/data-tone="past" data-anchor="job-closed"/);
  assert.doesNotMatch(all,/Candidaturas previas|Descargar Excel/);assert.doesNotMatch(all,/data-auto-setting/);
- t.a.setFlowFilter('solicitar','elegidas');const chosen=t.a.applyPage();assert.match(chosen,/data-job-row="apply"/);assert.doesNotMatch(chosen,/data-job-row="choose"|data-job-row="sent"/);
+  t.a.setFlowFilter('solicitar','por-solicitar');const chosen=t.a.applyPage();assert.match(chosen,/data-job-row="apply"/);assert.match(chosen,/data-job-row="choose"/);assert.doesNotMatch(chosen,/data-job-row="sent"/);
 });
 test('offer filters keep chosen, waiting, unsuitable and earlier processes accessible',()=>{
  const t=setup(),base={title:'Analista',state:'Preparar',requests:[],packages:[],questions:[],missing:['review']};
@@ -647,18 +651,18 @@ test('offer filters keep chosen, waiting, unsuitable and earlier processes acces
   {...base,id:'sent',company:'Actual',sent:{at:'2026-09-22T12:00:00Z'}}
  ];
  t.model.historical=[{id:'older',company:'Anterior',title:'Analista',state:'Rechazada',category:'Laboral'}];
- let html=t.a.applyPage();assert.match(html,/Por decidir <span class="filter-count">3<\/span>/);assert.match(html,/En preparación <span class="filter-count">1<\/span>/);assert.match(html,/data-job-row="ready"/);assert.match(html,/data-job-row="waiting"/);assert.match(html,/data-job-row="unsuitable"/);assert.match(html,/data-job-row="chosen"/);assert.match(html,/data-job-row="historical:older"/);
- t.a.setFlowFilter('solicitar','elegidas');html=t.a.applyPage();assert.match(html,/data-job-row="chosen"/);assert.doesNotMatch(html,/data-job-row="ready"|data-job-row="unsuitable"/);
- t.a.setFlowFilter('solicitar','enviadas');html=t.a.applyPage();assert.match(html,/data-job-row="sent"/);assert.doesNotMatch(html,/data-job-row="historical:older"/);
+  let html=t.a.applyPage();assert.match(html,/Por solicitar <span class="filter-count">4<\/span>/);assert.match(html,/En espera <span class="filter-count">1<\/span>/);assert.match(html,/data-job-row="ready"/);assert.match(html,/data-job-row="waiting"/);assert.match(html,/data-job-row="unsuitable"/);assert.match(html,/data-job-row="chosen"/);assert.match(html,/data-job-row="historical:older"/);
+  t.a.setFlowFilter('solicitar','por-solicitar');html=t.a.applyPage();assert.match(html,/data-job-row="chosen"/);assert.match(html,/data-job-row="ready"/);assert.match(html,/data-job-row="unsuitable"/);
+  t.a.setFlowFilter('solicitar','en-espera');html=t.a.applyPage();assert.match(html,/data-job-row="sent"/);assert.doesNotMatch(html,/data-job-row="historical:older"/);
  t.a.setFlowFilter('solicitar','rechazadas');html=t.a.applyPage();assert.match(html,/data-job-row="historical:older"/);assert.doesNotMatch(html,/data-job-row="sent"/);
 });
 test('an unverified offer cannot be selected and a queued investigation stays queued',()=>{
  const t=setup(),job={id:'fresh',company:'Ficticia',title:'Artista',state:'Preparar',apply:'Revisar',requests:[{type:'investigate',status:'queued'}],packages:[],questions:[],missing:['review']};
  t.model.opportunities=[job];let html=t.a.applyPage();
- assert.match(html,/>Por decidir<\/span>/);assert.doesNotMatch(html,/data-select="fresh"|data-investigate="fresh"/);
+  assert.match(html,/>Por solicitar<\/span>/);assert.doesNotMatch(html,/data-select="fresh"|data-investigate="fresh"/);
  t.a.setSelected('fresh');assert.doesNotMatch(t.a.detail(),/data-select=|data-investigate=/);
- job.requests=[];html=t.a.applyPage();assert.doesNotMatch(html,/Pedir comprobación|data-select="fresh"/);assert.match(t.a.detail(),/data-investigate="fresh"/);assert.match(html.split('<tbody>')[1],/data-offer-state="sin-elegir" class="flow-status"/);
- job.apply='Sí';html=t.a.applyPage();assert.doesNotMatch(html,/data-select=/);assert.match(t.a.detail(),/data-select="fresh" data-selection-mode="review"[^>]*>[\s\S]*?Solicitar con revisión<\/button>/);assert.match(html.split('<tbody>')[1],/data-offer-state="sin-elegir" class="flow-status"/);
+  job.requests=[];html=t.a.applyPage();assert.doesNotMatch(html,/Pedir comprobación|data-select="fresh"/);assert.match(t.a.detail(),/data-investigate="fresh"/);assert.match(html.split('<tbody>')[1],/data-offer-state="por-solicitar" class="flow-status"/);
+  job.apply='Sí';html=t.a.applyPage();assert.doesNotMatch(html,/data-select=/);assert.match(t.a.detail(),/data-select="fresh" data-selection-mode="review"[^>]*>[\s\S]*?Solicitar con revisión<\/button>/);assert.match(html.split('<tbody>')[1],/data-offer-state="por-solicitar" class="flow-status"/);
  job.requests=[{type:'change',status:'queued'}];html=t.a.applyPage();assert.doesNotMatch(html,/data-select="fresh"/);assert.doesNotMatch(t.a.detail(),/data-select="fresh"/);
 });
 test('a blocked offer and queued offer both stay directly visible',()=>{
@@ -772,8 +776,8 @@ test('an unsaved old region remains visible and editable in the single zone',()=
 });
 test('inline proposed permissions leave a chosen offer and its state unchanged',()=>{
  const t=setup(),job={id:'one',company:'Empresa',title:'Analista',state:'Preparar',selection:{selected:true,mode:'auto'},requests:[{type:'review',status:'queued'}],packages:[],questions:[],missing:['review'],salary:'45.000 EUR',conditions:{'Remoto España':'Sí',Indefinido:'Sí'}};
- t.model.opportunities=[job];t.a.setFlowFilter('solicitar','elegidas');const html=t.a.applyPage();
- assert.match(html,/>En preparación<\/span>/);assert.match(html,/45.000 €/);assert.doesNotMatch(html,/data-auto-setting|Auto-solicitud|class="selection-mode"/);assert.doesNotMatch(html,/data-screen="opciones-solicitud"|Modo elegido:|Has elegido ofertas|flow-handoff|Remoto · Indefinido/);t.a.setSelected('one');assert.match(t.a.detail(),/offer-selection-mode">Auto-solicitud/);
+  t.model.opportunities=[job];t.a.setFlowFilter('solicitar','por-solicitar');const html=t.a.applyPage();
+  assert.match(html,/>Por solicitar<\/span>/);assert.match(html,/45.000 €/);assert.doesNotMatch(html,/data-auto-setting|Auto-solicitud|class="selection-mode"/);assert.doesNotMatch(html,/data-screen="opciones-solicitud"|Modo elegido:|Has elegido ofertas|flow-handoff|Remoto · Indefinido/);t.a.setSelected('one');assert.match(t.a.detail(),/offer-selection-mode">Auto-solicitud/);
  assert.equal(job.selection.mode,'auto');
  assert.doesNotMatch(html,/data-select="one"/);
 });
@@ -895,9 +899,9 @@ test('each offer tab defaults to its own actual milestone date and a chosen colu
  ];
  const before=structuredClone(t.model),ids=html=>[...html.matchAll(/data-job-row="([^"]+)"/g)].map(m=>m[1]);
  let html=t.a.applyPage();assert.match(html,/<th scope="col" aria-sort="descending"[^>]*>/);assert.equal(ids(html).at(-1),'reject-unknown');
- t.a.setFlowFilter('solicitar','sin-elegir');assert.deepEqual(ids(t.a.applyPage()),['found-new','found-old']);
- t.a.setFlowFilter('solicitar','descartadas');assert.deepEqual(ids(t.a.applyPage()),['discard-new','discard-old']);assert.match(t.a.applyPage(),/Orden: descarte, de más reciente a más antiguo/);
- t.a.setFlowFilter('solicitar','seguimiento');assert.deepEqual(ids(t.a.applyPage()),['sent-new','sent-old']);
+  t.a.setFlowFilter('solicitar','por-solicitar');assert.deepEqual(ids(t.a.applyPage()),['found-new','found-old']);
+  t.a.setFlowFilter('solicitar','archivadas');assert.deepEqual(ids(t.a.applyPage()),['discard-new','discard-old']);assert.match(t.a.applyPage(),/Orden: archivo, de más reciente a más antiguo/);
+  t.a.setFlowFilter('solicitar','en-espera');assert.deepEqual(ids(t.a.applyPage()),['sent-new','sent-old']);
  t.a.setFlowFilter('solicitar','rechazadas');assert.deepEqual(ids(t.a.applyPage()),['reject-new','reject-old','reject-unknown']);
  t.a.setTableSort('solicitar','company');assert.deepEqual(ids(t.a.applyPage()),['reject-old','reject-unknown','reject-new']);
  await t.click({dataset:{clearOrder:'solicitar'}});assert.deepEqual(ids(t.a.applyPage()),['reject-new','reject-old','reject-unknown']);
@@ -954,14 +958,14 @@ test('back returns through a request to the same offer and the filtered list',as
  const t=setup(),job={id:'one',company:'Empresa',title:'Analista',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:[],selection:{selected:true,mode:'review'},fingerprint:'v1',draft:{messageUsage:'unused',requiredAnswers:[]},answers:{},answerOverrides:{}};
  job.packages=[{id:'v1',isCurrent:true,cvUrl:'/api/document?id=cv',payload:{messageUsage:'unused',answers:{}}}];t.model.opportunities=[job];
  t.env.fetch=async()=>({ok:true,json:async()=>t.model});
- await t.a.setScreen('solicitar');t.a.setFlowFilter('solicitar','atencion');t.a.setTableSort('solicitar','company',-1);t.a.setTableFilter('solicitar','company',['Empresa']);t.a.setQuery('Empresa');
+  await t.a.setScreen('solicitar');t.a.setFlowFilter('solicitar','por-solicitar');t.a.setTableSort('solicitar','company',-1);t.a.setTableFilter('solicitar','company',['Empresa']);t.a.setQuery('Empresa');
  await t.a.setScreen('detalle','one');assert.equal(t.pageBack.hidden,false);assert.match(t.pageBack.innerHTML,/Volver a Ofertas/);assert.equal((t.pageBack.innerHTML.match(/data-back="1"/g)||[]).length,1);assert.doesNotMatch(t.a.detail(),/data-back="1"/);
  await t.a.setScreen('revisar','one');assert.match(t.pageBack.innerHTML,/Volver a la oferta/);
  await t.a.setScreen('cambio','one');assert.match(t.pageBack.innerHTML,/Volver a la solicitud/);
  await t.a.goBack();assert.equal(t.a.getView().screen,'revisar');assert.equal(t.a.getView().selected,'one');
  await t.a.goBack();assert.equal(t.a.getView().screen,'detalle');assert.equal(t.a.getView().selected,'one');
  await t.a.goBack();assert.equal(t.a.getView().screen,'solicitar');assert.equal(t.a.getView().filterText,'Empresa');assert.equal(t.pageBack.hidden,true);
- const html=t.a.applyPage();assert.match(html,/data-flow-filter="atencion"[^>]*aria-pressed="true"/);assert.match(html,/Empresa: Empresa/);assert.match(html,/<th scope="col" aria-sort="descending"/);
+  const html=t.a.applyPage();assert.match(html,/data-flow-filter="por-solicitar"[^>]*aria-pressed="true"/);assert.match(html,/Empresa: Empresa/);assert.match(html,/<th scope="col" aria-sort="descending"/);
 });
 
 test('auxiliary pages and search return to their actual origin without losing the offer',async()=>{
@@ -1021,8 +1025,8 @@ test('background refreshes never overlap and hidden tabs do not poll',async()=>{
 
 test('search settings and profile use saved information in their own places',()=>{
  const t=setup();Object.assign(t.model,{profile:{currentCity:'Toronto',workPermitWithoutSponsorship:true,salaryExpectationFixed:65000},preferences:{contract:'Indefinido',location:'Toronto',minimumFixed:60000,maxTrips:0,noticeDays:10},searchContext:{name:'Test person',targetRoles:'Nurse',currency:'CAD',checkMail:false},fieldDefinitions:{currentCity:{label:'Ciudad',type:'text'},workPermitWithoutSponsorship:{label:'Permiso',type:'boolean'},salaryExpectationFixed:{label:'Sueldo',type:'number'}},experience:'Synthetic nursing experience',cvLibrary:[]});
- const search=t.a.searchSettingsPanels();assert.match(search,/name="targetRoles"[^>]*>Nurse<\/textarea>/);assert.match(search,/name="minimumFixed"[^>]*value="60000"[^>]*><input name="currency"[^>]*value="CAD"/);assert.match(search,/name="salaryExpectationFixed"[^>]*value="65000"[^>]*><span data-salary-currency="1">CAD<\/span>/);assert.doesNotMatch(search,/name="regions"|name="languages"/);assert.match(search,/name="previousApplications"/);assert.doesNotMatch(search,/name="name"/);
- const about=t.a.profileForm();assert.match(about,/value="Test person"/);assert.match(about,/value="Toronto"/);assert.match(about,/name="minimumFixed"/);
+ const search=t.a.searchSettingsPanels();assert.match(search,/name="targetRoles"[^>]*>Nurse<\/textarea>/);assert.match(search,/name="minimumFixed"[^>]*value="60000"[^>]*><input name="currency"[^>]*value="CAD"/);assert.doesNotMatch(search,/name="salaryExpectationFixed"/);assert.doesNotMatch(search,/name="regions"|name="languages"/);assert.match(search,/name="previousApplications"/);assert.doesNotMatch(search,/name="name"/);
+ const about=t.a.profileForm();assert.match(about,/name="salaryExpectationFixed"[^>]*value="65000"><input name="salaryCurrency"[^>]*value="CAD"/);assert.match(about,/value="Test person"/);assert.match(about,/value="Toronto"/);assert.match(about,/name="minimumFixed"/);
  const profile=t.a.profileForm();assert.match(profile,/Synthetic nursing experience/);assert.doesNotMatch(profile,/data-form="automation"|name="applicationMode"|name="scheduleEnabled"/);assert.doesNotMatch(profile,/data-screen="autonomia"/);assert.match(profile,/data-work-authorizations/);
  assert.doesNotMatch(profile,/data-screen="opciones-solicitud"|data-screen="fuentes"|data-screen="actividad"|Actividad y copias|Descargar CSV|Descargar Excel|Abrir Excel/);assert.doesNotMatch(t.a.applyPage(),/data-auto-setting|name="applicationMode"|name="contactMode"/);assert.doesNotMatch(t.a.scheduleForm(),/name="scheduleEnabled"/);assert.doesNotMatch(search,/data-mail-check|checkMail|Incluir mi correo/);
  assert.match(profile,/<h1>Mi perfil<\/h1>/);
@@ -1148,7 +1152,7 @@ test('Resumen counts offers by their table states and keeps daily disclosures wi
  const before=structuredClone(t.model),html=t.a.agentPage(),groups=[...html.matchAll(/<details class="activity-group"[^>]*>[\s\S]*?<\/details>/g)].map(match=>match[0]);
  // Only the four totals: sent, closed, rejected and achieved.
  assert.equal((html.match(/class="activity-stat"/g)||[]).length,4);assert(html.indexOf('activity-statistics')<html.indexOf('activity-days'));
- assert.deepEqual([...html.matchAll(/data-open-offer-state="([^"]+)"/g)].map(match=>match[1]),['todas','cerradas','rechazadas','logradas']);
+  assert.deepEqual([...html.matchAll(/data-open-offer-state="([^"]+)"/g)].map(match=>match[1]),['todas','archivadas','rechazadas','logradas']);
  assert.match(html,/<span>Enviadas<\/span>[\s\S]*?activity-stat-value">0<\/strong>/);assert.doesNotMatch(html,/<span>Por decidir<\/span>/);
  assert.doesNotMatch(html,/entrevista|Ofertas registradas|activity-work|Para mirar primero/i);
  assert.equal(groups.length,2);assert(groups.every(group=>!/^<details[^>]*\sopen(?:\s|>)/.test(group)));
@@ -1381,14 +1385,14 @@ test('outcome tabs use the requested order and details expose the appropriate su
  t.model.opportunities=[{...base,id:'decide'},{...base,id:'discarded',archivedAt:'2026-10-01',archiveOutcome:'discarded'},
   {...base,id:'sent',state:'Enviada',sent:{at:'2026-10-01'}},{...base,id:'rejected',state:'Rechazada',sent:{at:'2026-10-01'}}];
  const html=t.a.applyPage(),before=structuredClone(t.model);
- assert.deepEqual([...html.matchAll(/data-flow-filter="([^"]+)"/g)].map(m=>m[1]),['todas','descartadas','sin-elegir','seguimiento','cerradas','rechazadas','logradas']);
- assert.doesNotMatch(html,/Archivada|Archivar/);
+  assert.deepEqual([...html.matchAll(/data-flow-filter="([^"]+)"/g)].map(m=>m[1]),['todas','archivadas','por-solicitar','en-espera','en-proceso','rechazadas','logradas']);
+  assert.match(html,/Archivadas/);
  for(const j of t.model.opportunities){
   t.a.setSelected(j.id);const detail=t.a.detail();
   assert.match(detail,new RegExp('<summary>Más acciones</summary><div class="more-links"><button data-change="'+j.id+'"'));
   assert.equal(/data-offer-outcome="discard"/.test(detail),j.id==='decide');
   assert.equal(/data-offer-outcome="close"/.test(detail),['sent','rejected'].includes(j.id));
-  if(j.id==='sent')assert.match(detail,/data-offer-outcome="close"[^>]*>Cerrada<\/button>/);
+   if(j.id==='sent')assert.match(detail,/data-offer-outcome="close"[^>]*>Cerrar seguimiento<\/button>/);
  }
  assert.deepEqual(t.model,before);
 });
@@ -1477,10 +1481,10 @@ test('every table stage marks a withdrawn started send for attention and its det
  for(const state of ['Preparar','Cerrada'])for(const apply of ['Sí, aclarar','No','Resolver conflicto']){
   job.state=state;job.apply=apply;
   for(const kind of ['elegir','solicitar','seguir']){
-   const record=t.a.flowRecord(job,kind);assert.equal(record.action,undefined);assert.equal(record.status,'Por atender');assert.equal(record.tone,'blocked');
+    const record=t.a.flowRecord(job,kind);assert.equal(record.action,undefined);assert.equal(record.attention,true);assert.equal(record.tone,'blocked');
    t.a.setSelected('one');const detail=t.a.detail();assert.match(detail,/data-copy-recovery="original-send"/);assert.match(detail,/permiso está retirado/);assert.doesNotMatch(detail,/data-investigate|data-select|data-approve|data-retry/);
   }
-  assert.match(t.a.applyPage(),/>Por atender<\/span>/);assert.doesNotMatch(t.a.applyPage(),/data-copy-recovery=/);
+   assert.match(t.a.applyPage(),/class="offer-attention-indicator">Por atender<\/span>/);assert.doesNotMatch(t.a.applyPage(),/data-copy-recovery=/);
  }
  job.state='Preparar';job.apply='Sí, aclarar';request.deliveryCheck={outcome:'not_sent',packageId:'original',at:new Date().toISOString(),proof:'TEST: portal sin solicitud original'};
  assert.doesNotMatch(t.a.applyPage(),/data-copy-recovery="original-send"/);assert.match(t.a.detail(),/data-selection-mode="review"/);assert.equal(request.status,'cancelled');
@@ -1538,7 +1542,7 @@ test('superseded attempts retain their proof and the actual successor link witho
  const t=setup(),original={id:'original',opportunityId:'one',type:'send',status:'queued',supersededByRequestId:'successor',summary:'OLD BLOCKER',deliveryCheck:{at:'2026-09-01T10:05:00Z',proof:'TEST original absence'}},successor={id:'successor',opportunityId:'one',type:'send',status:'running',updatedAt:new Date().toISOString()};
  const job={id:'one',company:'Empresa ficticia',state:'Preparar',apply:'Sí',requests:[original,successor],packages:[],questions:[],missing:[],draft:{messageUsage:'unused'},answers:{},conditions:{},selection:{selected:true,mode:'review'}};
  t.model.requests=[original,successor];t.model.opportunities=[job];t.a.setSelected('one');
- assert.match(t.a.detail(),/Enviando/);assert.doesNotMatch(t.a.activityWork(),/OLD BLOCKER|data-copy-recovery="original"/);
+  assert.match(t.a.detail(),/Por solicitar/);assert.doesNotMatch(t.a.activityWork(),/OLD BLOCKER|data-copy-recovery="original"/);
  assert.equal(original.deliveryCheck.proof,'TEST original absence');assert.equal(original.supersededByRequestId,'successor');assert.doesNotMatch(t.a.detail(),/TEST original absence|data-checks=/);
  let anchored;t.env.document.getElementById=id=>({scrollIntoView(){anchored=id;},querySelector(){return null;}});t.env.fetch=async()=>({ok:true,json:async()=>t.model});
  await t.a.setScreen('comprobaciones','one');assert.equal(t.a.getView().screen,'detalle');assert.equal(t.a.getView().selected,'one');assert.equal(anchored,undefined);
@@ -1608,7 +1612,7 @@ test('desktop headers sort directly and preserve explicit filters across offer g
  let html=t.a.applyPage();assert.match(html,/class="column-title" data-table-sort="company"/);assert.match(html,/aria-label="Filtrar empresa"/);assert.doesNotMatch(html,/Ordenar A a Z/);
  await t.click({dataset:{tableSort:'company',tableTab:'solicitar',tableDirection:'1'}});html=t.a.applyPage();assert(html.indexOf('data-job-row="two"')<html.indexOf('data-job-row="one"'));assert.match(html,/data-table-direction="-1"/);
  t.a.setTableFilter('solicitar','company',['Álfa']);await t.click({dataset:{flowFilter:'elegidas',filterTab:'solicitar'}});html=t.a.applyPage();assert.match(html,/Empresa: Álfa/);assert.match(html,/Orden: Empresa ↑/);assert.match(html,/data-job-row="two"/);
- await t.click({dataset:{flowFilter:'sin-elegir',filterTab:'solicitar'}});assert.match(t.a.applyPage(),/Ninguna oferta coincide con estos filtros/);assert.match(t.a.applyPage(),/Empresa: Álfa/);
+  await t.click({dataset:{flowFilter:'por-solicitar',filterTab:'solicitar'}});assert.match(t.a.applyPage(),/data-job-row="two"/);assert.match(t.a.applyPage(),/Empresa: Álfa/);
  await t.click({dataset:{clearTable:'solicitar'}});assert.match(t.a.applyPage(),/data-job-row="one"/);assert.match(t.a.applyPage(),/Orden: Empresa ↑/);
  await t.click({dataset:{clearOrder:'solicitar'}});assert.doesNotMatch(t.a.applyPage(),/Orden: Empresa/);assert.deepEqual(t.model.requests,[]);
 });
@@ -1737,18 +1741,19 @@ function groupedProfileDom(t){
  return {get forms(){return forms;},get writes(){return writes;},get html(){return html;},field(name){return controls.find(control=>control.name===name);},card(id){return cards.get(id);},pending,bar};
 }
 
-test('profile markup has three flat panels with an independent CV library, four canonical writers and no visual subgroups',()=>{
+test('profile markup has three flat panels with an independent CV library, four canonical writers and titled field groups without nested panels',()=>{
  const t=setup(),html=t.a.profileForm();const ids=['profile-about','profile-work','profile-cv'];
  assert.equal((html.match(/<section class="profile-card"/g)||[]).length,3);assert.equal((html.match(/<form data-form=/g)||[]).length,4);assert.equal((html.match(/data-save-profile="1"/g)||[]).length,1);assert.equal((html.match(/<h2>/g)||[]).length,3);assert.equal((html.match(/class="profile-fields"/g)||[]).length,2);
  assert.deepEqual([...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map(match=>match[1]),['Sobre mi','Lo que busco','Currículums']);assert.deepEqual([...html.matchAll(/data-profile-section="[^"]+"[^>]*>([^<]+)<\/a>/g)].map(match=>match[1]),['Sobre mi','Lo que busco','Currículums']);assert.doesNotMatch(html,/Sobre mí|Mi búsqueda|Mis currículums/);
  assert.doesNotMatch(html,/<fieldset|<legend|search-panel|search-settings-content|search-salary/);
  for(const id of ids)assert.match(html,new RegExp(`data-profile-section="${id}"`));
  const section=id=>html.split(`id="${id}"`)[1].split('</section>')[0];
- assert.match(section('profile-about'),/name="currentCity"[\s\S]*class="profile-field-wide"><label class="field"><span>Mi experiencia<\/span><textarea name="text"[\s\S]*class="profile-field-wide"><label class="field"><span>Idiomas<\/span><textarea name="languages" form="profile-search-form"/);assert.doesNotMatch(section('profile-about'),/previousApplications|Currículums|cv-upload|<h3>|<fieldset|<section/);
+ assert.match(section('profile-about'),/name="currentCity"[\s\S]*class="profile-field-wide"><label class="field"><span>Mi experiencia<\/span><textarea name="text"[\s\S]*class="profile-field-wide"><label class="field"><span>Idiomas<\/span><textarea name="languages" form="profile-search-form"/);assert.doesNotMatch(section('profile-about'),/previousApplications|Currículums|cv-upload|<fieldset|<section/);
+ assert.deepEqual([...section('profile-about').matchAll(/<h3 class="profile-group-title">([^<]+)<\/h3>/g)].map(match=>match[1]),['Contacto','Datos personales','Trabajo y disponibilidad','Salario','Experiencia e idiomas','Encuestas y datos sensibles (opcional)']);
  assert.match(section('profile-work'),/name="targetRoles"[\s\S]*name="keywords"[\s\S]*name="searchPriorities"/);
- assert.doesNotMatch(section('profile-work'),/name="languages"|<h3>|<fieldset|<section/);
- assert.match(section('profile-work'),/name="minimumFixed"[\s\S]*name="salaryExpectationFixed"[\s\S]*name="sourceUrls"/);
- assert.match(section('profile-work'),/Empresas a evitar[\s\S]*name="previousApplications" form="profile-search-form"[\s\S]*Especificar webs de búsqueda/);
+ assert.doesNotMatch(section('profile-work'),/name="languages"|name="salaryExpectationFixed"|<fieldset|<section/);
+ assert.match(section('profile-work'),/name="minimumFixed"[\s\S]*name="sourceUrls"/);
+ assert.match(section('profile-work'),/Empresas a evitar[\s\S]*name="previousApplications"[\s\S]*Buscar solo en estas webs/);
  assert.match(section('profile-cv'),/<h2>Currículums<\/h2>[\s\S]*Añadir PDF[\s\S]*id="cv-upload"/);assert.doesNotMatch(section('profile-cv'),/<form|<fieldset|<section|profile-fields/);
  assert.match(section('profile-work'),/Si indicas webs, buscaré solo en ellas\./);
 });
@@ -1757,7 +1762,7 @@ test('language edits keep their canonical draft and expectations across tabs and
  const t=setup();Object.assign(t.model,{searchContext:{name:'Persona ficticia',targetRoles:'Analista',languages:'Inglés B2',currency:'EUR',sourceUrls:''},profile:{currentCity:'Madrid'},preferences:{location:'España'},experience:'Experiencia ficticia',cvLibrary:[{id:'test-cv',name:'Ficticio.pdf'}]});
  const originalCv=structuredClone(t.model.cvLibrary),dom=groupedProfileDom(t);t.a.setScreenState('perfil');t.a.render();
  const language=dom.field('languages'),search=dom.forms.find(form=>form.dataset.form==='search'),experience=dom.forms.find(form=>form.dataset.form==='experience');
- assert.equal(language.form,search);assert.equal(language.closest('form[data-form]'),dom.forms.find(form=>form.dataset.form==='about'));assert.equal(dom.field('text').form,experience);assert.equal(dom.field('previousApplications').form,search);assert.equal(dom.field('previousApplications').closest('form[data-form]'),undefined);assert.equal(Object.hasOwn(experience.values,'languages'),false);language.value='Inglés C1';language.focus();language.setSelectionRange(3,8);await t.dispatchMain('input',language);
+ assert.equal(language.form,search);assert.equal(language.closest('form[data-form]'),dom.forms.find(form=>form.dataset.form==='about'));assert.equal(dom.field('text').form,experience);assert.equal(dom.field('previousApplications').form,search);assert.equal(dom.field('previousApplications').closest('form[data-form]'),search);assert.equal(Object.hasOwn(experience.values,'languages'),false);language.value='Inglés C1';language.focus();language.setSelectionRange(3,8);await t.dispatchMain('input',language);
  assert.equal(JSON.parse(t.storage.get('stubbs_jobs-draft:busqueda:global')).values.languages,'Inglés C1');assert.equal(t.storage.has('stubbs_jobs-draft:experiencia:global'),false);assert.match(dom.pending.textContent,/Sobre mi/);
  for(const [name,value] of [['currentCity','Cádiz'],['text','Experiencia revisada ficticia'],['minimumFixed','35000'],['previousApplications','Empresa ficticia A — 2026'],['sourceUrls','https://example.org/jobs']]){const field=dom.field(name);field.value=value;await t.dispatchMain('input',field);}
  const drafts=['datos','experiencia','busqueda','fuentes'].map(area=>t.storage.get(`stubbs_jobs-draft:${area}:global`));assert(drafts.every(Boolean));assert.equal(dom.pending.textContent,'Cambios en Sobre mi, Lo que busco');
@@ -1848,7 +1853,7 @@ test('reviewed profile controls preserve saved text and independent CV decisions
  Object.assign(t.model,{fieldDefinitions:defs,profile:{custom_recruitment_retention_365d:true,custom_selection_processing_outside_eu:null,custom_demographic_decline_consent:true,custom_programming_competitions_hackathons:false,custom_programming_competitions_results:'TEST respuesta anterior',custom_legally_protected_status:'No',demographicSurveyParticipation:false,gender:'TEST género anterior'}});
  const before=structuredClone(t.model),html=t.a.profileForm();
  assert.equal((html.match(/id="profile-cv-permissions"/g)||[]).length,1);
- assert.match(html,/Hasta 365 días · 1 sin decidir/);assert.equal((html.match(/data-profile-permission="/g)||[]).length,2);
+ assert.match(html,/Hasta 1 año · 1 sin decidir/);assert.match(html,/data-permission-state="custom_selection_processing_outside_eu">Sin decidir/);assert.doesNotMatch(html,/Dejar pendiente|>Autorizado</);assert.equal((html.match(/data-profile-permission="/g)||[]).length,2);
  assert.match(html,/data-profile-detail-content hidden/);assert.match(html,/No aplica: no he participado/);assert.match(html,/<textarea name="custom_programming_competitions_results"[^>]*data-auto-grow="1"[^>]*>TEST respuesta anterior<\/textarea>/);
  assert.match(html,/data-profile-legacy-consent hidden/);assert.match(html,/data-profile-gender hidden/);
  assert.match(html,/<select name="custom_legally_protected_status"[^>]*>[\s\S]*<option value="No" selected>No<\/option>/);
@@ -1856,7 +1861,7 @@ test('reviewed profile controls preserve saved text and independent CV decisions
  assert.deepEqual(t.model,before);
 });
 
-test('the single CV dropdown changes only the clicked permission and restores a decision to pending',async()=>{
+test('the single CV dropdown changes only the clicked permission and can set the whole group at once',async()=>{
  const t=setup(),a='custom_recruitment_retention_365d',b='custom_selection_processing_outside_eu';
  Object.assign(t.model,{fieldDefinitions:Object.fromEntries([a,b].map(key=>[key,{key,label:key,type:'boolean',scope:'global'}])),profile:{[a]:true,[b]:true}});
  const dom=groupedProfileDom(t),operations=[];
@@ -1864,8 +1869,8 @@ test('the single CV dropdown changes only the clicked permission and restores a 
  await t.a.setScreen('perfil');
  await t.dispatchMain('change',{dataset:{profilePermission:a},checked:false,form:dom.field(a).form});
  await t.a.saveProfileChanges();assert.deepEqual(operations[0].values,{[a]:false});assert.equal(t.a.getModel().profile[b],true);
- const form=dom.field(b).form;await t.click({dataset:{permissionClear:b},form});await t.a.saveProfileChanges();
- assert.deepEqual(operations[1].values,{[b]:null});assert.equal(t.a.getModel().profile[a],false);assert.deepEqual(t.a.getModel().requests,[]);
+ const form=dom.field(b).form;await t.click({dataset:{permissionAll:'profile-cv-permissions',permissionValue:'true'},form});await t.a.saveProfileChanges();
+ assert.deepEqual(operations[1].values,{[a]:true});assert.equal(t.a.getModel().profile[b],true);assert.deepEqual(t.a.getModel().requests,[]);
 });
 
 test('survey options save a distinct omit decision through the existing canonical profile form',async()=>{
@@ -1895,8 +1900,8 @@ test('optional demographic answers use the existing single profile save and pres
 
 test('source and prior-application fields have concise names, separate accessible help and full-width wrappers',()=>{
  const t=setup(),html=t.a.profileForm(),sources=html.match(/<label class="field profile-field-wide"><span id="profile-sourceUrls-label">[\s\S]*?<\/label>/)[0];
- assert.match(sources,/<span id="profile-sourceUrls-label">Especificar webs de búsqueda \(opcional\)<\/span>/);assert.match(sources,/name="sourceUrls" id="profile-sourceUrls" data-auto-grow="1" aria-labelledby="profile-sourceUrls-label" aria-describedby="profile-sourceUrls-help"/);assert.match(sources,/<small class="helper" id="profile-sourceUrls-help">Si indicas webs/);
- assert.match(html,/class="profile-field-wide" id="search-field-previousApplications"><label class="field"><span>Empresas a evitar<\/span><textarea name="previousApplications" form="profile-search-form" id="profile-previousApplications" data-auto-grow="1"/);
+ assert.match(sources,/<span id="profile-sourceUrls-label">Buscar solo en estas webs \(opcional\)<\/span>/);assert.match(sources,/name="sourceUrls" id="profile-sourceUrls" data-auto-grow="1" aria-labelledby="profile-sourceUrls-label" aria-describedby="profile-sourceUrls-help"/);assert.match(sources,/<small class="helper" id="profile-sourceUrls-help">Si indicas webs/);
+ assert.match(html,/class="profile-field-wide" id="search-field-previousApplications"><label class="field"><span>Empresas a evitar<\/span><textarea name="previousApplications" id="profile-previousApplications" data-auto-grow="1"/);
  assert.doesNotMatch(html,/id="profile-previousApplications-help"/);assert.match(html,/name="previousApplications"[^>]*maxlength="10000"/);assert.doesNotMatch(html,/<div class="form-grid"><div class="profile-field-wide" id="search-field-previousApplications"/);
  assert.doesNotMatch(html,/Anota empresas a las que no quieras presentarte/);
 });
@@ -2035,8 +2040,9 @@ test('welcome directs consciously blank essential answers to Mi perfil before se
 
 test('an explicitly unknown salary currency is not displayed as a guessed euro',()=>{
  const t=setup();t.model.searchContext={currency:''};t.model.preferences={minimumFixed:null};t.model.profile={salaryExpectationFixed:null};
- const html=t.a.searchSettingsPanels();assert.match(html,/name="currency"[^>]*value=""/);assert.match(html,/<span data-salary-currency="1">Por indicar<\/span>/);
- assert.doesNotMatch(html,/<span>EUR<\/span>/);
+ const html=t.a.searchSettingsPanels(),about=t.a.profileForm().split('id="profile-about"')[1];assert.match(html,/name="currency"[^>]*value=""/);
+ assert.match(about,/name="salaryCurrency"[^>]*value=""[^>]*placeholder="EUR"/);
+ assert.doesNotMatch(html+about,/<span>EUR<\/span>|name="salaryCurrency"[^>]*value="EUR"/);
 });
 
 test('existing offers explain their fit once and retain the complete experience example in checks',()=>{
@@ -2125,12 +2131,12 @@ test('fit copy never turns a pending eligibility check into a human rejection or
 
 test('all state labels keep plain text and a decorative vector while unresolved sends retain their recovery action',()=>{
  const t=setup(),job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Enviada',apply:'Ya enviada',sent:{at:'2026-10-01T10:00:00Z'},requests:[],packages:[],questions:[],missing:[],draft:{},answers:{},conditions:{}};
- t.model.opportunities=[job];const before=structuredClone(job),html=t.a.applyPage();assert.match(html,/data-offer-state="seguimiento" class="flow-status"><svg[^>]*data-icon="check"[\s\S]*?<\/svg>Siguiendo<\/span>/);assert.doesNotMatch(html,/flow-status-sent/);assert.deepEqual(job,before);
+  t.model.opportunities=[job];const before=structuredClone(job),html=t.a.applyPage();assert.match(html,/data-offer-state="en-espera" class="flow-status"><svg[^>]*data-icon="check"[\s\S]*?<\/svg>En espera<\/span>/);assert.doesNotMatch(html,/flow-status-sent/);assert.deepEqual(job,before);
  delete job.sent;job.state='Preparar';job.requests=[{id:'uncertain-send',type:'send',status:'blocked',startedAt:'2026-10-01T10:00:00Z',updatedAt:'2026-10-01T10:05:00Z'}];
- const uncertain=t.a.applyPage();assert.doesNotMatch(uncertain,/flow-status-sent|data-copy-recovery=/);assert.match(uncertain,/>Por atender<\/span>/);t.a.setSelected('one');assert.match(t.a.detail(),/data-copy-recovery="uncertain-send"/);
+  const uncertain=t.a.applyPage();assert.doesNotMatch(uncertain,/flow-status-sent|data-copy-recovery=/);assert.match(uncertain,/class="offer-attention-indicator">Por atender<\/span>/);t.a.setSelected('one');assert.match(t.a.detail(),/data-copy-recovery="uncertain-send"/);
 });
 
-test('filters, column values and current or historical details share exactly the same nine categories',()=>{
+test('filters, column values and current or historical details share exactly the same six categories',()=>{
  const t=setup(),fresh=new Date().toISOString(),base={title:'Analista ficticio',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:['review'],draft:{messageUsage:'unused'},answers:{},conditions:{}};
  const cases=[
   {...base,id:'choose',company:'Elegir'},
@@ -2139,7 +2145,7 @@ test('filters, column values and current or historical details share exactly the
   {...base,id:'sending',company:'Envío activo',requests:[{id:'send',type:'send',status:'running',updatedAt:fresh}]},
   {...base,id:'follow',company:'Seguimiento',sent:{at:fresh}},
   {...base,id:'rejected',company:'Candidatura rechazada',state:'Rechazada',sent:{at:fresh}},
-  {...base,id:'interview',company:'Entrevista sin recibo',state:'Entrevista',next:'Acuerda la fecha.'},
+   {...base,id:'interview',company:'Entrevista comunicada',state:'Entrevista',sent:{at:fresh},next:'Acuerda la fecha.'},
   {...base,id:'offer',company:'Oferta recibida',state:'Oferta'},
   {...base,id:'closed-uncertain',company:'Cierre con envío incierto',state:'Cerrada',requests:[{id:'uncertain',type:'send',status:'blocked'}]},
   {...base,id:'closed',company:'Proceso cerrado',state:'Cerrada'},
@@ -2147,7 +2153,7 @@ test('filters, column values and current or historical details share exactly the
  ];
  t.model.opportunities=cases;t.model.historical=[{id:'old',canonicalKey:'old',category:'Laboral',company:'Histórica',title:'Analista',state:'Enviada',lastActivityLabel:'Julio 2025'}];
  const before=structuredClone(t.model);t.a.setHistoryLimit(100);const all=[...cases,...UI.archive(t.model)],html=t.a.applyPage();
- assert.equal((html.match(/data-flow-filter=/g)||[]).length,10);
+  assert.equal((html.match(/data-flow-filter=/g)||[]).length,7);
  assert.equal((html.match(/data-job-row=/g)||[]).length,all.length);
  for(const j of all){
   const state=UI.offerState(j),row=html.match(new RegExp(`data-job-row="${j.id}"[\\s\\S]*?</tr>`))[0];
@@ -2159,21 +2165,21 @@ test('filters, column values and current or historical details share exactly the
  for(const state of UI.offerStates){
   t.a.setFlowFilter('solicitar',state.key);const filtered=t.a.applyPage(),expected=all.filter(j=>UI.offerState(j).key===state.key).map(j=>j.id).sort();
   assert.deepEqual([...filtered.matchAll(/data-job-row="([^"]+)"/g)].map(m=>m[1]).sort(),expected);
-  const label=({descartadas:'Descartadas',logradas:'Logradas',cerradas:'Cerradas',rechazadas:'Rechazadas'})[state.key]||state.label;
+   const label=({archivadas:'Archivadas',logradas:'Logradas',rechazadas:'Rechazadas'})[state.key]||state.label;
   assert.match(filtered,new RegExp(`data-flow-filter="${state.key}"[^>]*aria-pressed="true">${label} <span class="filter-count">${expected.length}</span>`));
  }
  t.a.setFlowFilter('solicitar','todas');t.a.applyPage();const catalog=t.a.columnCatalog('solicitar','status');assert.deepEqual(Array.from(catalog.values).sort(),UI.offerStates.map(s=>s.label).sort());
  assert.deepEqual(t.model,before);
 });
 
-test('operational filters appear when needed while the six main categories remain accessible',()=>{
+test('attention changes independently while the seven visible filters remain stable',()=>{
  const t=setup(),job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:['review']};
  t.model.opportunities=[job];const before=structuredClone(t.model);
- let html=t.a.applyPage();assert.equal((html.match(/data-flow-filter=/g)||[]).length,7);assert.match(html,/Por decidir <span class="filter-count">1<\/span>/);assert.doesNotMatch(html,/data-flow-filter="atencion"|data-flow-filter="enviando"/);
- t.a.setFlowFilter('solicitar','atencion');html=t.a.applyPage();assert.match(html,/data-flow-filter="atencion"[^>]*aria-pressed="true">Por atender <span class="filter-count">0<\/span>/);assert.match(html,/No hay ofertas en este grupo/);assert.deepEqual(t.model,before);
- job.requests=[{type:'investigate',status:'blocked',need:'access',summary:'Falta acceso.'}];html=t.a.applyPage();assert.match(html,/Por atender <span class="filter-count">1<\/span>/);assert.match(html,/data-job-row="one"/);assert.match(html,/data-flow-filter="sin-elegir"/);
- job.requests=[];html=t.a.applyPage();assert.match(html,/Por atender <span class="filter-count">0<\/span>/);assert.doesNotMatch(html,/data-job-row="one"/);
- t.a.setFlowFilter('solicitar','todas');html=t.a.applyPage();assert.doesNotMatch(html,/data-flow-filter="atencion"/);assert.match(html,/data-job-row="one"/);
+  let html=t.a.applyPage();assert.equal((html.match(/data-flow-filter=/g)||[]).length,7);assert.match(html,/Por solicitar <span class="filter-count">1<\/span>/);assert.doesNotMatch(html,/data-flow-filter="atencion"|data-flow-filter="enviando"/);
+  t.a.setFlowFilter('solicitar','por-solicitar');html=t.a.applyPage();assert.match(html,/data-flow-filter="por-solicitar"[^>]*aria-pressed="true"/);assert.deepEqual(t.model,before);
+  job.requests=[{type:'investigate',status:'blocked',need:'access',summary:'Falta acceso.'}];html=t.a.applyPage();assert.match(html,/class="offer-attention-indicator">Por atender<\/span>/);assert.match(html,/data-job-row="one"/);assert.match(html,/data-flow-filter="por-solicitar"/);
+  job.requests=[];html=t.a.applyPage();assert.doesNotMatch(html,/class="offer-attention-indicator">Por atender<\/span>/);assert.match(html,/data-job-row="one"/);
+  t.a.setFlowFilter('solicitar','todas');html=t.a.applyPage();assert.doesNotMatch(html,/data-flow-filter="atencion"/);assert.match(html,/data-job-row="one"/);
 });
 
 test('detail keeps secondary actions open and change visible in the banner during a preserved poll render',()=>{
@@ -2208,14 +2214,14 @@ test('retired checks links return to the offer or summary without exposing or ch
 test('a simple offer heading retains concrete blockers, mode, deadlines and uncertain delivery safeguards',()=>{
  const t=setup(),job={id:'one',company:'Empresa ficticia',title:'Analista',state:'Preparar',apply:'Sí',requests:[],packages:[],questions:[],missing:['review'],draft:{messageUsage:'unused'},answers:{},conditions:{},assessment:{isCurrent:true,reason:'Tus informes encajan. Falta comprobar SQL avanzado.',unknowns:['Confirmar contrato.'],references:[]}};
  t.model.opportunities=[job];t.a.setSelected(job.id);const heading=()=>t.a.detail().match(/<section class="case-status offer-status"[\s\S]*?<\/section>/)[0];
- let html=heading();assert.match(html,/<strong data-offer-state="sin-elegir"><svg[^>]*data-icon="choice"[\s\S]*?<\/svg>Por decidir<\/strong>/);assert.match(html,/Solicitar con revisión/);assert.match(html,/Auto-solicitud/);assert.match(html,/data-offer-outcome="discard"/);assert.doesNotMatch(html,/data-change=|data-user-sent=/);assert.doesNotMatch(html,/Situación actual|Conviene comprobar|Tus informes|Confirmar contrato|offer-request-options/);
- job.selection={selected:true,mode:'auto'};job.requests=[{id:'queued',type:'review',status:'queued'}];html=heading();assert.match(html,/En preparación<\/strong>[\s\S]*Auto-solicitud/);assert.doesNotMatch(html,/preparará|Puedes seleccionar|Último registro/);
+  let html=heading();assert.match(html,/<strong data-offer-state="por-solicitar"><svg[^>]*data-icon="choice"[\s\S]*?<\/svg>Por solicitar<\/strong>/);assert.match(html,/Solicitar con revisión/);assert.match(html,/Auto-solicitud/);assert.match(html,/data-offer-outcome="discard"/);assert.doesNotMatch(html,/data-change=|data-user-sent=/);assert.doesNotMatch(html,/Situación actual|Conviene comprobar|Tus informes|Confirmar contrato|offer-request-options/);
+  job.selection={selected:true,mode:'auto'};job.requests=[{id:'queued',type:'review',status:'queued'}];html=heading();assert.match(html,/Por solicitar<\/strong>[\s\S]*Auto-solicitud/);assert.doesNotMatch(html,/preparará|Puedes seleccionar|Último registro/);
  job.requests=[{id:'blocked',type:'review',status:'blocked',need:'access',summary:'Inicia sesión en el portal para continuar.',result:'PRIVATE FULL TECHNICAL PROOF'}];html=heading();assert.match(html,/Inicia sesión en el portal para continuar/);assert.doesNotMatch(html,/data-resolve=/);assert.match(html,/data-retry="blocked"[^>]*>Ya he completado el acceso</);assert.match(html,/ventana del navegador que usa el agente/);assert.doesNotMatch(html,/PRIVATE FULL TECHNICAL PROOF/);
- job.questions=[{key:'custom_idioma',label:'Nivel de inglés'}];html=heading();assert.match(html,/>Por atender<\/strong>/);assert.match(html,/Nivel de inglés/);assert.match(html,/data-answers="one"/);
+  job.questions=[{key:'custom_idioma',label:'Nivel de inglés'}];html=heading();assert.match(html,/class="offer-attention-indicator">Por atender<\/span>/);assert.match(html,/Nivel de inglés/);assert.match(html,/data-answers="one"/);
  job.questions=[];job.requests=[{id:'uncertain',type:'send',status:'blocked',startedAt:'2026-10-01T10:00:00Z',updatedAt:'2026-10-01T10:05:00Z'}];html=heading();assert.match(html,/El envío quedó sin confirmar/);assert.match(html,/data-copy-recovery="uncertain"/);assert.doesNotMatch(html,/data-approve=|data-select=/);
  job.requests=[{id:'running',type:'send',status:'running',updatedAt:new Date().toISOString()}];html=heading();assert.doesNotMatch(html,/data-select=/);assert.match(t.a.detail(),/<button data-change="one">Pedir cambio/);
  job.requests=[];job.sent={at:'2026-10-02T10:00:00Z'};html=heading();assert.match(html,/data-followup-check=/);assert.doesNotMatch(html,/data-select=|data-change=/);job.sent=null;
- job.requests=[];job.state='Entrevista';job.next='Confirma tu disponibilidad para la entrevista.';job.externalDeadline='2026-10-08';html=heading();assert.match(html,/Confirma tu disponibilidad/);assert.match(html,/Plazo:/);
+  job.requests=[];job.state='Entrevista';job.sent={at:'2026-10-02T10:00:00Z'};job.next='Confirma tu disponibilidad para la entrevista.';job.externalDeadline='2026-10-08';html=heading();assert.match(html,/Entrevista registrada/);assert.match(html,/Plazo:/);
 });
 
 test('activity results retain summaries and useful coverage while keeping technical proof internal',()=>{
@@ -2302,8 +2308,8 @@ test('group actions make one explicit atomic request and preserve the marks on f
  t.env.fetch=async(path,options)=>({ok:true,status:200,json:async()=>({ok:true,state:t.model})});assert.equal(await t.a.bulkAction('archive'),true);assert.equal(t.a.getTableSelection().size,0);
 });
 test('archived offers preserve unconfirmed send recovery and block renewed choices',()=>{
- const t=setup(),job={id:'one',company:'Uno',title:'Analista',state:'Preparar',archivedAt:'2026-10-05T00:00:00Z',apply:'Sí',requests:[],packages:[],questions:[],missing:[],draft:{},answers:{}};t.model.opportunities=[job];assert.equal(UI.offerState(job).key,'descartadas');assert.equal(UI.canChoose(job),false);assert.equal(t.a.bulkOptions(job).length,0);
- job.requests=[{id:'uncertain',type:'send',status:'blocked',startedAt:'2026-10-05T00:00:00Z',packageId:'original'}];assert.equal(UI.offerState(job).key,'atencion');assert.equal(UI.step(job).action,'recovery');assert.match(t.a.bulkOptions(job)[0][0],/^recovery:/);
+  const t=setup(),job={id:'one',company:'Uno',title:'Analista',state:'Preparar',archivedAt:'2026-10-05T00:00:00Z',apply:'Sí',requests:[],packages:[],questions:[],missing:[],draft:{},answers:{}};t.model.opportunities=[job];assert.equal(UI.offerState(job).key,'archivadas');assert.equal(UI.canChoose(job),false);assert.equal(t.a.bulkOptions(job).length,0);
+  job.requests=[{id:'uncertain',type:'send',status:'blocked',startedAt:'2026-10-05T00:00:00Z',packageId:'original'}];assert.equal(UI.offerState(job).key,'archivadas');assert.equal(UI.offerAttention(job),true);assert.equal(UI.step(job).action,'recovery');assert.match(t.a.bulkOptions(job)[0][0],/^recovery:/);
 });
 test('group review displays every frozen package and disables the single authorization when one changes',()=>{
  const t=setup(),base={company:'Empresa',title:'Analista',state:'Preparar',fingerprint:'pack',selection:{selected:true,mode:'review'},requests:[],questions:[],missing:[],packages:[{id:'pack',isCurrent:true,cvUrl:'/cv',payload:{messageUsage:'unused',recipient:'https://example.org/apply',answers:{}}}],draft:{},answers:{}};const jobs=[{...base,id:'one'},{...base,id:'two',company:'Segunda'}];t.model.opportunities=jobs;t.a.setBulkReview(structuredClone(jobs));let html=t.a.bulkReviewPage();assert.match(html,/Empresa · Analista/);assert.match(html,/Segunda · Analista/);assert.equal((html.match(/class="authorization"/g)||[]).length,1);assert.match(html,/Autorizar 2 envíos/);assert.doesNotMatch(html,/data-approve="/);
@@ -2616,7 +2622,7 @@ test('offer conditions contain published facts and the evaluation profile change
  assert.doesNotMatch(more,/<details[^>]*\bopen\b/);assert.match(more,/Valorar con otro perfil de búsqueda/);assert.match(more,/Perfil de evaluación: TEST perfil anterior/);assert.match(more,/data-form="offer-note"/);
  job.sent={at:'2026-10-08T20:00:00Z'};assert.doesNotMatch(t.a.detail(),/data-offer-criteria-change/);
 });
-test('Sobre mi orders contact, experience, form answers, consents and demographics and joins a yes/no answer with its detail',()=>{
+test('Sobre mi orders contact, experience, form answers, demographics and permissions and joins a yes/no answer with its detail',()=>{
  const t=setup(),defs={
   custom_demo_decline_consent:{key:'custom_demo_decline_consent',label:'Autorizar conservar la respuesta Prefiero no responder en encuestas demográficas',type:'boolean',scope:'global'},
   custom_test_retention:{key:'custom_test_retention',label:'Autorizar tratar CV ficticio y conservarlo hasta 365 días',type:'boolean',scope:'global'},
@@ -2625,7 +2631,7 @@ test('Sobre mi orders contact, experience, form answers, consents and demographi
   custom_offer_only:{key:'custom_offer_only',label:'Solo esta oferta',type:'text',scope:'opportunity'}};
  Object.assign(t.model,{fieldDefinitions:defs,profile:{custom_code_contests_done:false,custom_code_contests_results:'No aplica (ficticio)'},searchContext:{name:'Persona ficticia'},experience:'Experiencia ficticia'});
  const about=t.a.profileForm().split('id="profile-about"')[1].split('</section>')[0],at=name=>about.indexOf(`name="${name}"`);
- const order=['name','email','phone','linkedinUrl','websiteUrl','currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays','text','languages','custom_code_contests_done','custom_code_contests_results','custom_test_retention','demographicSurveyParticipation','gender','custom_demo_decline_consent'];
+ const order=['name','email','phone','linkedinUrl','websiteUrl','currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays','text','languages','custom_code_contests_done','custom_code_contests_results','demographicSurveyParticipation','gender','custom_demo_decline_consent','custom_test_retention'];
  for(const name of order)assert(at(name)>=0,name);
  for(let i=1;i<order.length;i++)assert(at(order[i-1])<at(order[i]),`${order[i-1]} antes de ${order[i]}`);
  assert.doesNotMatch(about,/custom_offer_only/);
@@ -2648,24 +2654,26 @@ test('Sobre mi orders general personal fields by meaning rather than creation or
  const definitions=Object.fromEntries(fields.map(([key,label,type])=>[key,{key,label,type,scope:'global'}]));
  Object.assign(t.model,{fieldDefinitions:definitions,profile:{custom_own_vehicle:true,custom_self_employed:false,custom_current_gross_annual_salary_eur:30000},experience:'Experiencia ficticia'});
  const about=()=>t.a.profileForm().split('id="profile-about"')[1].split('</section>')[0],html=about();
- const order=['name','email','phone','linkedinUrl','websiteUrl','custom_github_url','custom_birth_date','custom_nationality','currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays','custom_start_availability','custom_current_gross_annual_salary_eur','custom_self_employed','custom_driving_license','custom_own_vehicle','text','languages','custom_sector_independent','demographicSurveyParticipation','gender','custom_disability'];
+ const order=['name','email','phone','linkedinUrl','websiteUrl','custom_github_url','custom_birth_date','custom_nationality','currentCountry','currentCity','address','postalCode','workAuthorizations','noticeDays','custom_start_availability','custom_self_employed','custom_driving_license','custom_own_vehicle','custom_current_gross_annual_salary_eur','salaryExpectationFixed','text','languages','custom_sector_independent','demographicSurveyParticipation','gender','custom_disability'];
  for(let i=0;i<order.length;i++){assert.equal((html.match(new RegExp(`name="${order[i]}"`,'g'))||[]).length,1,order[i]);if(i)assert(html.indexOf(`name="${order[i-1]}"`)<html.indexOf(`name="${order[i]}"`),order[i]);}
- assert.doesNotMatch(html,/<h3>|<fieldset|<section/);
+ assert.doesNotMatch(html,/<fieldset|<section/);
+ assert.deepEqual([...html.matchAll(/<h3 class="profile-group-title">([^<]+)<\/h3>/g)].map(match=>match[1]),['Contacto','Datos personales','Trabajo y disponibilidad','Salario','Experiencia e idiomas','Otras respuestas para formularios','Encuestas y datos sensibles (opcional)']);
  assert.match(html,/name="custom_self_employed"[\s\S]*value="false" selected/);
  assert.match(html,/name="custom_current_gross_annual_salary_eur"[^>]*value="30000"/);
  t.model.fieldDefinitions=Object.fromEntries(Object.entries(definitions).reverse());assert.equal(about(),html);
 });
 
-test('Sobre mi puts the two previously isolated short answers on the same row',()=>{
+test('Sobre mi keeps relocation with work availability and disability with the optional sensitive data',()=>{
  const t=setup();t.model.fieldDefinitions=Object.fromEntries([
   ['custom_open_to_relocation','Dispuesto a mudarse por trabajo'],
   ['custom_disability','Tengo alguna discapacidad'],
   ['custom_legally_protected_status','Estatus legalmente protegido']
  ].map(([key,label])=>[key,{key,label,type:'boolean',scope:'global'}]));
  const about=t.a.profileForm().split('id="profile-about"')[1].split('</section>')[0];
- const relocation=about.indexOf('name="custom_open_to_relocation"'),disability=about.indexOf('name="custom_disability"'),survey=about.indexOf('name="demographicSurveyParticipation"');
- assert(relocation>=0&&relocation<disability&&disability<survey);
- assert.doesNotMatch(about.slice(relocation,disability),/profile-field-wide|name="demographicSurveyParticipation"/);
+ const at=text=>about.indexOf(text),relocation=at('name="custom_open_to_relocation"'),disability=at('name="custom_disability"');
+ assert(at('>Trabajo y disponibilidad<')<relocation&&relocation<at('>Encuestas y datos sensibles (opcional)<'));
+ assert(at('name="demographicSurveyParticipation"')<disability);
+ assert.match(about,/Dispuesto a mudarme por trabajo/);
 });
 
 test('the search button saves a search for the chosen profile without copying a request',async()=>{
@@ -2734,4 +2742,41 @@ test('the offer detail says who chose it and whether the person instructed the a
  assert.match(detail,/La eligió el agente sin que se lo pidieras, así que revisarás la solicitud antes del envío\./);
  t.model.opportunities=[{...base,selection:{selected:true,mode:'auto',actor:'Usuario'}}];detail=t.a.detail();
  assert.doesNotMatch(detail,/offer-selection-origin/);
+});
+
+test('Auto-solicitud permissions share the native dropdown and save only the changed decision',async()=>{
+ const t=setup(),keys=['autoApplySubmit','autoApplyPrivacy','autoApplyTerms','autoApplyDerivedAnswers','autoApplySessions','autoApplyTalentPool'];
+ Object.assign(t.model,{fieldDefinitions:Object.fromEntries(keys.map(key=>[key,{key,label:key,type:'boolean',scope:'global'}])),profile:{autoApplySubmit:true,autoApplyTerms:false}});
+ const html=t.a.profileForm();
+ assert.equal((html.match(/id="profile-auto-permissions"/g)||[]).length,1);
+ assert.match(html,/Permisos para Auto-solicitud/);assert.match(html,/Envío sin preguntar · 4 sin decidir/);
+ assert.equal((html.match(/data-profile-permission="autoApply/g)||[]).length,6);
+ assert.doesNotMatch(html,/id="profile-cv-permissions"/);
+ const dom=groupedProfileDom(t),operations=[];
+ t.env.fetch=async(_,options)=>{if(!options.body)return {ok:true,json:async()=>t.a.getModel()};const operation=JSON.parse(options.body).operation;operations.push(operation);const state=structuredClone(t.a.getModel());state.revision++;Object.assign(state.profile,operation.values);return {ok:true,json:async()=>({state})};};
+ await t.a.setScreen('perfil');
+ await t.dispatchMain('change',{dataset:{profilePermission:'autoApplyPrivacy'},checked:true,form:dom.field('autoApplyPrivacy').form});
+ await t.a.saveProfileChanges();
+ assert.equal(operations[0].kind,'ui-profile-section');assert.deepEqual(operations[0].values,{autoApplyPrivacy:true});
+ assert.equal(t.a.getModel().profile.autoApplySubmit,true);assert.deepEqual(t.a.getModel().requests,[]);
+});
+
+test('company boards show what they produced, mark low yield and stop or resume with one action',async()=>{
+ const t=setup();t.model.searchContext={sourceUrls:''};
+ t.model.sourceStats=[{id:'experience',company:'Empresa ficticia A',offers:48,sent:1,discardedByYou:43,lowYield:true,enabled:true},
+  {id:'logicalis',company:'Empresa ficticia B',offers:15,sent:3,discardedByYou:8,lowYield:false,enabled:true},
+  {id:'pleo',company:'Empresa ficticia C',offers:0,sent:0,discardedByYou:0,lowYield:false,enabled:false}];
+ let html=t.a.searchSettingsPanels();
+ assert.match(html,/Webs de empresa que revisa el agente/);
+ assert.match(html,/Empresa ficticia A<span class="source-badge">Poco útil<\/span>/);
+ assert.match(html,/48 ofertas · 1 enviada · 43 descartadas por ti/);
+ assert.match(html,/Empresa ficticia C<span class="source-badge source-badge--off">No se revisa<\/span>[\s\S]*?data-source-enabled="true">Volver a revisar/);
+ assert.match(html,/1 web aporta muchas ofertas que descartas y casi ningún envío/);
+ const operations=[];
+ t.env.fetch=async(_,options)=>{if(!options.body)return {ok:true,json:async()=>t.a.getModel()};const operation=JSON.parse(options.body).operation;operations.push(operation);const state=structuredClone(t.a.getModel());state.revision++;state.sourceStats=state.sourceStats.map(s=>s.id===operation.sourceId?{...s,enabled:operation.enabled}:s);return {ok:true,json:async()=>({state})};};
+ await t.click({dataset:{sourceToggle:'experience',sourceEnabled:'false'}});
+ assert.deepEqual(operations[0],{kind:'ui-source-toggle',sourceId:'experience',enabled:false,expected:true});
+ assert.equal(t.a.getModel().sourceStats[0].enabled,false);
+ t.a.getModel().searchContext={sourceUrls:'https://example.org/jobs'};
+ assert.doesNotMatch(t.a.searchSettingsPanels(),/Webs de empresa que revisa el agente/);
 });

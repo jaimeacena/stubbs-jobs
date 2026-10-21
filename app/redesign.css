@@ -27,6 +27,7 @@
   --warn-soft: light-dark(#fbf1dc, #33291a);
   --attention: light-dark(#a34b15, #f0ab73);
   --following: light-dark(#2e639e, #91b9e8);
+  --process: light-dark(#086c70, #79d0ca);
   --bad: light-dark(#a33131, #f29f9b);
   --bad-soft: light-dark(#fbe9e7, #3a2120);
   --ok: light-dark(#1f6a49, #8fcba9);
@@ -283,11 +284,10 @@ th { background: var(--surface-subtle); color: var(--muted); font-size: .75rem; 
 }
 /* State colours are shared by the table and offer details, including old offers.
    Every label has a small vector and plain text, with no coloured fill. */
-[data-offer-state=descartadas] { --offer-state-color: var(--muted); --offer-state-soft: transparent; --offer-state-accent: color-mix(in srgb, var(--muted) 45%, transparent); }
-[data-offer-state=sin-elegir] { --offer-state-color: var(--warn); --offer-state-soft: transparent; --offer-state-accent: color-mix(in srgb, var(--warn) 55%, transparent); }
-[data-offer-state=atencion] { --offer-state-color: var(--attention); --offer-state-soft: transparent; --offer-state-accent: var(--attention); }
-[data-offer-state=preparacion], [data-offer-state=enviando] { --offer-state-color: var(--muted); --offer-state-soft: transparent; --offer-state-accent: var(--muted); }
-[data-offer-state=seguimiento] { --offer-state-color: var(--following); --offer-state-soft: transparent; --offer-state-accent: var(--following); }
+[data-offer-state=archivadas] { --offer-state-color: var(--muted); --offer-state-soft: transparent; --offer-state-accent: color-mix(in srgb, var(--muted) 45%, transparent); }
+[data-offer-state=por-solicitar] { --offer-state-color: var(--warn); --offer-state-soft: transparent; --offer-state-accent: color-mix(in srgb, var(--warn) 55%, transparent); }
+[data-offer-state=en-espera] { --offer-state-color: var(--following); --offer-state-soft: transparent; --offer-state-accent: var(--following); }
+[data-offer-state=en-proceso] { --offer-state-color: var(--process); --offer-state-soft: transparent; --offer-state-accent: var(--process); }
 [data-offer-state=logradas] { --offer-state-color: var(--ok); --offer-state-soft: transparent; --offer-state-accent: var(--ok); }
 [data-offer-state=rechazadas] { --offer-state-color: var(--bad); --offer-state-soft: transparent; --offer-state-accent: var(--bad); }
 /* The side accent is an inset bar in the state colour, not a border on the cell. */
@@ -297,8 +297,7 @@ th { background: var(--surface-subtle); color: var(--muted); font-size: .75rem; 
 .workflow-table td:last-child { text-align: left; }
 .flow-table-row .flow-status, .flow-status { display: inline-flex; align-items: center; justify-content: center; gap: .4375rem; min-height: 1.5rem; padding: .125rem 0; background: transparent; color: var(--offer-state-color,var(--text)); font-size: .75rem; font-weight: 500; line-height: 1.3; white-space: nowrap; }
 .offer-state-icon { flex: none; width: .9375rem; height: .9375rem; }
-.flow-status[data-offer-state=atencion], .flow-status[data-offer-state=preparacion], .flow-status[data-offer-state=enviando] { font-weight: 600; }
-.flow-status[data-offer-state=enviando]>.offer-state-icon { animation: state-pulse 1.4s ease-in-out infinite; }
+.offer-attention-indicator { display: inline-block; margin-left: .4rem; color: var(--attention); font-size: .75rem; font-weight: 600; white-space: nowrap; }
 @keyframes state-pulse { 50% { opacity: .25; transform: scale(.7); } }
 .flow-table-row small { display: block; margin-top: .25rem; font-size: .8125rem; }
 .table-job-link { min-height: 2rem; padding: .25rem 0; border: 0; border-radius: .25rem; background: transparent; color: var(--text); font-size: inherit; font-weight: 600; line-height: inherit; text-align: left; text-decoration: none; transition: color .1s ease; }
@@ -383,6 +382,9 @@ th { background: var(--surface-subtle); color: var(--muted); font-size: .75rem; 
 .profile-fields-form, .profile-fields .form-grid, .profile-fields .source-controls, .profile-fields .source-webs { display: contents; }
 .profile-field-wide { grid-column: 1/-1; min-width: 0; }
 .profile-card h2 { margin-bottom: var(--profile-field-gap); }
+/* Titled runs of related fields inside one card: a light divider, not a panel. */
+.profile-group-title { grid-column: 1/-1; margin: 1.25rem 0 -.25rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8125rem; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+.form-grid>.profile-group-title:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .profile-card { border-color: light-dark(#e1e1e1, #353535); }
 
 .profile-layout :is(input:not([type=checkbox]):not([type=radio]),select,textarea,.work-authorizations) { background: var(--profile-input-bg); border-color: var(--profile-input-line); transition: border-color .15s ease, box-shadow .15s ease; }
@@ -555,11 +557,28 @@ th { background: var(--surface-subtle); color: var(--muted); font-size: .75rem; 
 .work-authorizations>summary::-webkit-details-marker { display: none; }
 .work-authorizations>summary::after { content: ""; flex: none; margin-left: auto; width: 1rem; height: 1rem; background: var(--muted); -webkit-mask: var(--icon-chevron) center/contain no-repeat; mask: var(--icon-chevron) center/contain no-repeat; transform: rotate(90deg); transition: transform .15s var(--ease-out); }
 .work-authorizations[open]>summary::after { transform: rotate(-90deg); }
-.profile-permission-options { display: grid; gap: .875rem; padding: .25rem .75rem .875rem; }
-.profile-permission-option { display: grid; grid-template-columns: 1fr auto; gap: .125rem .75rem; }
-.profile-permission-option .permit-option { grid-column: 1 / -1; }
-.profile-permission-option .helper { padding-left: 1.625rem; }
-.profile-permission-option .link-button { padding: 0; font-size: .8125rem; }
+.source-yield { display: grid; gap: .5rem; margin-top: 1rem; }
+.source-yield-title { font-weight: 600; font-size: .875rem; }
+.source-yield-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--control-line); border-radius: var(--radius); }
+.source-yield-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .5rem .75rem; }
+.source-yield-row+.source-yield-row { border-top: 1px solid var(--line); }
+.source-yield-row--off .source-yield-name { color: var(--muted); }
+.source-yield-text { display: grid; gap: .125rem; min-width: 0; }
+.source-yield-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: .375rem .5rem; }
+.source-yield-text small { color: var(--muted); font-size: .8125rem; }
+.source-yield-row .link-button { flex: none; padding: 0; font-size: .8125rem; }
+.source-badge { padding: 0 .375rem; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: .75rem; }
+.source-badge--off { background: var(--neutral-soft); color: var(--muted); }
+.permission-bulk { display: flex; gap: 1rem; padding: .125rem 1.25rem .25rem; }
+.permission-bulk .link-button { padding: 0; font-size: .8125rem; }
+.profile-permission-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,18rem),1fr)); gap: .25rem .75rem; padding: .25rem .5rem .625rem; }
+.profile-permission-option { display: flex; align-items: flex-start; gap: .625rem; padding: .5rem .75rem; border-radius: var(--radius-sm); cursor: pointer; }
+.profile-permission-option:hover { background: var(--surface-strong); }
+.profile-permission-option input[type=checkbox] { flex: none; width: 1rem; height: 1rem; min-height: 1rem; margin: .1875rem 0 0; accent-color: var(--accent); }
+.permission-text { display: grid; gap: .125rem; min-width: 0; }
+.permission-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: .375rem .5rem; font-size: .9375rem; color: var(--text); }
+.permission-help { color: var(--muted); font-size: .8125rem; line-height: 1.4; }
+.permission-pending { padding: 0 .375rem; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font-size: .75rem; }
 .profile-conditional { display: grid; gap: .875rem; }
 .profile-permissions>summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .case-more { margin-top: 0; padding: 1.125rem 1.5rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-panel); }
@@ -594,7 +613,6 @@ th { background: var(--surface-subtle); color: var(--muted); font-size: .75rem; 
 .offer-status-line { display: flex; align-items: center; flex-wrap: wrap; gap: .375rem .875rem; }
 .offer-status-line>strong { display: inline-flex; align-items: center; gap: .5rem; font-family: var(--font-display); font-size: 1.1875rem; font-weight: 600; letter-spacing: -.015em; color: var(--offer-state-color,var(--text)); }
 .offer-status-line .offer-state-icon { width: 1.125rem; height: 1.125rem; }
-.offer-status-line>strong[data-offer-state=enviando]>.offer-state-icon { animation: state-pulse 1.4s ease-in-out infinite; }
 .offer-selection-mode { color: var(--muted); font-size: .8125rem; }
 .offer-status-copy>p { margin: .5rem 0 0; font-size: .875rem; line-height: 1.55; color: var(--muted); }
 .offer-status-copy>.offer-deadline { color: var(--text-secondary); font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -1166,7 +1184,6 @@ dialog p { margin: 0; color: var(--muted); line-height: 1.55; }
   .workflow-table-selectable thead th { top: calc(var(--header-height,3.5rem) + var(--offer-toolbar-height,3.5rem) - 1px); }
 }
 
-[data-offer-state=cerradas] { --offer-state-color: var(--muted); --offer-state-soft: transparent; --offer-state-accent: var(--muted); }
 .offer-followup-summary time { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 /* Flat search strategies share the personal profile and its four forms. */
 .search-profile-controls{display:flex;align-items:end;gap:1rem;flex-wrap:wrap;margin:1rem 0 .5rem}

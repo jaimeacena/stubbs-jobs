@@ -42,7 +42,10 @@ function tableText(value,key){
 const currencyCodes=new Set('EUR USD GBP CAD CHF AUD JPY CNY HKD SGD NZD INR KRW MXN BRL ARS CLP COP PEN UYU RUB NOK SEK DKK PLN CZK HUF RON TRY AED SAR QAR ILS ZAR THB MYR IDR PHP VND TWD BTC XBT ETH USDT'.split(' '));
 if(typeof Intl.supportedValuesOf==='function')Intl.supportedValuesOf('currency').forEach(code=>currencyCodes.add(code));
 function publishedCurrency(raw,fallback){
- const found=new Set([...raw.matchAll(/(?:^|[^a-z]|\d+k)([a-z]{3,4})(?![a-z])/gi)].map(match=>match[1].toUpperCase()).filter(code=>currencyCodes.has(code)));
+ // Codes count when written in capitals; only EUR/USD/GBP are also read in lower case.
+ // Ordinary words such as «all», «top», «gel» or «ves» are also ISO codes (ALL, TOP, GEL, VES).
+ const found=new Set([...raw.matchAll(/(?:^|[^a-z]|\d+k)([a-z]{3,4})(?![a-z])/gi)].map(match=>match[1])
+  .filter(word=>word===word.toUpperCase()||['EUR','USD','GBP'].includes(word.toUpperCase())).map(word=>word.toUpperCase()).filter(code=>currencyCodes.has(code)));
  if(/€|\beuros?\b/i.test(raw))found.add('EUR');
  if(/£/u.test(raw))found.add('GBP');
  if(/US\$/i.test(raw))found.add('USD');
