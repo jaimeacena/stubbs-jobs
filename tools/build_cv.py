@@ -403,7 +403,11 @@ def build(data, op_id, spec, root=None):
     import app_context
     root = ROOT if root is None else Path(root)
     row = _offer(data, op_id)
-    content = validate(spec, app_context.experience(data), hidden_from_private(root))
+    # A confirmed competency is a confirmed fact, even when the experience text omits its name.
+    import skills
+    extra = [skill['name'] + (f" ({skill['usedAt']})" if skill.get('usedAt') else '') for skill in skills.confirmed(data) if skill.get('kind') == 'professional']
+    reference = app_context.experience(data) + ('\n\nCompetencias confirmadas: ' + ', '.join(extra) if extra else '')
+    content = validate(spec, reference, hidden_from_private(root))
     return row, content, render(content, _person(data), op_id)
 
 

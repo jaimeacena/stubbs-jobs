@@ -3,7 +3,8 @@ import re
 import view_cache
 from stubbs_jobs_core import digest, now
 
-DEFAULT_CRITERIA={'contract':'Indefinido','location':'Remoto habitual desde España/tu ubicación','maxTrips':1}
+# Neutral values for a registry that never saved criteria: no requirement until the person sets one.
+DEFAULT_CRITERIA={'contract':'','location':'','maxTrips':None}
 
 def offer_requirements(row):
     """Recorded requirements are decision inputs, unlike discovery configuration."""
@@ -13,7 +14,7 @@ def offer_requirements(row):
 
 # Settings that belong to one search round. Languages, companies to avoid and
 # notice period describe the person and always follow their current value.
-ROUND_CONTEXT=('targetRoles','keywords','searchPriorities','requiredSchedule','regions','workMode','onsiteLocations','currency','searchNotes')
+ROUND_CONTEXT=('targetRoles','keywords','searchPriorities','requiredSchedule','regions','workMode','onsiteLocations','currency','searchNotes','sourceUrls','followedSources','excludedPortals','platforms')
 
 def round_snapshot(data,op_id):
     """Criteria of the search that found the offer, unless the person moved it to the current ones."""
@@ -52,7 +53,9 @@ def experience(data):
     path=w.ROOT/'private/profile.md'
     if not path.is_file():path=w.ROOT/'perfil.md'  # Older installations and backups.
     if not path.exists():return ''
-    section=path.read_text(encoding='utf-8').split('## Datos confirmados por Usuario',1)[-1].split('## ',1)[0].strip()
+    text=path.read_text(encoding='utf-8')
+    found=re.search(r'^## Datos confirmados[^\n]*\n',text,flags=re.M)
+    section=(text[found.end():] if found else text).split('## ',1)[0].strip()
     # Operational preferences have their own editable source and must not be duplicated here.
     return '\n'.join(line for line in section.splitlines() if not line.startswith('- Preaviso contractual'))
 
@@ -69,7 +72,7 @@ def cv_stamp(data,key):
 
 def criteria(data,search_profile_id=None):
     result={**DEFAULT_CRITERIA,**data.get('app',{}).get('criteria',{}),
-            'minimumFixed':data['profile'].get('minimumFixed',32000),
+            'minimumFixed':data['profile'].get('minimumFixed'),
             'noticeDays':data['profile'].get('noticeDays',15)}
     if data.get('_discoverySnapshot'):result.update(data['_discoverySnapshot']['criteria'])
     elif search_profile_id or 'searchProfiles' in data.get('app',{}):
@@ -123,15 +126,23 @@ def definitions(data,op_id=None):
     result.update({k:{'key':k,'type':'text','scope':'global',**definition} for k,definition in w.CONTACT_FIELDS.items()})
     result.update({k:{'key':k,'scope':'global',**definition} for k,definition in w.DEMOGRAPHIC_FIELDS.items()})
     result.update({k:{'key':k,'label':f['label'],'type':'boolean','scope':'global'} for k,f in w.AUTO_APPLY_FIELDS.items()})
-    if data.get('app',{}).get('personalized'):
+    if data.get('app') is not None:
         from personalization import context
         if data['profile'].get('workAuthorizations') is None:result['workPermitWithoutSponsorship']['label']='Permiso de trabajo en el destino, sin patrocinio (dato anterior)'
         currency=data['profile'].get('salaryCurrency',context(data)['currency'])
+        if 'searchProfiles' in data['app']:
+            import search_profiles
+            # The label names the currency this offer answers with: the one of its search profile.
+            currency=(search_profiles.offer_form_salary(data,op_id) if op_id else search_profiles.form_salary(data))['salaryCurrency'] or currency
         result['salaryExpectationFixed']['label']='Salario deseado (bruto anual'+(', '+currency if isinstance(currency,str) and currency.strip() else '')+')'
     result['salaryCurrency']={'key':'salaryCurrency','label':'Moneda del salario para formularios','type':'text','scope':'global'}
+    result['currentSalary']={'key':'currentSalary','label':'Salario actual (bruto anual)','type':'number','scope':'global'}
+    result['currentSalaryCurrency']={'key':'currentSalaryCurrency','label':'Moneda del salario actual','type':'text','scope':'global'}
     removed=w.state(data).get('removedProfileFields',{})
     for field in question_catalog(data).values():
         if field['scope']=='global' and field['key'] not in removed:result[field['key']]=field
+    # A universal field keeps its curated wording even if an older catalog entry named it differently.
+    result.update({k:{'key':k,'scope':'global',**f} for k,f in w.UNIVERSAL_FIELDS.items() if k not in removed})
     for field in w.state(data)['drafts'].get(op_id,{}).get('questions',[]):
         result[field['key']]=field
     return result
@@ -176,7 +187,9 @@ def remove_profile_field(data,op):
     if not before['definition'] or before['definition']['scope']!='global' or before['removed']:
         raise ValueError('No hay un campo general actual con esa clave')
     w.expect(before,op.get('expected'))
-    for draft in app['drafts'].values():
+    sent={event['opportunityId'] for event in data.get('events',[]) if event.get('type')=='sent'}
+    for offer,draft in app['drafts'].items():
+        if offer in sent:continue  # Its package keeps the original answers.
         used=set(draft.get('requiredAnswers',[]))|set(draft.get('formAnswerKeys',[]))|set(draft.get('answers',{}))
         used.update(f['key'] for f in draft.get('questions',[]))
         if key in used:
@@ -241,7 +254,6 @@ def handle(data,op):
         if set(values)-set(old):raise ValueError('Preferencia desconocida')
         w.expect({k:old[k] for k in values},op['expected'])
         for k,v in values.items():
-            if k in ('minimumFixed','maxTrips') and v is None and not app.get('personalized'):raise ValueError('Escribe una cantidad entera')
             if k in ('contract','location') and (not isinstance(v,str) or not 1<=len(v.strip())<=300):raise ValueError('Describe la preferencia')
             if k=='maxTrips' and v is not None and (type(v) is not int or not 0<=v<=31):raise ValueError('Revisa el número de viajes')
             if k in ('minimumFixed','noticeDays'):

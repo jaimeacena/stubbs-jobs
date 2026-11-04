@@ -1,6 +1,5 @@
 """Fresh audit regressions. Synthetic files and records only."""
 import copy
-import inspect
 import json
 import os
 import subprocess
@@ -138,6 +137,7 @@ class ExportRecoveryTests(unittest.TestCase):
             data.update(workbookHash=core.digest(b'TEST previously exported workbook'))
             with patch.object(j, 'ROOT', root), patch.object(j, 'DATA', root / 'data'), \
                  patch.object(j, 'WORKBOOK', book), patch.object(j, 'lock', side_effect=nullcontext), \
+                 patch.object(runtime, 'excel_available', return_value=True), \
                  patch.object(j, 'read_store', side_effect=lambda: copy.deepcopy(data)), \
                  patch.object(j, 'recover_export'), \
                  patch.object(j.subprocess, 'run', side_effect=AssertionError('No debe iniciarse la exportación')) as run:
@@ -158,6 +158,7 @@ class ExportRecoveryTests(unittest.TestCase):
                 Path(arguments[-1]).write_bytes(b'TEST rendered workbook')
             with patch.object(j, 'ROOT', root), patch.object(j, 'DATA', root / 'data'), \
                  patch.object(j, 'WORKBOOK', book), patch.object(j, 'lock', side_effect=nullcontext), \
+                 patch.object(runtime, 'excel_available', return_value=True), \
                  patch.object(j, 'read_store', side_effect=lambda: copy.deepcopy(data)), \
                  patch.object(j, 'recover_export'), patch.object(j, 'save_store'), \
                  patch.object(j.subprocess, 'run', side_effect=render):
@@ -192,31 +193,8 @@ class ExportRecoveryTests(unittest.TestCase):
                 self.assertEqual(server.export_view(data)['status'], 'ok')
 
 
-# The generic edition starts with init and deliberately disables the personal Excel migration.
-PERSONAL_MIGRATION = 'datos históricos de otra persona' not in inspect.getsource(j.migrate)
-
-
-@unittest.skipUnless(PERSONAL_MIGRATION, 'La edición genérica empieza con init; no migra un Excel personal')
-class MigrationValidationTests(unittest.TestCase):
-    def test_invalid_workbook_is_preserved_and_never_published_as_registry(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            book = root / 'TEST-invalid.xlsx'
-            original = b'TEST original workbook'
-            book.write_bytes(original)
-            sheets = fixture()['sheets']
-            sheets['Oportunidades'][0]['Prioridad'] = 'B'
-            sheets['Oportunidades'].append(copy.deepcopy(sheets['Oportunidades'][0]))
-            with patch.object(j, 'DATA', root / 'data'), patch.object(j, 'STORE', root / 'data/registry.json'), \
-                 patch.object(j, 'WORKBOOK', book), patch.object(j, 'read_xlsx', return_value=sheets), \
-                 patch.object(j, 'save_store') as save:
-                with self.assertRaisesRegex(ValueError, 'duplicados'):
-                    j.migrate()
-                save.assert_not_called()
-            self.assertEqual(book.read_bytes(), original)
-            self.assertEqual((root / 'data/migration' / (core.digest(original) + '.xlsx')).read_bytes(), original)
-
-    def test_real_fictional_export_reopens_and_migrates_without_losing_records(self):
+class ExcelExportTests(unittest.TestCase):
+    def test_real_fictional_export_reopens_without_losing_records(self):
         project = Path(__file__).resolve().parents[1]
         if not runtime.excel_available(project):
             self.skipTest('La integración Excel requiere Node y artifact-tool disponibles')
@@ -255,19 +233,7 @@ class MigrationValidationTests(unittest.TestCase):
                             self.assertIn(actual.get(key), (None, ''), (name, key))
                         else:
                             self.assertEqual(actual.get(key), value, (name, key))
-            with patch.object(j, 'ROOT', root), patch.object(j, 'DATA', root / 'data'), \
-                 patch.object(j, 'STORE', root / 'data/registry.json'), patch.object(j, 'WORKBOOK', book), \
-                 patch.object(j, 'save_store', side_effect=lambda value: core.save_store(value, root / 'data/registry.json')):
-                migrated = j.migrate()
-            saved = core.read_store(root / 'data/registry.json')
-            self.assertEqual(saved['sheets'], migrated['sheets'])
-            for name in ('Entradas', 'Evidencias', 'Actividad', 'Fuentes'):
-                self.assertEqual(migrated['sheets'][name], extracted[name])
-            self.assertEqual(migrated['sheets']['Oportunidades'][0]['ID'], 'one')
-            self.assertEqual(migrated['sheets']['Oportunidades'][0]['Empresa'], 'Example')
             self.assertEqual(book.read_bytes(), raw)
-            self.assertEqual((root / 'data/migration' / (core.digest(raw) + '.xlsx')).read_bytes(), raw)
-            self.assertEqual(json.loads((root / 'data/migration/original-sheets.json').read_text(encoding='utf-8')), extracted)
             self.assertEqual(len(list((root / 'previews').glob('*.png'))), 9)
 
 

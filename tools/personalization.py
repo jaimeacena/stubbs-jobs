@@ -9,7 +9,7 @@ SEARCH_PLATFORMS=('linkedin','infojobs','indeed','tecnoempleo','glassdoor','empr
 FIT_CONTEXT={'targetRoles','keywords','searchPriorities','requiredSchedule','regions','workMode','onsiteLocations','languages','currency','previousApplications','searchNotes'}
 # Optional schedule minimum; '' or none keeps the schedule as a preference only.
 SCHEDULE_REQUIREMENTS=('','none','morning','afternoon','continuous')
-CONTEXT={'name':'','targetRoles':'','keywords':'','searchPriorities':'','requiredSchedule':'','searchNotes':'','regions':'','workMode':'','onsiteLocations':'','languages':'','currency':'EUR','previousApplications':'','sourceUrls':'','platforms':'','checkMail':False}
+CONTEXT={'name':'','targetRoles':'','keywords':'','searchPriorities':'','requiredSchedule':'','searchNotes':'','cvGuidelines':'','regions':'','workMode':'','onsiteLocations':'','languages':'','currency':'EUR','previousApplications':'','sourceUrls':'','followedSources':'','excludedPortals':'','platforms':'','checkMail':False}
 
 def validate_work_authorizations(value):
     if value is None:return
@@ -128,15 +128,19 @@ def validate_context(values):
     for key,value in values.items():
         if key=='checkMail':
             if value is not False:raise ValueError('La búsqueda en correo se ha retirado de Stubbs Jobs')
-        elif not isinstance(value,str) or len(value)>(10000 if key=='previousApplications' else 3000):raise ValueError('Revisa los datos de búsqueda')
+        elif not isinstance(value,str) or len(value)>(10000 if key=='previousApplications' else 6000 if key=='followedSources' else 3000):raise ValueError('Revisa los datos de búsqueda')
     if values.get('currency') and not re.fullmatch('[A-Z]{3}',values['currency']):raise ValueError('Usa un código de moneda de tres letras, como EUR o USD')
     if 'requiredSchedule' in values and values['requiredSchedule'] not in SCHEDULE_REQUIREMENTS:raise ValueError('Elige un horario obligatorio de la lista')
     if 'platforms' in values:
         chosen=values['platforms'].split(',') if values['platforms'] else []
         if len(chosen)!=len(set(chosen)) or any(item not in SEARCH_PLATFORMS for item in chosen):
             raise ValueError('Elige plataformas de búsqueda válidas')
-    for url in values.get('sourceUrls','').splitlines():
-        if url.strip():validate_public_source_url(url.strip())
+    if values.get('excludedPortals'):
+        from portal_plans import PORTAL_IDS
+        if set(values['excludedPortals'].split(','))-PORTAL_IDS:raise ValueError('Elige portales válidos')
+    for name in ('sourceUrls','followedSources'):
+        for url in str(values.get(name) or '').splitlines():
+            if url.strip():validate_public_source_url(url.strip())
 
 def validate_url(url):
     p=urlsplit(url)
@@ -206,22 +210,29 @@ def public_sources(data, include_disabled=False):
     Boards the person stopped checking (app.disabledSources) are left out unless asked."""
     links=[link.strip() for link in context(data)['sourceUrls'].splitlines() if link.strip()]
     sources=[]
+    def linked(link):
+        validate_public_source_url(link)
+        parts=urlsplit(link);segments=parts.path.strip('/').split('/')
+        source={'id':'source-'+digest(link)[:12],'company':parts.hostname,'kind':'html','url':link,'enabled':True}
+        portal=portal_board(link)
+        if parts.hostname in ('boards.greenhouse.io','job-boards.greenhouse.io') and segments[0]:source.update(kind='greenhouse',board=segments[0])
+        elif parts.hostname=='jobs.ashbyhq.com' and segments[0]:source.update(kind='ashby',board=segments[0])
+        # The shared portal host does not name the company; its identifier does.
+        elif portal:source.update(portal,company=portal['board'])
+        return source
     if not links:
         configured=json.loads((ROOT/'config/sources.json').read_text(encoding='utf-8'))
         sources=list(validate_source_configuration(configured))
+        # Companies followed in this search add to the portals and to this copy's own list.
+        seen={source.get('url') for source in sources}|{(source.get('kind'),source.get('board')) for source in sources}
+        for link in dict.fromkeys(line.strip() for line in str(context(data).get('followedSources') or '').splitlines() if line.strip()):
+            source=linked(link)
+            if source.get('url') not in seen and (source.get('kind'),source.get('board')) not in seen:
+                sources.append(source);seen.add(source.get('url'));seen.add((source.get('kind'),source.get('board')))
     if links:
         sources=[]
         for link in links:
-            link=link.strip()
-            if not link:continue
-            validate_public_source_url(link)
-            parts=urlsplit(link);segments=parts.path.strip('/').split('/')
-            source={'id':'source-'+digest(link)[:12],'company':parts.hostname,'kind':'html','url':link,'enabled':True}
-            portal=portal_board(link)
-            if parts.hostname in ('boards.greenhouse.io','job-boards.greenhouse.io') and segments[0]:source.update(kind='greenhouse',board=segments[0])
-            elif parts.hostname=='jobs.ashbyhq.com' and segments[0]:source.update(kind='ashby',board=segments[0])
-            # The shared portal host does not name the company; its identifier does.
-            elif portal:source.update(portal,company=portal['board'])
+            source=linked(link)
             if not any(existing.get('url')==link for existing in sources):sources.append(source)
     disabled = {} if include_disabled else data.get('app', {}).get('disabledSources', {})
     return [source for source in validate_source_configuration(sources) if source.get('enabled') and source['id'] not in disabled]
@@ -234,6 +245,10 @@ def handle(data,op):
     if search_profiles.handle(data,op):return True
     import onboarding
     if onboarding.handle(data,op):return True
+    import agent_tools
+    if agent_tools.handle(data,op):return True
+    import skills,answer_bank
+    if skills.handle(data,op) or answer_bank.handle(data,op):return True
     if kind=='ui-email-verification-settings':
         current=application_verification(data)
         w.expect({k:current[k] for k in ('enabled','account')},op.get('expected'))
@@ -265,10 +280,12 @@ def handle(data,op):
         return True
     if kind=='ui-profile-section':
         if 'expectedRevision' in op:w.expect(data['revision'],op['expectedRevision'])
+        # Migrating fills the common salary currency: expectations refer to what the person saw before.
+        salary_before=None if 'searchProfiles' in app else search_profiles.form_salary(data)
         if op.get('searchProfileId'):search_profiles.migrate(data)
-        personal=set(w.PERSONAL)|set(w.CONTACT_FIELDS)|set(w.DEMOGRAPHIC_FIELDS)|set(w.AUTO_APPLY_FIELDS)|{'workAuthorizations','salaryCurrency'}|{k for k,f in c.definitions(data).items() if k.startswith('custom_') and f['scope']=='global'}
-        groups={'about':{'name','noticeDays'}|personal,'search':set(search_profiles.SEARCH_FIELDS)|{'languages','previousApplications','salaryExpectationFixed','salaryCurrency'}|set(c.criteria(data)),
-                'sources':{'sourceUrls','checkMail','platforms'}}
+        personal=set(w.PERSONAL)|set(w.CONTACT_FIELDS)|set(w.DEMOGRAPHIC_FIELDS)|set(w.AUTO_APPLY_FIELDS)|{'workAuthorizations','salaryCurrency',*w.CURRENT_SALARY}|{k for k,f in c.definitions(data).items() if k.startswith('custom_') and f['scope']=='global'}
+        groups={'about':{'name','noticeDays'}|personal,'search':set(search_profiles.SEARCH_FIELDS)|{'languages','previousApplications','cvGuidelines','salaryExpectationFixed','salaryCurrency'}|set(c.criteria(data)),
+                'sources':{'sourceUrls','followedSources','excludedPortals','checkMail','platforms'}}
         values=op['values'];section=op.get('section')
         if section not in groups or not isinstance(values,dict) or set(values)-groups[section]:raise ValueError('Ese dato no pertenece a esta sección del perfil')
         profile_id=op.get('searchProfileId')
@@ -276,13 +293,21 @@ def handle(data,op):
             if len(search_profiles.profiles(data))!=1:
                 raise ValueError('Indica searchProfileId: hay varios perfiles de búsqueda')
             profile_id=search_profiles.get(data)['id']
-        old={**context(data,profile_id),**data['profile'],**c.criteria(data,profile_id)}
+        old={**context(data,profile_id),**data['profile'],**w.current_salary(data['profile']),**c.criteria(data,profile_id)}
+        if 'searchProfiles' in app:
+            if section=='about' and set(values)&set(search_profiles.FORM_SALARY):
+                raise ValueError('El salario para formularios se guarda en cada perfil de búsqueda, en Lo que busco')
+            if section=='search':old.update(salary_before or search_profiles.form_salary(data,profile_id))
         w.expect({k:old.get(k) for k in values},op['expected'])
         changed={k:v for k,v in values.items() if old.get(k)!=v}
         undo_start=len(app['undo'])
         # The writer applies this entire operation to a copy: conflicts or invalid
         # values in any group roll back all groups together.
-        for fields,operation in ((set(CONTEXT),'ui-search-context'),(set(c.criteria(data)),'ui-preferences'),(personal,'ui-profile')):
+        salary={k:v for k,v in values.items() if k in search_profiles.FORM_SALARY} if section=='search' and 'searchProfiles' in app else {}
+        if salary:
+            for k,v in salary.items():w.validate_answer(k,v)
+            search_profiles.set_form_salary(data,profile_id,salary)
+        for fields,operation in ((set(CONTEXT),'ui-search-context'),(set(c.criteria(data)),'ui-preferences'),(personal-set(salary),'ui-profile')):
             subset={k:v for k,v in values.items() if k in fields}
             if subset:
                 child={'kind':operation,'values':subset,'expected':{k:old.get(k) for k in subset},'actor':actor,'scope':'global'}
@@ -305,7 +330,7 @@ def handle(data,op):
         app['assistantMode']='external';w.record(data,'Asistente actualizado',actor=actor)
         return True
     if kind=='ui-onboarding':
-        if app.get('setupComplete',True):raise ValueError('El perfil ya está configurado; edítalo desde Perfil')
+        if app.get('setupComplete',True):raise ValueError('El perfil ya está preparado; puedes editarlo en Mi perfil')
         values=op['values'];expected=op.get('expected',False);w.expect(app.get('setupComplete',False),expected)
         onboarding.confirm(data,op)
         validate_initial(values,data=data)
@@ -324,6 +349,10 @@ def handle(data,op):
         if 'workAuthorizations' in values:
             data['profile']['workPermitWithoutSponsorship']=True if values['workAuthorizations'] and any(v in ('España','Unión Europea') for v in values['workAuthorizations']) else None
         app['setupComplete']=True;onboarding.completed(data,op);w.record(data,'Perfil inicial guardado',actor=actor)
+        # A new person starts with one real search profile, the same way of working
+        # as everybody else; the one currency confirmed in the interview covers both salaries.
+        search_profiles.migrate(data)
+        app['searchProfiles'][0]['name']='Mi búsqueda'
         return True
     if kind=='ui-search-context':
         old=context(data,op.get('searchProfileId'));values=op['values'];validate_context(values)

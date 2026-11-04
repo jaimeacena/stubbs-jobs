@@ -18,11 +18,11 @@ const flowScreens=['perfil','solicitar','agente'];
 const flowFilters={solicitar:'todas'};
 const tableState={solicitar:{sort:'',direction:1,filters:{},choices:{}},encontrar:{sort:'',direction:1,filters:{},choices:{}}};
 const tableSelection=new Set();let bulkSelectionMode=false,bulkReviewSnapshots=[],bulkReviewTotal=0,bulkEditor=null,offerTour=null;
-const profileSections=[['profile-about','Sobre mi'],['profile-work','Lo que busco'],['profile-cv','Currículums']];
-function canonicalProfileSection(id){return ({'profile-experience':'profile-about','search-settings-criteria':'profile-work','search-settings-sources':'profile-work','profile-previous':'profile-work','perfil-previous':'profile-work'})[id]||id;}
-let profileSection='profile-about',openFilterMenu=null;
+const profileSections=[['profile-about','Datos personales'],['profile-experience','Experiencia'],['profile-work','Lo que busco'],['profile-cv','Currículums'],['profile-answers','Respuestas guardadas'],['profile-permissions','Permisos']];
+function canonicalProfileSection(id){return ({'search-settings-criteria':'profile-work','search-settings-sources':'profile-work','profile-previous':'profile-work','perfil-previous':'profile-work'})[id]||id;}
+let profileSection='profile-about',profileSectionRestored=false,profileSaveProblem='',openFilterMenu=null;
 let searchProfileId=null,offerProfileFilter='';
-const openCvCards=new Set(),anonymousCvKeys=new WeakMap();let anonymousCvSequence=0;
+const anonymousCvKeys=new WeakMap();let anonymousCvSequence=0;
 let draftNeedsReview=false,draftRepaintQueued=false,rendering=false;
 const draftUpdateNotice='Hay datos nuevos. Tu borrador se conserva.';
 let viewMemory={};try{viewMemory=JSON.parse(sessionStorage.getItem('stubbs_jobs-views')||'{}');}catch{}
@@ -48,13 +48,11 @@ function viewScroll(){
 let model=null, screen='solicitar', selected=null, dirty=false, conflict=null, filterText='', caseReturn='solicitar', findReturn='solicitar', auxReturn='agente', pollTimer;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fieldLabel=v=>String(v??'').replace(/^Sueldo\b/,'Salario').replace(/^Candidaturas\b/,'Solicitudes');
-const date=v=>{if(!v)return 'Sin comprobar';const at=window.StubbsJobsFormatting.tableTimestamp(v);return at===null?'Fecha no válida':new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:String(v).includes('T')?'short':undefined,timeZone:model?.personalized?undefined:'Europe/Madrid'}).format(at);};
+const date=v=>{if(!v)return 'Sin comprobar';const at=window.StubbsJobsFormatting.tableTimestamp(v);return at===null?'Fecha no válida':new Intl.DateTimeFormat('es-ES',{dateStyle:'medium',timeStyle:String(v).includes('T')?'short':undefined,timeZone:undefined}).format(at);};
 const isHttpUrl=value=>/^https?:\/\//i.test(value||'');
 const url=value=>isHttpUrl(value)?esc(value):'#';
 const getJob=id=>model?.opportunities.find(x=>x.id===id)||(model?UI.archive(model).find(x=>x.id===id):null);
 const active=UI.active;
-const labels={queued:'Pendiente del agente',running:'En curso',blocked:'Necesita intervención',interrupted:'Interrumpido',done:'Terminado',cancelled:'Cancelado'};
-const requestNames={change:'Aplicar tus cambios',review:'Preparar solicitud',investigate:'Comprobar oferta',send:'Enviar solicitud',mail:'Revisión de correo anterior',discovery:'Buscar ofertas'};
 const requestModes={review:{label:'Solicitar con revisión',icon:'eye'},auto:{label:'Auto-solicitud',icon:'bot'}};
 const platformNames={linkedin:'LinkedIn',infojobs:'InfoJobs',indeed:'Indeed',tecnoempleo:'Tecnoempleo',empresas:'Web',glassdoor:'Glassdoor'};
 function lastUserUndo(){return (model?.undo||[]).filter(item=>['Usuario','Usuario'].includes(item.actor)).at(-1);}
@@ -83,7 +81,7 @@ function acceptState(next){
   if(offerProfileFilter&&!next.searchProfiles.some(p=>p.id===offerProfileFilter))offerProfileFilter='';
   window.StubbsJobsDrafts.bindSearchProfile(draftStorage,'search-current');
  }
- model=next;UI.configure({personalized:next.personalized});return true;
+ model=next;return true;
 }
 function captureFocus(element=document.activeElement){
  if(!element||!main.contains(element)&&!columnMenuFor(element))return null;
@@ -120,9 +118,13 @@ function repaintRevertedDraft(){
  Promise.resolve().then(()=>{draftRepaintQueued=false;if(view!==screen+'/'+(selected||'')||rendering||saving||profileSaving||actionBusy||dirty||!draftNeedsReview)return;clearDraftUpdateNotice();render(true);});
 }
 function profileFieldSection(kind,key){
- if(kind==='about'||kind==='experience'||key==='languages')return 'profile-about';
+ if(key==='cvGuidelines')return 'profile-cv';
+ if(AUTO_PERMISSION_KEYS().has(key))return 'profile-permissions';
+ if(kind==='experience'||key==='languages')return 'profile-experience';
+ if(kind==='about'){const layout=aboutLayout();if(layout.education.includes(key))return 'profile-experience';if(layout.answers.flat().includes(key))return 'profile-answers';return 'profile-about';}
  return 'profile-work';
 }
+function AUTO_PERMISSION_KEYS(){return new Set(permissionGroups().flatMap(group=>group.items.map(item=>item.key)));}
 function profileChangedSections(forms=visibleForms()){
  const changed=new Set();for(const form of forms.filter(form=>form._dirty)){
   const values=formValues(form),fields=Object.keys(values).filter(key=>!sameFieldValue(values[key],form._shown[key]));
@@ -136,19 +138,30 @@ function syncDirty(){
  const warning=document.querySelector('#storage-warning');if(warning)warning.hidden=!storageProblem;
  const bar=main.querySelector('[data-profile-savebar]'),button=bar?.querySelector('[data-save-profile]');
  if(bar){bar.hidden=!dirty&&!profileSaving;bar.setAttribute('aria-busy',String(profileSaving));if(button){button.disabled=profileSaving||saving||actionBusy;button.textContent=profileSaving?'Guardando…':'Guardar cambios';}}
- const pending=main.querySelector('[data-profile-pending]');if(pending){const changed=profileChangedSections();pending.textContent=changed.length?'Cambios en '+changed.join(', '):profileSaving?'Guardando tus cambios…':'Cambios sin guardar';}
+ const pending=main.querySelector('[data-profile-pending]');bar?.classList?.toggle('profile-savebar--problem',Boolean(profileSaveProblem&&dirty));if(pending){const changed=profileChangedSections();pending.textContent=profileSaveProblem&&dirty?profileSaveProblem:changed.length?'Cambios en '+changed.map(label=>label==='Lo que busco'&&model.searchProfiles?.length>1&&currentSearchProfile()?`Lo que busco (${currentSearchProfile().name})`:label).join(', '):profileSaving?'Guardando tus cambios…':'Cambios sin guardar';for(const link of main.querySelectorAll('[data-profile-section]'))link.classList?.toggle('profile-nav-unsaved',changed.includes(profileSections.find(([id])=>id===link.dataset.profileSection)?.[1]));}
  main.querySelector('.profile-layout')?.classList?.toggle('profile-layout--pending',Boolean(bar&&!bar.hidden));
  const upload=main.querySelector('#cv-upload');if(upload)upload.disabled=profileSaving||saving;
  for(const copy of document.querySelectorAll('[data-copy-agent-command]'))copy.textContent=copy.dataset.copyLabel||'Copiar petición';
 }
 function rememberForm(form=main.querySelector('form[data-form]')){if(!form)return;const key=draftKey(form),values=Object.fromEntries(new FormData(form));try{const previous=JSON.parse(draftStorage.getItem(key)||'null');const current=formValues(form);const changed=Object.keys(current).some(k=>!sameFieldValue(current[k],form._shown[k]));if(!changed&&!previous?.attempt){draftStorage.removeItem(key);form._dirty=false;const info=formFeedback(form,'.form-info');if(info)info.textContent='';}else{draftStorage.setItem(key,JSON.stringify({values,expected:form._expected,shown:form._shown,attempt:previous?.attempt||null}));form._dirty=true;const info=formFeedback(form,'.form-info');if(info)info.textContent=previous?.attempt?'Guardado pendiente de confirmar. Vuelve a guardar para comprobarlo.':screen==='perfil'&&!selected?'':'Cambios sin guardar.';}}catch{form._dirty=true;}syncDirty();updateSave(form);}
 function rememberAllForms(){for(const form of visibleForms())rememberForm(form);}
+// Comparable text for a value that may come from a form (text) or from the state (number, list, null).
+function draftPlain(value){return value===null||value===undefined||value==='null'?'':Array.isArray(value)?JSON.stringify(value):String(value).trim();}
+// What a save must really change: a value already saved never travels, so an old one cannot block the rest.
+function unsavedValues(form,values,stored){
+ const changed=changedFormValues(form,values);
+ if(stored.attempt||!['about','search','sources'].includes(form.dataset.form))return changed;
+ const source=formSource(form.dataset.form);
+ return Object.fromEntries(Object.entries(changed).filter(([key,value])=>draftPlain(value)!==draftPlain(source[key])));
+}
 function restoreForm(form=main.querySelector('form[data-form]')){
  if(!form)return;
  try{
   const stored=JSON.parse(draftStorage.getItem(draftKey(form))||'null');if(!stored)return;
+  const source=formSource(form.dataset.form),touched=key=>Boolean(stored.attempt)||draftPlain(stored.values[key])!==draftPlain(stored.shown?.[key])&&draftPlain(stored.values[key])!==draftPlain(source[key]);
+  const only=values=>Object.fromEntries(Object.entries(values||{}).filter(([key])=>touched(key)));
   for(const [key,value] of Object.entries(stored.values)){
-   const field=form.elements.namedItem(key);if(!field)continue;
+   const field=form.elements.namedItem(key);if(!field||!touched(key))continue;
    const shownValue=key==='demographicSurveyParticipation'&&field.dataset.type==='choice'&&['true','false'].includes(String(value))?surveyMode(String(value)==='true'):value;
    // A previous text answer or boolean draft must survive a switch to options.
    if(field.tagName==='SELECT'&&field.options&&shownValue!==null&&shownValue!==''&&![...field.options].some(option=>option.value===String(shownValue))){
@@ -156,7 +169,7 @@ function restoreForm(form=main.querySelector('form[data-form]')){
    }
    field.value=shownValue;
   }
-  form._expected={...form._expected,...stored.expected};form._shown={...form._shown,...stored.shown};
+  form._expected={...form._expected,...only(stored.expected)};form._shown={...form._shown,...only(stored.shown)};
   projectSurveyShown(form);
   if(form.dataset.form==='search'&&Object.hasOwn(stored.values,'regions')){
    const source=formSource('search');
@@ -198,6 +211,8 @@ async function refresh(force=false,{deferRender=false}={}){
   if(screen==='configurar'&&model.setupComplete!==false){screen=model.onboarding?.needsWelcome?'preparado':'solicitar';selected=null;window.history.replaceState(null,'','#'+screen);toast('Tu perfil está confirmado y guardado.');}
   if(dirty){if(changed)draftNeedsReview=true;connection.textContent=draftNeedsReview?draftUpdateNotice:'';return;}
   clearDraftUpdateNotice();
+  // Years and answer searches save apart from the page: never replace them while typing.
+  if(document.activeElement?.dataset?.knowledge!==undefined){stateVersion=null;return;}
   if(!deferRender)render(true);
  }catch(error){connection.textContent=error.message;if(!model)main.innerHTML='<div class="empty-state"><h1>No se pudo cargar Stubbs Jobs</h1><p>Abre la app desde el acceso de su carpeta y vuelve a intentarlo.</p><button data-refresh-state="1">Reintentar</button></div>';}})();
  try{await refreshInFlight;}finally{refreshInFlight=null;}
@@ -205,18 +220,23 @@ async function refresh(force=false,{deferRender=false}={}){
 async function poll(){await refresh();pollTimer=setTimeout(poll,document.hidden?30000:6000);}
 async function setScreen(next,id=null,push=true,targetSection=null,sourceElement=null,move=null){
   if(saving||actionBusy||profileSaving){toast("Espera a que termine de guardar.");return;}
-  rememberCvCards();
+  const staysInProfile=!id&&['perfil','buscar','ajustes','cv','datos','busqueda','fuentes','experiencia','contexto','preferencias','antecedentes','search-settings-criteria','search-settings-sources','profile-previous','perfil-previous',...profileSections.map(([section])=>section)].includes(next);
+  if(screen==='perfil'&&!selected&&dirty&&!staysInProfile&&!await settleUnsavedProfile('Has cambiado {sections}. ¿Qué quieres hacer antes de salir de Mi perfil?','Guardar y salir')){
+   if(!push)window.history.pushState(null,'','#perfil');
+   return;
+  }
   const serial=++navigationSerial;
   const offerOrigin=sourceElement||(next==='detalle'&&id&&['solicitar','encontrar'].includes(screen)?[...main.querySelectorAll('[data-job]')].find(button=>button.dataset.job===id):null);
   if(navigationReady)viewMemory[screen+'/'+(selected||'')]={filterText,...viewScroll(),focus:captureFocus(offerOrigin)||captureFocus()||viewMemory[screen+'/'+(selected||'')]?.focus,limit:historyLimit,activityDays:activityDayLimit};
   closeColumnMenu();
   workspaceSession.setItem('stubbs_jobs-views',JSON.stringify(viewMemory));
-  if(dirty){rememberAllForms();toast('Borrador conservado.');}
+  if(dirty){rememberAllForms();if(!staysInProfile)toast('Borrador conservado.');}
   const profileRoutes=Object.fromEntries([...profileSections.map(([id])=>id),'profile-experience','profile-cv','search-settings-criteria','search-settings-sources','profile-previous','perfil-previous'].map(id=>[id,'perfil']));
   const aliases={hoy:'solicitar',inicio:'solicitar',ofertas:'solicitar',resumen:'agente',buscar:'perfil',candidaturas:'solicitar',elegir:'solicitar',seguir:'solicitar',seguimiento:'solicitar',historial:'solicitar',ajustes:'perfil',salud:'comprobaciones',tabla:'solicitar',cv:'perfil',asistente:'copias',ayuda:'copias',datos:'perfil',busqueda:'perfil',fuentes:'perfil',experiencia:'perfil',contexto:'perfil',preferencias:'perfil',antecedentes:'perfil',autonomia:'solicitar','opciones-solicitud':'solicitar',...profileRoutes};
-  const original=next,sectionTargets={buscar:'profile-work',datos:'profile-about',busqueda:'profile-work',fuentes:'profile-work',experiencia:'profile-about',cv:'profile-cv',contexto:'profile-work',preferencias:'profile-work',antecedentes:'profile-previous'};
+  const original=next,sectionTargets={buscar:'profile-work',datos:'profile-about',busqueda:'profile-work',fuentes:'profile-work',experiencia:'profile-experience',cv:'profile-cv',contexto:'profile-work',preferencias:'profile-work',antecedentes:'profile-previous'};
   const requestedSection=targetSection||sectionTargets[original]||(profileRoutes[original]?original:null),previousTarget=['profile-previous','perfil-previous','search-field-previousApplications'].includes(requestedSection);
   targetSection=canonicalProfileSection(previousTarget?'profile-work':requestedSection);next=aliases[next]||next;
+  if(next==='perfil'&&profileSections.some(([section])=>section===targetSection)){profileSection=targetSection;profileSectionRestored=true;}
   if(next==='comprobaciones'){
    next=id&&getJob(id)?'detalle':'agente';
    if(next==='agente')id=null;
@@ -261,6 +281,12 @@ async function route(){
   const [page,id]=location.hash.slice(1).split('/');
   if(page==='main'){main.focus();return;}
   let decoded=null;try{decoded=id?decodeURIComponent(id):null;}catch{toast('El enlace no es válido. Mostramos tus ofertas.');}
+  if(page==='profile-cv'&&decoded){
+   const inProfile=screen==='perfil'&&!selected;cvDetail=decoded;profileSection='profile-cv';profileSectionRestored=true;
+   if(inProfile){rememberAllForms();render(true);}else await setScreen('perfil',null,false,'profile-cv');
+   return;
+  }
+  if(page==='perfil'&&cvDetail&&screen==='perfil'&&!selected){closeCvDetail(false);return;}
   await setScreen(page||(model?.setupComplete===false?'configurar':model?.onboarding?.needsWelcome?'preparado':'solicitar'),decoded,false);
 }
 function historyTitle(value){return window.StubbsJobsActivity.title(typeof value==='object'?value:{title:value});}
@@ -287,26 +313,50 @@ function setupAgentPrompt(){
 
 Sigue docs/getting-started.md y comprueba el acceso a la carpeta y sus herramientas. Retoma el avance guardado y hazme una entrevista breve para confirmar primero los datos esenciales de la búsqueda: ayúdame con los CV que adjunte, pregunta solo por lo necesario ahora y conserva los demás datos como pendientes y confirma qué quiero dejar en blanco.
 
-Muéstrame el resumen antes de guardar solo lo que confirme. Si ya tengo perfil, no repitas la entrevista. No busques ofertas ni envíes solicitudes todavía.`;
+Muéstrame el resumen antes de guardar solo lo que confirme. Después, guíame paso a paso para conectar mi navegador y mi correo. Si ya tengo perfil, no repitas la entrevista. No busques ofertas ni envíes solicitudes todavía.`;
+}
+function toolsAgentPrompt(){
+ return `Guíame paso a paso, de una en una, para conectar las herramientas pendientes de Stubbs Jobs, siguiendo docs/agent-tools.md en esta carpeta: ${model.workspacePath||'[ubicación aún no disponible]'}.
+
+Soy principiante: dime exactamente dónde pulsar, comprueba tú que cada conexión funciona y registra el resultado. Si alguna no está disponible, dime qué cambia y sigue. No busques ofertas ni envíes solicitudes.`;
+}
+function toolsPending(){return (model.agentTools?.tools||[]).filter(tool=>model.agentTools.pending.includes(tool.key));}
+function toolsList(tools){
+ return `<ul class="tools-list">${tools.map(tool=>`<li><strong>${esc(tool.label)}</strong> <span class="muted">· ${esc(tool.statusText)}</span><br>${esc(tool.why)}</li>`).join('')}</ul>`;
+}
+function toolsCopyButton(primary=true){return `<button${primary?' class="primary"':''} data-copy-tools="1">Copiar mensaje para mi agente</button>`;}
+// Recommended, never required: the person can use the app and search without them.
+function toolsWelcome(){
+ const tools=toolsPending();if(!tools.length)return '';
+ return `<section class="setup-tools" aria-labelledby="setup-tools-title"><h2 id="setup-tools-title">Antes de tu primera búsqueda, conecta tus herramientas</h2><p>Tu agente trabajará mejor y te pedirá menos cosas. Copia este mensaje en el mismo chat: te guiará paso a paso.</p>${toolsList(tools)}${toolsCopyButton()}</section>`;
+}
+function toolsNotice(){
+ const tools=toolsPending();if(!tools.length)return '';
+ return `<details class="tools-notice"><summary>Recomendado: conecta ${tools.length===1?`${tools[0].key==='mail'?'tu correo':'la extensión de tu navegador'}`:'tu navegador y tu correo'} para mejores resultados</summary>${toolsList(tools)}<p class="helper">Pega este mensaje en el chat de tu agente y te guiará paso a paso.</p>${toolsCopyButton(false)}</details>`;
+}
+function setupAgentHelp(){
+ return `<p class="setup-agent-help"><strong>¿Aún no tienes un agente de IA?</strong> Instala la <a href="https://claude.com/download" target="_blank" rel="noopener">app de escritorio de Claude</a> y abre su pestaña Code, o usa la app de ChatGPT con Codex. Los chats web, como claude.ai o chatgpt.com, no pueden trabajar con esta carpeta. El coste depende de cada servicio; conectar tu navegador puede requerir un plan de pago.</p>`;
 }
 function setupOperation(kind){const state=model.onboarding;return {kind,workspaceId:state.workspaceId,token:state.token,expected:state.revision};}
 function setupForm(){
  const state=model.onboarding||{status:'waiting'},status=state.status;
  const path=typeof model.workspacePath==='string'?model.workspacePath:'',available=Boolean(path.trim());
  const progress={access_checked:'Carpeta comprobada. Continúa en el chat.',preparing:state.coverage?.complete?'Continúa en el chat para revisar el resumen.':'Responde a lo pendiente en el chat; puedes dejar datos en blanco.',awaiting_confirmation:'Revisa el resumen en el chat y confírmalo o pide cambios.',blocked:state.summary||'Consulta el chat para resolver el paso pendiente.'};
- const coverage=state.coverage&&status!=='waiting'?`${state.coverage.provided+state.coverage.blank} de ${state.coverage.total} aspectos del perfil tratados.${state.coverage.blank?` ${state.coverage.blank} dejado${state.coverage.blank===1?'':'s'} en blanco por tu decisión.`:''}`:'';
+ const needed=state.coverage?.requiredTotal,coverage=state.coverage&&status!=='waiting'&&Number.isInteger(needed)?`${needed-(state.coverage.requiredPending||0)} de ${needed} datos necesarios tratados.${state.coverage.blank?` ${state.coverage.blank} dejado${state.coverage.blank===1?'':'s'} en blanco por tu decisión.`:''}`:'';
+ // Once a chat has started the interview, the only thing left to do here is follow it or move it.
+ const steps=state.executionId?'':`<section class="setup-instructions"><h2><span class="setup-step" aria-hidden="true">1</span> Añade esta carpeta como proyecto en tu agente de IA</h2><div class="copy-line"><code>${esc(available?path:'Cargando ubicación…')}</code><button data-copy-path="1"${available?'':' disabled'}>Copiar ubicación</button></div><h2><span class="setup-step" aria-hidden="true">2</span> Pega este mensaje en un chat dentro de tu nuevo proyecto para preparar tu perfil</h2><pre id="setup-message" class="setup-message" tabindex="0" aria-label="Mensaje para tu agente">${esc(setupAgentPrompt())}</pre>${setupCopyButton('Copiar mensaje',available)}</section>`;
  const current=progress[status]?`<p class="setup-coverage" role="status">${esc(progress[status])}${coverage?` <span>${esc(coverage)}</span>`:''}</p>`:'';
- return `<div class="welcome-view setup-view"><h1>Empieza con Stubbs Jobs</h1><p class="lead">Encuentra ofertas a tu medida y prepara tus solicitudes con tu agente de IA. Tú decides dónde solicitar.</p>${current}${typeof model.syncedFolder==='string'&&model.syncedFolder?`<p class="setup-warning" role="alert">Esta carpeta está dentro de ${esc(model.syncedFolder)}. Para evitar copias en conflicto de tus datos, cierra la app y mueve la carpeta completa a una ubicación local sin sincronizar, como C:\\StubbsJobs.</p>`:''}<section class="setup-instructions"><h2><span class="setup-step" aria-hidden="true">1</span> Añade esta carpeta como proyecto en tu agente de IA</h2><div class="copy-line"><code>${esc(available?path:'Cargando ubicación…')}</code><button data-copy-path="1"${available?'':' disabled'}>Copiar ubicación</button></div><h2><span class="setup-step" aria-hidden="true">2</span> Pega este mensaje en un chat dentro de tu nuevo proyecto para empezar el on-boarding</h2><pre id="setup-message" class="setup-message" tabindex="0" aria-label="Mensaje para tu agente">${esc(setupAgentPrompt())}</pre>${setupCopyButton('Copiar mensaje',available)}</section>${state.executionId?`<section class="setup-resume" aria-labelledby="setup-resume-title"><h2 id="setup-resume-title">Si cambias de chat, retoma aquí antes de continuar</h2><p>Conserva tus respuestas y CV y retira al chat anterior el acceso a esta preparación.</p><button data-setup-retry="1">Retomar en otro chat</button></section>`:''}</div>`;
+ return `<div class="welcome-view setup-view"><h1>Empieza con Stubbs Jobs</h1><p class="lead">Encuentra ofertas a tu medida y prepara tus solicitudes con tu agente de IA. Tú decides dónde solicitar.</p>${current}${typeof model.syncedFolder==='string'&&model.syncedFolder?`<p class="setup-warning" role="alert">Esta carpeta está dentro de ${esc(model.syncedFolder)}. Para evitar copias en conflicto de tus datos, cierra la app y mueve la carpeta completa a una ubicación local sin sincronizar, como C:\\StubbsJobs.</p>`:''}${status==='waiting'?setupAgentHelp():''}${steps}${state.executionId?`<section class="setup-resume" aria-labelledby="setup-resume-title"><h2 id="setup-resume-title">¿Has perdido ese chat o quieres cambiar a otro?</h2><p>Se conservan tus respuestas y CV, y te daremos el mensaje para pegar en el chat nuevo.</p><button data-setup-retry="1">Retomar en otro chat</button></section>`:''}</div>`;
 }
 function setupReady(){
- return `<div class="welcome-view setup-view"><h1>Tu perfil está preparado</h1><p class="lead">Para encontrar tus primeras ofertas, pide «Busca ofertas nuevas» en el chat de tu agente.</p><div class="setup-actions"><button class="primary" data-setup-finish="solicitar">Ir a Ofertas</button><button data-setup-finish="perfil">Revisar mi perfil</button></div>${!String(model.searchContext.targetRoles||'').trim()||!String(model.preferences.location||model.searchContext.regions||'').trim()?'<p class="helper">Antes de buscar, concreta los puestos y la zona con tu agente o en Mi perfil.</p>':''}</div>`;
+ return `<div class="welcome-view setup-view"><h1>Tu perfil está preparado</h1><p class="lead">Para encontrar tus primeras ofertas, pide «Busca ofertas nuevas» en el chat de tu agente.</p>${toolsWelcome()}<div class="setup-actions"><button class="primary" data-setup-finish="solicitar">Ir a Ofertas</button><button data-setup-finish="perfil">Revisar mi perfil</button></div>${!String(model.searchContext.targetRoles||'').trim()||!String(model.preferences.location||model.searchContext.regions||'').trim()?'<p class="helper">Antes de buscar, concreta los puestos y la zona con tu agente o en Mi perfil.</p>':''}</div>`;
 }
 function sectionDefinitions(section){
  const context=window.StubbsJobsSetup.context,contact=window.StubbsJobsSetup.contact;
- const preferences={contract:{label:'Contrato',type:'text',placeholder:'Ej.: indefinido'},location:{label:'Zona de búsqueda',type:'text',placeholder:'Países o zonas donde quieres trabajar'},maxTrips:{label:'Viajes al mes (máximo)',type:'number'},minimumFixed:{label:'Salario fijo mínimo bruto anual',type:'number'},keywords:{label:'Palabras clave',type:'text',placeholder:'Términos relevantes para tu sector'},noticeDays:{label:'Preaviso en mi empleo actual',type:'text',placeholder:'Ej.: 15 días laborables, 3 semanas o inmediato'},searchPriorities:{...context.searchPriorities,label:'Horario que prefiero',placeholder:'Ej.: mañana, flexible o sin turnos de noche'}};
- const keys=section==='about'?Object.values(aboutLayout()).flat(2):section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','requiredSchedule','searchNotes','languages','previousApplications']:section==='sources'?['sourceUrls','platforms']:[];
- const personal={currentCity:{label:'Ciudad actual',type:'text'},workPermitWithoutSponsorship:{label:'Permiso de trabajo sin patrocinio',type:'boolean'},salaryExpectationFixed:{label:'Salario fijo esperado al año',type:'number'},noticeDays:{label:'Días de preaviso',type:'number'}};
- const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Puedo trabajar sin patrocinio en',type:'multiselect'},gender:{...window.StubbsJobsSetup.demographics.gender,...model.fieldDefinitions?.gender,help:null,descriptionId:null},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000}};
+ const preferences={contract:{label:'Contrato',type:'text',placeholder:'Ej.: indefinido',suggestions:['Indefinido','Temporal','Autónomo','Prácticas']},location:{label:'Zona de búsqueda',type:'text',placeholder:'Países o zonas donde quieres trabajar'},maxTrips:{label:'Viajes al mes (máximo)',type:'number'},minimumFixed:{label:'Salario fijo mínimo (bruto anual)',type:'number'},keywords:{label:'Palabras clave',type:'text',placeholder:'Términos relevantes para tu sector'},noticeDays:{label:'Cuándo puedo empezar',type:'text',placeholder:'Ej.: 15 días laborables de preaviso, inmediato o desde el 1 de enero'},searchPriorities:{...context.searchPriorities,label:'Horario que prefiero',placeholder:'Ej.: mañana, flexible o sin turnos de noche'}};
+ const keys=section==='about'?Object.values(aboutLayout()).flat(2):section==='search'?['targetRoles','keywords','location','workMode','onsiteLocations','contract','minimumFixed','salaryExpectationFixed','salaryCurrency','maxTrips','searchPriorities','requiredSchedule','searchNotes','languages','previousApplications','cvGuidelines']:section==='sources'?['sourceUrls','followedSources','excludedPortals','platforms']:[];
+ const personal={currentSalary:{label:'Salario actual (bruto anual)',type:'number'},currentCity:{label:'Ciudad actual',type:'text'},workPermitWithoutSponsorship:{label:'Permiso de trabajo sin patrocinio',type:'boolean'},salaryExpectationFixed:{label:'Salario fijo esperado al año',type:'number'},noticeDays:{label:'Días de preaviso',type:'number'}};
+ const defs={...context,...personal,...contact,...window.StubbsJobsSetup.demographics,...model.fieldDefinitions,...preferences,workMode:{...context.workMode,suggestions:['Remoto','Híbrido','Presencial']},name:{...context.name,label:'Nombre y apellidos',autocomplete:'name'},currentCity:{...(model.fieldDefinitions?.currentCity||personal.currentCity),label:'Ciudad'},currentCountry:{...contact.currentCountry,...model.fieldDefinitions?.currentCountry,label:'País'},searchPriorities:{...preferences.searchPriorities,type:'longtext',rows:1,autoGrow:true,maxlength:3000},workAuthorizations:{label:'Puedo trabajar sin patrocinio en',type:'multiselect'},gender:{...window.StubbsJobsSetup.demographics.gender,...model.fieldDefinitions?.gender,help:null,descriptionId:null},languages:{...context.languages,type:'longtext',rows:1,autoGrow:true,maxlength:3000},...(model.fieldDefinitions?.custom_education_level?{custom_education_level:{...model.fieldDefinitions.custom_education_level,suggestions:['Sin estudios','ESO','Bachillerato','FP Grado Medio','FP Grado Superior','Grado universitario','Máster','Doctorado'],placeholder:'Ej.: Grado universitario o FP Grado Superior'}}:{}),...(model.fieldDefinitions?.custom_birth_date?{custom_birth_date:{...model.fieldDefinitions.custom_birth_date,placeholder:'DD/MM/AAAA'}}:{})};
  return Object.fromEntries(keys.map(k=>[k,{...(defs[k]||{label:k,type:'text'}),...(section==='about'&&window.StubbsJobsSetup.aboutOptions.choices[k]?{options:window.StubbsJobsSetup.aboutOptions.choices[k]}:{})}]));
 }
 // A flat, occupation-independent order keeps related personal data together.
@@ -314,19 +364,22 @@ function aboutCustomGroup(key,definition){
  const text=(key+' '+(definition?.label||'')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
  if(/demogr|gender|genero|protected|protegid|ethnic|etnic|race|raza|veteran|disab|discapac|divers|pronoun|pronombre/.test(text))return 'demographic';
  if(/consent|retention|processing|privacy|gdpr|rgpd|autoriz|conserv/.test(text))return 'consent';
- if(/birth|nacimiento|nationality|nacionalidad/.test(text))return 'identity';
+ if(/birth|nacimiento|nationality|nacionalidad|citizen|ciudadan/.test(text))return 'identity';
+ if(/education|estudios|titulaci|degree/.test(text))return 'education';
  if(definition?.inputType==='url'||/github|gitlab|portfolio|web.?url|website|perfil.*url/.test(text))return 'link';
  if(/salary|salario|sueldo|compensation|remuneraci/.test(text))return 'salary';
- if(/driving|conducir|carnet|vehicle|vehiculo|relocat|mudar|reubica|traslad/.test(text))return 'mobility';
- if(/availability|incorporacion|disponibilidad|self.?employ|autonomo/.test(text))return 'work';
+ if(/driving|conducir|carnet|vehicle|vehiculo/.test(text))return 'mobility';
+ if(/relocat|mudar|reubica|traslad/.test(text))return 'work';
+ if(/self.?employ|autonomo/.test(text))return 'situation';
+ if(/availability|incorporacion|disponibilidad/.test(text))return 'work';
  return 'answer';
 }
 function aboutCustomRank(key,definition){
  const text=(key+' '+(definition?.label||'')).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
- return /birth|nacimiento|availability|incorporacion|disponibilidad|driving|conducir|carnet/.test(text)?0:/nationality|nacionalidad|current.*salary|salario actual|vehicle|vehiculo/.test(text)?1:2;
+ return /birth|nacimiento|availability|incorporacion|disponibilidad|driving|conducir|carnet/.test(text)?0:/nationality|nacionalidad|current.*salary|salario actual|vehicle|vehiculo/.test(text)?1:/citizen|ciudadan/.test(text)?2:3;
 }
 function aboutLayout(){
- const definitions=model.fieldDefinitions||{},custom=Object.keys(definitions).filter(k=>k.startsWith('custom_')&&definitions[k].scope==='global');
+ const definitions=model.fieldDefinitions||{},custom=Object.keys(definitions).filter(k=>k.startsWith('custom_')&&k!=='custom_current_gross_annual_salary_eur'&&definitions[k].scope==='global');
  const group=name=>custom.filter(k=>aboutCustomGroup(k,definitions[k])===name).sort((a,b)=>aboutCustomRank(a,definitions[a])-aboutCustomRank(b,definitions[b])||definitions[a].label.localeCompare(definitions[b].label,'es',{sensitivity:'base'})||a.localeCompare(b)),answers=[],used=new Set();
  const stem=k=>k.replace(/^custom_/,'').split('_').slice(0,2).join('_');
  // A yes/no question and its text detail (same key stem) share one row.
@@ -336,15 +389,19 @@ function aboutLayout(){
   if(partner){used.add(partner);answers.push(type==='boolean'?[key,partner]:[partner,key]);}else answers.push(key);
  }
  const demographic=group('demographic');
- // Related data share a titled group; within each group the order is fixed by meaning.
- return {contact:['name','email','phone','linkedinUrl','websiteUrl',...group('link')],
-  personal:[...group('identity'),'currentCountry','currentCity','address','postalCode'],
+ // Related data stay together; within each run the order is fixed by meaning.
+ // Optional surveys and sensitive data close Datos personales: they are personal data, used only when a form asks.
+ return {identity:['name',...group('identity')],
+  contact:['email','phone','linkedinUrl','websiteUrl',...group('link')],
+  home:['currentCountry','currentCity','address','postalCode'],
   work:['workAuthorizations','noticeDays',...group('work'),...group('mobility')],
-  salary:[...group('salary'),'salaryExpectationFixed'],
+  salary:['currentSalary',...group('salary'),...group('situation'),'salaryExpectationFixed'],
+  education:group('education'),
   answers,consent:group('consent'),demographic:['demographicSurveyParticipation','gender',...demographic],
   autoApply:(window.StubbsJobsSetup.autoApplyPermissions||[]).map(item=>item.key).filter(key=>definitions[key])};
 }
-function aboutFieldsHtml(keys,values,defs){
+function aboutFieldsHtml(keys,values,defs,formId=null){
+ if(formId)defs=Object.fromEntries(Object.entries(defs).map(([key,definition])=>[key,{...definition,form:formId}]));
  const groups=permissionGroups().map(group=>({...group,items:group.items.filter(item=>defs[item.key])}));
  return keys.map(item=>{
   if(Array.isArray(item)){
@@ -355,7 +412,8 @@ function aboutFieldsHtml(keys,values,defs){
    return `<div class="profile-field-wide field-pair" role="group" aria-labelledby="${esc(labelId)}"><span class="field-pair-label" id="${esc(labelId)}">${esc(fieldLabel(UI.answerTitle(defs[question].label)))}</span><div class="field-pair-controls">${fieldHtml(question,{...defs[question],labelClass:'sr-only'},values[question])}${fieldHtml(detail,{...defs[detail],labelClass:'sr-only',placeholder:defs[detail].placeholder||'Detalle y resultados'},values[detail])}</div></div>`;
   }
   const group=groups.find(candidate=>candidate.items.some(permission=>permission.key===item));
-  if(group)return item===group.items[0].key?profilePermissionsField(group,values):'';
+  if(group)return item===group.items[0].key?profilePermissionsField(group,values,formId):'';
+  if(item==='currentSalary'){const owner=formId?` form="${esc(formId)}"`:'';return `<div class="field"><label for="profile-about-currentSalary">${esc(defs.currentSalary.label)}</label><span class="amount-input"><input id="profile-about-currentSalary" name="currentSalary" data-type="number" type="number" ${numberAttributes(item)} value="${esc(values.currentSalary)}"${owner}><input name="currentSalaryCurrency" data-type="text" class="currency-input" type="text" value="${esc(values.currentSalaryCurrency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario actual, código de tres letras"${owner}></span></div>`;}
   if(item==='salaryExpectationFixed')return `<div class="field"><label for="profile-about-salaryExpectationFixed">Salario que pido (bruto anual, para formularios)</label><span class="amount-input"><input id="profile-about-salaryExpectationFixed" name="salaryExpectationFixed" data-type="number" type="number" ${numberAttributes(item)} value="${esc(values.salaryExpectationFixed)}"><input name="salaryCurrency" data-type="text" class="currency-input" type="text" value="${esc(values.salaryCurrency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario que pido, código de tres letras"></span></div>`;
   if(item==='custom_demographic_decline_consent')return `<div data-profile-legacy-consent hidden>${fieldHtml(item,defs[item],values[item])}</div>`;
   const html=fieldHtml(item,defs[item],values[item]);
@@ -378,38 +436,42 @@ function permissionSummary(permissions,values){
 function permissionGroups(){return [
  {id:'profile-cv-permissions',title:'Permisos sobre mi CV y contacto',help:'Solo para la selección de las candidaturas que elijas.',items:window.StubbsJobsSetup.aboutOptions.permissions},
  {id:'profile-auto-permissions',title:'Permisos para Auto-solicitud',help:'Lo que el agente hace sin preguntarte. Lo no marcado detiene solo esa oferta. CAPTCHA, contraseñas y cuentas nuevas siempre son tuyos.',items:window.StubbsJobsSetup.autoApplyPermissions||[]}];}
-function profilePermissionsField(group,values){
- const permissions=group.items,id=group.id,state=key=>values[key]===true?'true':values[key]===false?'false':'';
+function profilePermissionsField(group,values,formId=null){
+ const permissions=group.items,id=group.id,state=key=>values[key]===true?'true':values[key]===false?'false':'',owner=formId?` form="${esc(formId)}"`:'';
  // One line per permission: a short title, its scope as help and a mark only while undecided.
- const option=item=>`<label class="profile-permission-option"><input type="hidden" name="${esc(item.key)}" data-type="boolean" value="${state(item.key)}"><input type="checkbox" data-profile-permission="${esc(item.key)}" aria-describedby="permission-help-${esc(item.key)}"${values[item.key]===true?' checked':''}><span class="permission-text"><span class="permission-title">${esc(item.label)}<small class="permission-pending" data-permission-state="${esc(item.key)}"${state(item.key)?' hidden':''}>Sin decidir</small></span><small class="permission-help" id="permission-help-${esc(item.key)}">${esc(item.help||'')}</small></span></label>`;
- return `<div class="field profile-field-wide"><span id="${id}-label">${esc(group.title)}</span><details id="${id}" class="work-authorizations profile-permissions" data-profile-permissions="${id}"><summary aria-labelledby="${id}-label ${id}-value"><span id="${id}-value">${esc(permissionSummary(permissions,values))}</span></summary><div class="permission-bulk"><button type="button" class="link-button" data-permission-all="${id}" data-permission-value="true">Autorizar todos</button><button type="button" class="link-button" data-permission-all="${id}" data-permission-value="false">Ninguno</button></div><div class="profile-permission-options" role="group" aria-labelledby="${id}-label">${permissions.map(option).join('')}</div></details><small class="helper">${esc(group.help)}</small></div>`;
+ const option=item=>`<label class="profile-permission-option"><input type="hidden" name="${esc(item.key)}" data-type="boolean" value="${state(item.key)}"${owner}><input type="checkbox"${owner} data-profile-permission="${esc(item.key)}" aria-describedby="permission-help-${esc(item.key)}"${values[item.key]===true?' checked':''}><span class="permission-text"><span class="permission-title">${esc(item.label)}<small class="permission-pending" data-permission-state="${esc(item.key)}"${state(item.key)?' hidden':''}>Sin decidir</small></span><small class="permission-help" id="permission-help-${esc(item.key)}">${esc(item.help||'')}</small></span></label>`;
+ const bulk=`<div class="permission-bulk"><button type="button"${owner} class="link-button" data-permission-all="${id}" data-permission-value="true">Autorizar todos</button><button type="button"${owner} class="link-button" data-permission-all="${id}" data-permission-value="false">Ninguno</button></div>`;
+ return `<div class="profile-panel profile-panel--flush" role="group" aria-labelledby="${id}-label"><div class="profile-panel-head"><div class="profile-panel-title"><h3 id="${id}-label">${esc(group.title)}</h3><p>${esc(group.help)}</p></div>${bulk}</div><details id="${id}" class="work-authorizations profile-permissions" data-profile-permissions="${id}" open><summary aria-labelledby="${id}-label ${id}-value"><span id="${id}-value">${esc(permissionSummary(permissions,values))}</span></summary><div class="profile-permission-options" role="group" aria-labelledby="${id}-label">${permissions.map(option).join('')}</div></details></div>`;
 }
 function syncProfileOptions(form){
  if(form?.dataset.form!=='about')return;
+ // Saved answers and permissions have their own cards in Mi perfil; their controls still belong to this form.
+ const scope=form.id==='profile-about-form'&&main.querySelectorAll?main:form;
  const read=key=>{const field=form.elements.namedItem(key);return field?field.dataset.type==='boolean'?(field.value===''?null:field.value==='true'):field.dataset.type==='choice'&&['true','false'].includes(field.value)?field.value==='true':field.value||null:null;};
  const gender=form.querySelector?.('[data-profile-gender]');if(gender)gender.hidden=surveyMode(read('demographicSurveyParticipation'))!=='use_saved';
- for(const box of form.querySelectorAll?.('[data-profile-detail]')||[]){const key=box.dataset.profileDetail,detail=window.StubbsJobsSetup.aboutOptions.details[key],content=box.querySelector('[data-profile-detail-content]');if(content){content.hidden=read(key)!==true&&sameFieldValue(read(detail),form._shown?.[detail]);if(!content.hidden)for(const field of content.querySelectorAll('textarea[data-auto-grow]'))growField(field);}}
+ for(const box of scope.querySelectorAll?.('[data-profile-detail]')||[]){const key=box.dataset.profileDetail,detail=window.StubbsJobsSetup.aboutOptions.details[key],content=box.querySelector('[data-profile-detail-content]');if(content){content.hidden=read(key)!==true&&sameFieldValue(read(detail),form._shown?.[detail]);if(!content.hidden)for(const field of content.querySelectorAll('textarea[data-auto-grow]'))growField(field);}}
  const previous=form.querySelector?.('[data-profile-legacy-consent]');if(previous)previous.hidden=sameFieldValue(read('custom_demographic_decline_consent'),form._shown?.custom_demographic_decline_consent);
  const values={};
  for(const group of permissionGroups()){
   const permissions=group.items.filter(item=>form.elements.namedItem(item.key));
   for(const item of permissions)values[item.key]=read(item.key);
-  const summary=form.querySelector?.(`#${group.id}-value`);if(summary)summary.textContent=permissionSummary(permissions,values);
+  const summary=scope.querySelector?.(`#${group.id}-value`);if(summary)summary.textContent=permissionSummary(permissions,values);
  }
- for(const checkbox of form.querySelectorAll?.('[data-profile-permission]')||[]){const key=checkbox.dataset.profilePermission,value=values[key];checkbox.checked=value===true;checkbox.indeterminate=value===null;const state=form.querySelector(`[data-permission-state="${key}"]`);if(state)state.hidden=value!==null;}
+ for(const checkbox of scope.querySelectorAll?.('[data-profile-permission]')||[]){const key=checkbox.dataset.profilePermission,value=values[key];checkbox.checked=value===true;checkbox.indeterminate=value===null;const state=scope.querySelector(`[data-permission-state="${key}"]`);if(state)state.hidden=value!==null;}
 }
 function numberAttributes(key){
  if(key.startsWith('custom_'))return 'step="any" min="-1000000" max="1000000"';
- const limits={noticeDays:[0,365],maxTrips:[0,31],minimumFixed:[1,1000000000],salaryExpectationFixed:[1,1000000000]}[key];
+ const limits={noticeDays:[0,365],maxTrips:[0,31],minimumFixed:[1,1000000000],salaryExpectationFixed:[1,1000000000],currentSalary:[1,1000000000]}[key];
  return limits?`step="1" min="${limits[0]}" max="${limits[1]}"`:'step="1" min="0"';
 }
 function searchCriteriaFields(values,keys,association=null,{flat=false}={}){
  const defs=sectionDefinitions('search');
- const field=key=>`<div${['targetRoles','keywords','searchPriorities','previousApplications'].includes(key)?' class="profile-field-wide"':''} id="search-field-${key}">${['minimumFixed','salaryExpectationFixed'].includes(key)?`<div class="field"><label for="profile-${key}">${key==='minimumFixed'?'Salario fijo mínimo bruto anual':'Salario fijo bruto anual para formularios (opcional)'}</label><span class="amount-input"><input id="profile-${key}" name="${key}" data-type="number" type="number" ${numberAttributes(key)} value="${esc(values[key])}">${key==='minimumFixed'?`<input name="currency" data-type="text" class="currency-input" type="text" value="${esc(values.currency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario, código de tres letras (por ejemplo EUR o USD)"${association?` form="${association}"`:''}>`:`<span data-salary-currency="1">${esc(values.currency??'')||'Por indicar'}</span>`}</span></div>`:fieldHtml(key,{...defs[key],...(['targetRoles','keywords'].includes(key)?{type:'longtext',rows:1,autoGrow:true,maxlength:3000}:key==='previousApplications'?{label:'Empresas a evitar',rows:1,autoGrow:true,maxlength:10000,placeholder:'Empresas a las que no quiero presentarme',controlId:'profile-previousApplications'}:{}),form:association},values[key])}${key==='previousApplications'?formErrors('search'):''}</div>`;
+ const field=key=>`<div${['targetRoles','keywords','searchPriorities','previousApplications'].includes(key)?' class="profile-field-wide"':''} id="search-field-${key}">${['minimumFixed','salaryExpectationFixed'].includes(key)?`<div class="field"><label for="profile-${key}">${key==='minimumFixed'?'Salario fijo mínimo (bruto anual)':'Salario que pido en formularios (bruto anual)'}</label><span class="amount-input"><input id="profile-${key}" name="${key}" data-type="number" type="number" ${numberAttributes(key)} value="${esc(values[key])}">${key==='minimumFixed'?`<input name="currency" data-type="text" class="currency-input" type="text" value="${esc(values.currency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario, código de tres letras (por ejemplo EUR o USD)"${association?` form="${association}"`:''}>`:`<span data-salary-currency="1">${esc(values.currency??'')||'Por indicar'}</span>`}</span></div>`:fieldHtml(key,{...defs[key],...(['targetRoles','keywords'].includes(key)?{type:'longtext',rows:1,autoGrow:true,maxlength:3000}:key==='previousApplications'?{label:'Empresas a evitar',rows:1,autoGrow:true,maxlength:10000,placeholder:'Empresas a las que no quiero presentarme',controlId:'profile-previousApplications',help:'Común a todos tus perfiles de búsqueda.',descriptionId:'profile-previousApplications-help'}:{}),form:association},values[key])}${key==='previousApplications'?formErrors('search'):''}</div>`;
  const fields=keys.map(key=>{
   let html=field(key);
-  // With search profiles the form currency is edited beside its amount, not in a second field.
-  if(key==='salaryExpectationFixed'&&currentSearchProfile())html=html.replace(/<span data-salary-currency="1">[^<]*<\/span>/,`<input name="salaryCurrency" data-type="text" class="currency-input" type="text" value="${esc(values.salaryCurrency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario para formularios, código de tres letras"${association?` form="${association}"`:''}>`);
+  // The form currency is edited beside its amount, not in a second field.
+  if(key==='salaryExpectationFixed')html=html.replace(/<span data-salary-currency="1">[^<]*<\/span>/,`<input name="salaryCurrency" data-type="text" class="currency-input" type="text" value="${esc(values.salaryCurrency??'')}" maxlength="3" pattern="[A-Z]{3}" placeholder="EUR" aria-label="Moneda del salario para formularios, código de tres letras"${association?` form="${association}"`:''}>`);
+  if(key==='salaryExpectationFixed')html=html.replace('</span></div></div>','</span><small class="helper">Lo que respondes en los formularios.</small></div></div>');
   if(key==='searchNotes')html=html.replace('<div id="search-field-','<div class="profile-field-wide" id="search-field-');
   return html;
  }).join('');return flat?fields:`<div class="form-grid">${fields}</div>`;
@@ -429,20 +491,6 @@ function searchLocation(location,workMode){
 function visibleSearchLocation(location,workMode,regions){
  const parsed=searchLocation(location,workMode),extra=String(regions||'').trim();
  return {...parsed,location:[parsed.location,extra].filter(Boolean).join('; '),mergedRegions:Boolean(extra)};
-}
-function searchOptionsControls(sources){
- const context=model.searchContext||{},platforms=(context.platforms||'').split(',').filter(Boolean);
- const priorities=platforms.length?`<div class="source-priorities"><p>Fuentes priorizadas: ${esc(platforms.map(id=>platformNames[id]||id).join(', '))}</p><button type="button" class="link-button" data-clear-platforms="1">Quitar prioridades</button></div>`:'';
- return `<div class="source-controls"><input type="hidden" name="platforms" value="${esc(context.platforms||'')}">${priorities}
-  <div class="source-webs"><label class="field profile-field-wide"><span id="profile-sourceUrls-label">Buscar solo en estas webs (opcional)</span><textarea name="sourceUrls" id="profile-sourceUrls" data-auto-grow="1" aria-labelledby="profile-sourceUrls-label" aria-describedby="profile-sourceUrls-help" rows="1" maxlength="3000" placeholder="Una dirección por línea">${esc(sources.sourceUrls)}</textarea><small class="helper" id="profile-sourceUrls-help">Si indicas webs, buscaré solo en ellas. Si lo dejas vacío, elegiré las fuentes.</small></label></div>
- </div>`;
-}
-function portalAccessDetails(context=model){
- const platforms=(context.searchContext?.platforms||'').split(',').filter(Boolean),access=context.portalAccess||{};
- const visible=[...new Set([...platforms,...Object.keys(access)])].filter(id=>id!=='glassdoor'&&!mailboxPortal(id));
- if(!visible.length)return '';
- const rows=visible.map(id=>{const record=access[id],state=record?.status==='ready'?'Acceso comprobado':record?.status==='login_required'?'Inicia sesión':record?.status==='blocked'?'Bloqueado':'Sin comprobar';return `<div class="portal-access-row"><strong>${esc(platformNames[id]||id)}</strong><span>${esc(state)}${record?` · ${esc(record.browser)} · ${date(record.checkedAt)}`:''}</span>${record?.proof?`<p>${esc(record.proof)}</p>`:''}</div>`;}).join('');
- return `<section class="section"><h2>Acceso a portales</h2><div class="portal-access-list">${rows}</div></section>`;
 }
 function mailboxPortal(id){return /^(outlook|gmail|hotmail|mail|correo|microsoft365|office365)(\W|_|$)/i.test(id);}
 function coverageContent(coverage,context=model){
@@ -525,7 +573,7 @@ function activityStatistics(){
  return `<section class="activity-statistics" aria-label="Totales de tus ofertas">${stats.map(stat=>`<button type="button" class="activity-stat" data-offer-state="${stat.state}" data-open-offer-state="${stat.filter}" aria-label="${esc(stat.label)}: ${stat.value}. Ver en Ofertas"><span class="activity-stat-heading">${icon(stat.icon,'offer-state-icon','solid')}<span>${esc(stat.label)}</span></span><strong class="activity-stat-value">${stat.value.toLocaleString('es-ES')}</strong><span class="activity-stat-note">${esc(stat.note)}</span></button>`).join('')}</section>`;
 }
 function recentActivity(){
- const Activity=window.StubbsJobsActivity,timeZone=model?.personalized?Intl.DateTimeFormat().resolvedOptions().timeZone:'Europe/Madrid';
+ const Activity=window.StubbsJobsActivity,timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone;
  const days=Activity.days(Activity.entries(model,{allSteps:true}),timeZone);
  if(!days.length)return '<p class="muted activity-empty">Aquí aparecerán los resultados de tus búsquedas y solicitudes.</p>';
  const shown=days.slice(0,activityDayLimit),year=new Intl.DateTimeFormat('en',{year:'numeric',timeZone}).format(new Date());
@@ -576,14 +624,6 @@ function activityItem(item,withCompany=true,relative=false){
  return `<li><strong>${heading}</strong>${withCompany&&item.opportunityId?` · <button class="link-button" data-job="${esc(item.opportunityId)}">${esc(getJob(item.opportunityId)?.company||item.opportunityId)}</button>`:''}${undo?` · <button class="link-button" data-undo="${esc(item.id)}">Deshacer</button>`:''}<small>${relative?activityTime(item.at):date(item.at)} · ${esc(['Usuario','Usuario'].includes(item.actor)?'Tú':item.actor||'Registro')}</small></li>`;
 }
 function searchActivity(items,limit=Infinity,withCompany=true){return timeline(groupedActivity(items),limit,withCompany);}
-function copyRequestButton(label){
- const work=window.StubbsJobsActivity.work(model);
- if(work.busy)return '';
- const command=work.queued.length?'Continúa con Stubbs Jobs':'Busca ofertas nuevas';
- if(work.queued.length&&label==='Copiar petición de búsqueda')label='Copiar petición pendiente';
- const hint=work.queued.length?'Copia la petición para continuar el trabajo guardado y los siguientes pasos permitidos de esas mismas solicitudes en el chat de tu agente':'Copia la petición para pegarla en el chat de tu agente';
- return `<button type="button" class="copy-request" data-copy-agent-command="${esc(command)}" data-copy-label="${esc(label)}" title="${esc(hint)}">${esc(label)}</button>`;
-}
 let entryLimit=30;
 async function openSearchOffers(state='todas'){
  flowFilters.solicitar=state;tableState.solicitar.filters={};tableSelection.clear();
@@ -595,7 +635,7 @@ function flowToolbar(tab,choices){
 }
 function bulkExitButton(){return `<button class="icon-button bulk-clear" data-bulk-clear="1" aria-label="Salir de la selección múltiple" title="Salir de la selección múltiple (Esc)">${icon('close')}</button>`;}
 function requestButtonContent(mode,label=requestModes[mode].label){return `<span class="request-icon" aria-hidden="true">${icon(requestModes[mode].icon)}</span>${esc(label)}`;}
-const autoHelp='El agente la enviará sin esperar tu aprobación, con tu cuenta del portal. En Mi perfil › Sobre mi › Permisos para Auto-solicitud eliges qué puede aceptar sin preguntarte. Algunos portales, como LinkedIn, no permiten automatizar y pueden restringir la cuenta.';
+const autoHelp='El agente la enviará sin esperar tu aprobación, con tu cuenta del portal. En Mi perfil › Permisos eliges qué puede aceptar sin preguntarte. Algunos portales, como LinkedIn, no permiten automatizar y pueden restringir la cuenta.';
 function selectionButtons(j){return `<button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="review" title="Revisarás la solicitud antes de que se envíe.">${requestButtonContent('review')}</button><button class="primary request-button" data-select="${esc(j.id)}" data-selection-mode="auto" title="${esc(autoHelp)}" aria-describedby="offer-auto-help-${esc(j.id)}">${requestButtonContent('auto')}</button><span id="offer-auto-help-${esc(j.id)}" class="sr-only">${esc(autoHelp)}</span>`;}
 function bulkOptions(j){
  if(j.historical)return [];
@@ -615,7 +655,6 @@ function bulkOptions(j){
  return options;
 }
 function bulkJobs(){return [...tableSelection].map(getJob).filter(Boolean);}
-function commonBulkOptions(jobs=bulkJobs()){return jobs.length?bulkOptions(jobs[0]).filter(([key])=>jobs.every(j=>bulkOptions(j).some(([other])=>key===other))):[];}
 function eligibleBulkJobs(key,jobs=bulkJobs()){return key==='archive'?jobs:jobs.filter(j=>bulkOptions(j).some(([option])=>option===key));}
 function bulkLabel(label,count){return label+' ('+count+')';}
 function finishBulk(ids,total,message='Aplicado a',remainingText='sin cambios'){
@@ -677,7 +716,7 @@ function flowRecord(j,kind){
 }
 const fold=window.StubbsJobsFormatting.fold;
 const displayCase=window.StubbsJobsFormatting.displayCase;
-const formatOptions=()=>({currency:model?.searchContext?.currency||'EUR',timeZone:model?.personalized?undefined:'Europe/Madrid'});
+const formatOptions=()=>({currency:model?.searchContext?.currency||'EUR',timeZone:undefined});
 const salaryNumber=value=>window.StubbsJobsFormatting.salaryNumber(value,formatOptions());
 const salaryInfo=value=>window.StubbsJobsFormatting.salaryInfo(value,formatOptions());
 function salaryTableLabel(info){
@@ -837,7 +876,7 @@ function applyPage(){
  const choices=[['todas','Todas',all.length],...UI.offerStates.map(state=>[state.key,({archivadas:'Archivadas',rechazadas:'Rechazadas',logradas:'Logradas'})[state.key]||state.label,counts[state.key]])];
   const searchLabel=searchRunLabel(),empty=all.length?'No hay ofertas en este grupo.':`Aún no hay ofertas. Pulsa «${searchLabel}» y pide «Continúa con Stubbs Jobs» en el chat de tu agente.`;
   const table=all.length?workflowTable('solicitar',records,empty):`<div class="empty-state"><p>Aún no hay ofertas. Pulsa «${searchLabel}» y pide «Continúa con Stubbs Jobs» en el chat de tu agente, o añade una oferta.</p></div>`;
-  return flowShell('solicitar',`<div class="offers-heading"><div><h1>Ofertas</h1><p class="page-lead">Compara las ofertas, elige dónde solicitar y consulta cada resultado.</p>${searchStatusNote()}</div><div class="offers-heading-actions">${searchRunButton()}<button class="offers-add" data-screen="nueva">${icon('plus')}Añadir oferta</button></div></div>${activityWork()}${offerProfileControls()}${pendingEntriesPanel()}${flowToolbar('solicitar',choices)}${table}`);
+  return flowShell('solicitar',`<div class="offers-heading"><div><h1>Ofertas</h1><p class="page-lead">Compara las ofertas, elige dónde solicitar y consulta cada resultado.</p>${searchStatusNote()}</div><div class="offers-heading-actions">${searchRunButton()}<button class="offers-add" data-screen="nueva">${icon('plus')}Añadir oferta</button></div></div>${toolsNotice()}${activityWork()}${offerProfileControls()}${pendingEntriesPanel()}${flowToolbar('solicitar',choices)}${table}`);
 }
 function followPage(){return applyPage();}
 function findResults(){
@@ -1003,7 +1042,6 @@ async function openSelectionProgress(id){
  await new Promise(resolve=>dialog.addEventListener('close',resolve,{once:true}));form.removeEventListener('submit',submit);
 }
 function caseHistory(j){return window.StubbsJobsActivity.caseHistory(j,model);}
-function recentCaseHistory(j,limit=3){return window.StubbsJobsActivity.recent(caseHistory(j),model,limit).reverse();}
 // The offer's key milestones read left to right, oldest to newest, above the details.
 function offerTimeline(j){
  const items=window.StubbsJobsActivity.milestones(caseHistory(j),model,4).reverse();
@@ -1029,9 +1067,11 @@ function detail(){
  const sending=j.requests.some(r=>r.type==='send'&&r.status==='running'),canEdit=active(j)&&!j.sent&&!sending;
  const canInvestigate=active(j)&&!j.selection?.selected&&!j.sent&&!j.requests.some(r=>!window.StubbsJobsWorkflow.task(r).superseded&&['queued','running','blocked','interrupted'].includes(r.status))&&j.apply!=='No'&&j.apply!=='Resolver conflicto';
  const action=UI.canChoose(j)?selectionButtons(j):primaryAction(j,step,true)||(canInvestigate?`<button class="primary" data-investigate="${esc(j.id)}">Pedir comprobación</button>`:'');
+ // When nobody knows whether a send arrived, saying «I sent it» is one of the two real answers.
+ const sendDoubt=Boolean(step.deliveryUnknown&&!step.deliveryChecked);
  const stateDetail=UI.detailMessage(j,step),where=UI.actionPlace(j,step);
  // Only the decision for the current state stays visible; rarer actions live in Más acciones.
- const statusActions=`<div class="offer-status-actions"><div class="actions offer-actions">${action}${followupActions(j)}${j.sent&&category.key!=='logradas'?`<button class="offer-change" data-selection-progress="${esc(j.id)}">Registrar avance</button>`:''}${category.key==='por-solicitar'&&!j.selection?.selected?`<button class="offer-change" data-offer-outcome="discard" data-job-id="${esc(j.id)}">Descartar</button>`:''}${outcomePicker(j)}</div>${where?`<p class="helper offer-where">${esc(where)}</p>`:''}</div>`;
+ const statusActions=`<div class="offer-status-actions"><div class="actions offer-actions">${action}${sendDoubt?userSentButton(j):''}${followupActions(j)}${j.sent&&category.key!=='logradas'?`<button class="offer-change" data-selection-progress="${esc(j.id)}">Registrar avance</button>`:''}${category.key==='por-solicitar'&&!j.selection?.selected?`<button class="offer-change" data-offer-outcome="discard" data-job-id="${esc(j.id)}">Descartar</button>`:''}${outcomePicker(j)}</div>${where?`<p class="helper offer-where">${esc(where)}</p>`:''}</div>`;
  const contacts=(j.contactDrafts||[]).length?`<details class="case-disclosure"><summary>Borradores de contacto (${j.contactDrafts.length})</summary><p class="helper">No enviados.</p>${j.contactDrafts.map((c,i)=>`<div class="case-piece"><strong>${esc(c.purpose)}</strong><p>${esc(c.recipient)}</p><p class="note-text">${esc(c.message)}</p><button data-copy-contact="${i}">Copiar</button></div>`).reverse().join('')}</details>`:'';
  const formAnswers=UI.formAnswers(material);
  const cvMissing=j.sent?'CV enviado no disponible':'Pendiente de preparar';
@@ -1042,8 +1082,8 @@ function detail(){
   <div class="offer-layout"><div class="offer-columns"><aside class="offer-rail" aria-label="Decisión y condiciones">
   <section class="case-status offer-status" data-offer-section="status" data-offer-state="${UI.offerState(j).key}" aria-label="Situación y acciones"><div class="offer-status-copy"><div class="offer-status-line"><strong data-offer-state="${category.key}">${icon(category.icon,'offer-state-icon','solid')}${esc(category.label)}</strong>${UI.offerAttention(j)?'<span class="offer-attention-indicator">Por atender</span>':''}${j.selection?.selected&&!j.sent?`<span class="offer-selection-mode">${j.selection.mode==='auto'?'Auto-solicitud':'Solicitud con revisión'}</span>`:''}</div>${selectionOrigin(j)}${stateDetail&&stateDetail!==step.label?`<p>${esc(stateDetail)}</p>`:''}${UI.offerAttention(j)&&['archivadas','rechazadas'].includes(category.key)?`<p>${esc(step.detail||'Revisa el paso pendiente en esta oferta.')}</p>`:''}${followupStatus(j)}${!assessment&&j.displaySearchProfileId&&j.displaySearchProfileId!==j.searchProfileId?`<p class="helper offer-profile-placement">${esc(offerProfileBasis(j))}</p>`:''}${UI.nextAction(j)?`<p class="offer-next-action">${esc(UI.nextAction(j))}</p>`:''}${active(j)&&j.externalDeadline?`<p class="offer-deadline">Plazo: ${date(j.externalDeadline)}</p>`:''}</div>${statusActions}</section>
   ${j.integrityError?`<div class="error" role="alert">${esc(j.integrityError)}</div>`:''}
-  <section class="case-section offer-conditions" data-offer-section="conditions"><div class="section-heading"><h2>Condiciones</h2></div>${offerConditions(j)}</section>
-  <details class="case-disclosure case-more" id="offer-more-${esc(j.id)}"><summary>Más acciones</summary><div class="more-links">${category.key!=='logradas'?`<button data-change="${esc(j.id)}">Pedir cambio</button>`:''}${userSentButton(j)}${j.selection?.selected&&!j.sent&&!sending?`<button data-unselect="${esc(j.id)}">Dejar de solicitar</button>`:''}${approved&&!j.sent?`<button data-revoke="${esc(current.id)}">Retirar permiso de envío</button>`:''}</div>${criteriaActions}${offerNotes(j)}</details></aside>
+  <section class="case-section offer-conditions" data-offer-section="conditions"><div class="section-heading"><h2>Condiciones</h2></div>${offerConditions(j)}</section>${offerRequirementMatch(j)}
+  <details class="case-disclosure case-more" id="offer-more-${esc(j.id)}"><summary>Más acciones</summary><div class="more-links">${category.key!=='logradas'?`<button data-change="${esc(j.id)}">Pedir cambio</button>`:''}${sendDoubt?'':userSentButton(j)}${j.selection?.selected&&!j.sent&&!sending?`<button data-unselect="${esc(j.id)}">Dejar de solicitar</button>`:''}${approved&&!j.sent?`<button data-revoke="${esc(current.id)}">Retirar permiso de envío</button>`:''}</div>${criteriaActions}${offerNotes(j)}</details></aside>
   <div class="case-sections offer-sections">${assessment?`<div class="offer-overview" data-offer-section="overview">${assessment}</div>`:''}
  <section class="case-section case-material" data-offer-section="form"><div class="section-heading"><h2>${isHttpUrl(material.recipient)?`<a href="${url(material.recipient)}" target="_blank" rel="noopener">Formulario de solicitud ${icon('arrow-up-right')}</a>`:'Formulario de solicitud'}</h2>${canEdit?`<button class="link-button" data-answers="${esc(j.id)}" aria-label="Editar respuestas del formulario">Editar</button>`:''}</div>
  ${material.legacyIncomplete?`<p class="muted">${material.reportedBy==='user'?'Enviaste tú esta solicitud. La app conserva el CV que indicaste, pero no las respuestas ni la presentación del portal.':'Este registro antiguo confirma el envío, pero no conserva las respuestas ni la presentación de aquella solicitud.'}</p>`:''}${!isHttpUrl(material.recipient)?material.recipient?`<p>Solicitud por correo: ${esc(material.recipient)}</p>`:j.sent?'':'<p class="muted">Pendiente de comprobar el acceso.</p>':''}${answers}${contacts}</section>
@@ -1141,7 +1181,7 @@ function growField(field){
  field.style.height='0px';field.style.height=(field.scrollHeight+(field.offsetHeight-field.clientHeight))+'px';
  if(window.scrollY!==top)window.scrollTo({top,behavior:'instant'});
 }
-function growProfileFields(){for(const field of main.querySelectorAll('textarea[data-auto-grow]'))growField(field);}
+function growProfileFields(){for(const field of main.querySelectorAll('textarea[data-auto-grow]'))growField(field);syncProfileWidgets();}
 window.addEventListener('resize',()=>requestAnimationFrame(growProfileFields));
 function fieldHtml(key,definition,value){
   const label=fieldLabel(UI.answerTitle(definition.label)),type=definition.type;
@@ -1151,48 +1191,243 @@ function fieldHtml(key,definition,value){
   if(type==='multiselect')return workAuthorizationField(value,association);
   const choices=definition.options,raw=key==='demographicSurveyParticipation'&&type==='choice'&&typeof value==='boolean'?surveyMode(value):value===null||value===undefined?'':String(value),known=choices?.some(option=>String(option.value)===raw),legacy=choices&&raw&&!known;
   const choiceInput=choices?`<select name="${esc(key)}"${association} data-type="${esc(type)}"><option value=""${(type==='choice'&&!definition.emptyLabel)||key==='custom_legally_protected_status'?' hidden disabled':''}${!raw?' selected':''}>${type==='choice'?definition.emptyLabel||'Sin decidir':'Sin responder'}</option>${legacy?`<option value="${esc(raw)}" hidden selected>${esc(key==='demographicSurveyParticipation'?(surveyMode(value)==='use_saved'?'Sí, usar mis datos':'Prefiero no responder'):'Respuesta anterior: '+raw)}</option>`:''}${choices.map(option=>`<option value="${esc(option.value)}"${String(option.value)===raw?' selected':''}>${esc(option.label)}</option>`).join('')}</select>`:null;
-  const input=choiceInput|| (type==='boolean'?`<select name="${esc(key)}"${association} data-type="boolean"><option value="">Sin responder</option><option value="true" ${value===true?'selected':''}>${esc(definition.trueLabel||'Sí')}</option><option value="false" ${value===false?'selected':''}>${esc(definition.falseLabel||'No')}</option></select>`:type==='longtext'?`<textarea name="${esc(key)}"${association}${definition.autoGrow?' data-auto-grow="1"':''} rows="${definition.rows||10}" maxlength="${definition.maxlength||20000}" ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''}>${esc(value)}</textarea>`:`<input name="${esc(key)}"${association} data-type="${esc(type)}" type="${inputType}" ${numberLimits} value="${esc(value)}" ${definition.autocomplete?`autocomplete="${esc(definition.autocomplete)}"`:''} ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''} maxlength="${definition.maxlength||(key==='noticeDays'?300:5000)}">`);
+  const input=choiceInput|| (type==='boolean'?`<select name="${esc(key)}"${association} data-type="boolean"><option value="">Sin responder</option><option value="true" ${value===true?'selected':''}>${esc(definition.trueLabel||'Sí')}</option><option value="false" ${value===false?'selected':''}>${esc(definition.falseLabel||'No')}</option></select>`:type==='longtext'?`<textarea name="${esc(key)}"${association}${definition.autoGrow?' data-auto-grow="1"':''} rows="${definition.rows||10}" maxlength="${definition.maxlength||20000}" ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''}>${esc(value)}</textarea>`:`<input name="${esc(key)}"${association} data-type="${esc(type)}" type="${inputType}" ${numberLimits} value="${esc(value)}" ${definition.autocomplete?`autocomplete="${esc(definition.autocomplete)}"`:''} ${definition.placeholder?`placeholder="${esc(definition.placeholder)}"`:''} maxlength="${definition.maxlength||(key==='noticeDays'?300:5000)}"${definition.suggestions?` list="field-${esc(key)}-options"`:''}>${definition.suggestions?`<datalist id="field-${esc(key)}-options">${definition.suggestions.map(option=>`<option value="${esc(option)}"></option>`).join('')}</datalist>`:''}`);
   return `<label class="field"><span${labelId?` id="${esc(labelId)}"`:''}${definition.labelClass?` class="${esc(definition.labelClass)}"`:''}>${esc(label)}</span>${input}${definition.help?`<small class="helper" id="${esc(helpId)}">${esc(definition.help)}</small>`:''}</label>`;
 }
 
 function syncProfileNavigation(){
  for(const link of main.querySelectorAll('[data-profile-section]')){if(link.dataset.profileSection===profileSection)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');}
+ main.querySelector('.profile-workspace')?.setAttribute?.('data-profile-active',profileSection);
+ const pager=main.querySelector('[data-profile-pager]');if(pager)pager.innerHTML=profilePager();
 }
-function updateProfileSection(){
- if(screen!=='perfil'||selected)return;
- const headerBottom=document.querySelector('.site-header')?.getBoundingClientRect?.().bottom||84;
- let current=profileSections[0][0];
- for(const [id] of profileSections){const section=document.getElementById(id),rect=section?.getBoundingClientRect?.();if(rect&&rect.top<=headerBottom+36)current=id;}
- const scrollRoot=document.scrollingElement||document.documentElement,viewportHeight=document.documentElement?.clientHeight||window.innerHeight||0,scrollHeight=scrollRoot?.scrollHeight||0,scrollTop=window.scrollY??scrollRoot?.scrollTop??0;
- if(viewportHeight>0&&scrollTop>0&&scrollHeight>viewportHeight&&scrollTop+viewportHeight>=scrollHeight-2)current=profileSections.at(-1)[0];
- if(current!==profileSection){profileSection=current;syncProfileNavigation();}
+// Next section in the order the person sees them, so the profile can be completed start to finish.
+function profilePager(){
+ const shown=profileSections.filter(([id])=>id!=='profile-permissions'||Object.keys(model.fieldDefinitions||{}).some(key=>AUTO_PERMISSION_KEYS().has(key))),next=shown[shown.findIndex(([id])=>id===profileSection)+1];
+ return next?`<button type="button" class="profile-next" data-profile-next="${next[0]}">Siguiente: ${esc(next[1])}${icon('arrow-right')}</button>`:'';
+}
+function showProfileSection(id,{focus=true}={}){
+ profileSection=canonicalProfileSection(id);
+ if(cvDetail){cvDetail=null;rememberAllForms();render(true);}
+ syncProfileNavigation();
+ try{workspaceSession.setItem('stubbs_jobs-profile-section',profileSection);}catch{}
+ const target=document.getElementById(profileSection);target?.scrollIntoView?.({block:'start',behavior:'instant'});
+ if(target?.classList){target.classList.remove('profile-card--enter');void target.offsetWidth;target.classList.add('profile-card--enter');}
+ if(focus){const heading=target?.querySelector('h2')||target;heading?.setAttribute('tabindex','-1');heading?.focus({preventScroll:true});}
+ // A hidden section measures zero: fields that fit their content are sized when it appears.
+ growProfileFields();
+}
+// A control in a closed section cannot show its message: open the section first.
+function reportFormValidity(form){
+ if(!form.reportValidity)return true;
+ // An amount means nothing without its currency: the person chooses it, the app never assumes one.
+ const named=name=>Array.from(form.elements||[]).find(control=>control.name===name);
+ for(const [amount,currency] of [['minimumFixed','currency'],['salaryExpectationFixed','salaryCurrency'],['currentSalary','currentSalaryCurrency']]){
+  const field=named(currency);field?.setCustomValidity?.(String(named(amount)?.value||'').trim()&&!String(field.value||'').trim()?'Indica la moneda de este salario, por ejemplo EUR o USD.':'');
+ }
+ const invalid=Array.from(form.elements||[]).find(control=>control.willValidate&&!control.checkValidity()),card=invalid?.closest?.('.profile-card');
+ if(card?.id&&card.id!==profileSection)showProfileSection(card.id,{focus:false});
+ return form.reportValidity();
+}
+// A draft identical to what is shown or already saved holds no change: it never keeps the save bar open.
+function settleIdleDraft(form){
+ try{
+  const key=draftKey(form),stored=JSON.parse(draftStorage.getItem(key)||'null');if(stored?.attempt)return;
+  const values=formValues(form),source=formSource(form.dataset.form),same=target=>Object.keys(values).every(name=>sameFieldValue(values[name],target[name]));
+  if(!same(form._shown)&&!same(source))return;
+  draftStorage.removeItem(key);form._dirty=false;
+  if(!same(form._shown)){form._expected=Object.fromEntries(Object.keys(values).map(name=>[name,source[name]??null]));form._shown={...form._expected};}
+ }catch{}
+}
+function forgetProfileChanges(){
+ profileSaveProblem='';
+ for(const form of visibleForms().filter(form=>form._dirty)){draftStorage.removeItem(draftKey(form));form._dirty=false;}
+ dirty=false;
+}
+// Mi perfil saves as a whole: leaving it, or changing search profile, settles what is pending first.
+async function settleUnsavedProfile(text,saveLabel){
+ if(!dirty)return true;
+ const dialog=document.querySelector('#unsaved-dialog');if(!dialog?.showModal)return true;
+ document.querySelector('#unsaved-text').textContent=text.replace('{sections}',profileChangedSections().join(', ')||'tu perfil');
+ document.querySelector('#unsaved-save').textContent=saveLabel;
+ dialog.returnValue='stay';dialog.showModal();
+ const choice=await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
+ if(choice==='save')return await saveProfileChanges();
+ if(choice==='discard'){forgetProfileChanges();return true;}
+ return false;
+}
+async function discardProfileChanges(){
+ if(!dirty||profileSaving||!await confirmAction('Descartar los cambios',`Se perderá lo que has cambiado en ${profileChangedSections().join(', ')||'tu perfil'} desde la última vez que guardaste.`))return;
+ forgetProfileChanges();render();toast('Cambios descartados.');
 }
 function profileForm(){
+ if(!profileSectionRestored){profileSectionRestored=true;try{const saved=workspaceSession.getItem('stubbs_jobs-profile-section');if(profileSections.some(([id])=>id===saved)&&profileSection==='profile-about')profileSection=saved;}catch{}}
  const j=selected?getJob(selected):null;
  if(j){
   const formKeys=Array.isArray(j.draft.formAnswerKeys)?j.draft.formAnswerKeys.filter(key=>Object.hasOwn(j.fieldDefinitions,key)):[];
   const keys=[...new Set(['currentCity','workPermitWithoutSponsorship','salaryExpectationFixed',...j.draft.requiredAnswers,...formKeys])];
   return `<div class="profile-layout"><form data-form="profile" class="panel"><h1>Respuestas para ${esc(j.company)}</h1><div class="form-grid">${keys.map(k=>fieldHtml(k,j.fieldDefinitions[k],j.answers[k])).join('')}</div><p class="helper">Los datos generales se reutilizan; las respuestas de esta oferta quedan aquí.</p>${formErrors()}<button class="primary" type="submit" hidden>Guardar cambios</button>${Object.keys(j.answerOverrides).length?'<button type="button" data-inherit="1">Volver a usar los datos generales</button>':''}</form></div>`;
  }
- const about=formSource('about'),layout=aboutLayout(),defs=sectionDefinitions('about');
- return `<div class="profile-layout"><div class="profile-heading"><h1>Mi perfil</h1><p class="page-lead">Tus datos y preferencias para preparar solicitudes con precisión.</p></div><div class="profile-workspace"><nav class="profile-section-nav" aria-label="Secciones de Mi perfil">${profileSections.map(([id,label])=>`<a href="#${id}" data-profile-section="${id}"${profileSection===id?' aria-current="location"':''}>${label}</a>`).join('')}</nav><div class="profile-content">${legacyRecovery()}
-  <section class="profile-card" id="profile-about"><h2>Sobre mi</h2><div class="profile-fields"><form data-form="about" id="profile-about-form" class="profile-fields-form"><div class="form-grid">${profileGroup('Contacto',aboutFieldsHtml(layout.contact,about,defs))}${profileGroup('Datos personales',aboutFieldsHtml(layout.personal,about,defs))}${profileGroup('Trabajo y disponibilidad',aboutFieldsHtml(layout.work,about,defs))}${profileGroup('Salario',aboutFieldsHtml(layout.salary,about,defs))}${profileGroup('Experiencia e idiomas',`<div class="profile-field-wide">${fieldHtml('text',{label:'Mi experiencia',type:'longtext',rows:10,form:'profile-experience-form'},model.experience)}</div><div class="profile-field-wide">${fieldHtml('languages',{...sectionDefinitions('search').languages,form:'profile-search-form'},formSource('search').languages)}</div>`)}${profileGroup('Otras respuestas para formularios',aboutFieldsHtml(layout.answers,about,defs))}${profileGroup('Encuestas y datos sensibles (opcional)',aboutFieldsHtml(layout.demographic,about,defs))}${profileGroup('Permisos',aboutFieldsHtml([...layout.consent,...layout.autoApply],about,defs))}</div>${formErrors()}</form>
-  <form data-form="experience" id="profile-experience-form" class="profile-fields-form">${formErrors()}</form>${formErrors('search')}
-  </div></section>
-  ${searchSettingsPanels()}
-  ${cvLibrary()}
-  </div></div><aside class="profile-savebar" data-profile-savebar aria-label="Guardar cambios de Mi perfil" hidden><div class="profile-savebar-inner"><span data-profile-pending>Cambios sin guardar</span><button type="button" class="primary" data-save-profile="1" title="Guardar cambios (Ctrl+S)">Guardar cambios</button></div></aside>
+ const about=formSource('about'),layout=aboutLayout(),defs=sectionDefinitions('about'),search=formSource('search'),owner='profile-about-form';
+ const permissionFields=aboutFieldsHtml([...layout.consent,...layout.autoApply],about,defs,owner);
+ const personal=[['identity','Sobre ti','Lo básico que piden todos los formularios.',layout.identity],['contact','Contacto','Cómo pueden localizarte y qué enlaces compartes.',layout.contact],['home','Dónde vives','Tu residencia, no dónde quieres trabajar.',layout.home],['work','Disponibilidad y movilidad','Dónde puedes trabajar, cuándo empiezas y cómo te mueves.',layout.work],['situation','Situación laboral','Lo que preguntan algunos formularios sobre tu empleo actual.',layout.salary.filter(key=>key!=='salaryExpectationFixed')],['demographic','Encuestas y datos sensibles','Opcionales. Solo se usan como decidas aquí.',layout.demographic]].map(([id,title,lead,keys])=>{const fields=aboutFieldsHtml(keys,about,defs);return fields.trim()?profilePanel(id,title,lead,`<div class="profile-body">${fields}</div>`):'';}).join('');
+ const sections={
+  'profile-about':profileCard('profile-about',`<form data-form="about" id="${owner}" class="profile-fields-form">${personal}${formErrors()}</form>`),
+  'profile-experience':profileCard('profile-experience',`<form data-form="experience" id="profile-experience-form" class="profile-fields-form">${formErrors()}</form>${profilePanel('career','Mi experiencia','Tus puestos, responsabilidades y logros. Tu agente parte de aquí para adaptar cada CV.',`<div class="profile-body"><div class="profile-field-wide">${fieldHtml('text',{label:'Mi experiencia',labelClass:'sr-only',type:'longtext',rows:10,form:'profile-experience-form'},model.experience)}</div></div>`)}${skillsPanel()}${profilePanel('studies','Formación e idiomas','Tu nivel de estudios y los idiomas que hablas.',`<div class="profile-body">${aboutFieldsHtml(layout.education,about,defs,owner)}<div class="profile-field-wide">${fieldHtml('languages',{...sectionDefinitions('search').languages,form:'profile-search-form'},search.languages)}${languageRows(search.languages)}</div></div>`)}${formErrors('search')}`),
+  'profile-work':searchSettingsPanels(),
+  'profile-cv':cvLibrary(),
+  'profile-answers':profileCard('profile-answers',`${answersPanel()}${layout.answers.length?profilePanel('other-answers','Otras preguntas','Preguntas con un formato fijo que ya has contestado.',`<div class="profile-body">${aboutFieldsHtml(layout.answers,about,defs,owner)}</div>`):''}`),
+  'profile-permissions':permissionFields.trim()?profileCard('profile-permissions',permissionFields):''
+ };
+ const shown=profileSections.filter(([id])=>sections[id]);
+ if(!shown.some(([id])=>id===profileSection))profileSection=shown[0][0];
+ return `<div class="profile-layout"><div class="profile-workspace" data-profile-active="${profileSection}"><div class="profile-sidebar"><div class="profile-heading"><h1>Mi perfil</h1><p class="page-lead">Todo lo que tu agente necesita para buscar y solicitar por ti.</p></div><nav class="profile-section-nav" aria-label="Secciones de Mi perfil">${shown.map(([id,label])=>`<a href="#${id}" data-profile-section="${id}"${profileSection===id?' aria-current="location"':''}><span>${label}</span>${profileStatusHtml(id)}</a>`).join('')}</nav>${toolsNotice()}</div><div class="profile-content">${legacyRecovery()}
+  ${shown.map(([id])=>sections[id]).join('\n  ')}
+  <div class="profile-pager" data-profile-pager>${profilePager()}</div></div><form id="profile-knowledge-form" hidden></form></div><aside class="profile-savebar" data-profile-savebar aria-label="Guardar cambios de Mi perfil" hidden><div class="profile-savebar-inner"><span data-profile-pending>Cambios sin guardar</span><small class="shortcut-hint" aria-hidden="true"><kbd>Ctrl</kbd><kbd>S</kbd></small><button type="button" class="quiet" data-discard-profile="1">Descartar</button><button type="button" class="primary" data-save-profile="1" title="Guardar cambios (Ctrl+S)">Guardar cambios</button></div></aside>
  </div>`;
 }
-// A titled run of fields inside one card; not a panel. Empty groups are omitted.
-function profileGroup(title,html){return html.trim()?`<h3 class="profile-group-title">${esc(title)}</h3>${html}`:'';}
+// Competencies and saved answers save one by one, apart from the page's unsaved changes.
+const SKILL_KINDS={professional:'En el trabajo',personal:'Proyecto propio',training:'Formación'},SKILL_LEVELS={basic:'Básico',intermediate:'Intermedio',advanced:'Avanzado'};
+let answersExpanded=false,answerQuery='';
+const LANGUAGE_LEVELS=['Nativo','C2','C1','B2','B1','A2','A1'];
+function parseLanguages(value){
+ return String(value||'').split(/,(?![^()]*\))|;|\n/).map(part=>part.trim()).filter(Boolean).map(part=>{
+  const match=part.match(/^(.+?)\s+(nativo|nativa|native|biling[üu]e|[abc][12])\b\s*(?:\((.*)\))?\s*$/i);
+  if(!match)return {name:part,level:'',note:''};
+  const level=/^[abc][12]$/i.test(match[2])?match[2].toUpperCase():'Nativo';
+  return {name:match[1].trim(),level,note:(match[3]||'').trim()};
+ });
+}
+function languageRowHtml(row){
+ return `<div class="language-row" data-language-row><input type="text" form="profile-knowledge-form" data-knowledge="1" data-language-name maxlength="60" list="language-options" value="${esc(row.name)}" placeholder="Idioma" aria-label="Idioma"><select form="profile-knowledge-form" data-knowledge="1" data-language-level aria-label="Nivel"><option value="">Nivel</option>${LANGUAGE_LEVELS.map(level=>`<option value="${level}"${row.level===level?' selected':''}>${level}</option>`).join('')}</select><input type="text" form="profile-knowledge-form" data-knowledge="1" data-language-note maxlength="80" value="${esc(row.note)}" placeholder="Certificado (opcional)" aria-label="Certificado"><button type="button" class="link-button knowledge-remove" data-language-remove="1" aria-label="Quitar ${esc(row.name||'idioma')}">Quitar</button></div>`;
+}
+function languageRows(value){
+ return `<div class="language-rows" data-language-rows><datalist id="language-options">${['Español','Inglés','Francés','Alemán','Italiano','Portugués','Catalán','Euskera','Gallego','Árabe','Chino','Neerlandés','Polaco','Rumano','Ruso'].map(name=>`<option value="${name}"></option>`).join('')}</datalist><div data-language-list>${parseLanguages(value).map(languageRowHtml).join('')}</div><button type="button" data-language-add="1">Añadir idioma</button></div>`;
+}
+function languageRowsText(){
+ return [...main.querySelectorAll('[data-language-row]')].map(row=>{
+  const name=row.querySelector('[data-language-name]').value.trim(),level=row.querySelector('[data-language-level]').value,note=row.querySelector('[data-language-note]').value.trim();
+  if(!name)return '';
+  return `${name}${level?` ${level==='Nativo'?'nativo':level}`:''}${note?` (${note})`:''}`;
+ }).filter(Boolean).join(', ');
+}
+function writeLanguageRows(){
+ const field=main.querySelector('textarea[name="languages"]');if(!field)return;
+ field.value=languageRowsText();const form=controlForm(field);if(form){form._lastEditedField='languages';rememberForm(form);}
+}
+// A restored draft updates the saved text; rows and dependent fields follow it.
+function syncProfileWidgets(){
+ const field=main.querySelector?.('textarea[name="languages"]'),list=main.querySelector?.('[data-language-list]');
+ if(field&&list&&document.activeElement?.closest?.('[data-language-rows]')==null&&languageRowsText()!==String(field.value||'').trim())list.innerHTML=parseLanguages(field.value).map(languageRowHtml).join('');
+ const onsite=main.querySelector?.('#search-field-onsiteLocations'),mode=main.querySelector?.('[name="workMode"]'),zones=main.querySelector?.('[name="onsiteLocations"]');
+ // Zones for office work mean nothing to a search that is only remote.
+ if(onsite&&mode&&zones)onsite.hidden=/remot/i.test(mode.value)&&!/h[ií]brid|presencial/i.test(mode.value)&&!zones.value.trim();
+ syncWherePanel();
+}
+function skillsPanel(){
+ const all=model.skills||[],lacking=all.filter(s=>s.status==='confirmed'&&s.years===0),rows=all.filter(s=>!lacking.includes(s)),pending=rows.filter(s=>s.status!=='confirmed').length,confirmed=rows.length-pending;
+ const where=s=>[SKILL_KINDS[s.kind],SKILL_LEVELS[s.level]].filter(Boolean).join(' · ')||'—';
+ const row=s=>`<tr data-skill-row="${esc(s.id)}"${s.status==='confirmed'?'':' data-pending="1"'}><th scope="row"><span class="knowledge-name">${esc(s.name)}</span>${s.status==='confirmed'?'':' <span class="knowledge-pending">Por confirmar</span>'}${s.aliases?.length?`<small class="knowledge-aliases">${esc(s.aliases.join(', '))}</small>`:''}</th><td class="knowledge-years"><input type="number" form="profile-knowledge-form" min="0" max="60" step="0.1" value="${s.years??''}" placeholder="Sin indicar" data-knowledge="1" data-skill-years="${esc(s.id)}"${s.status==='confirmed'?'':' data-skill-pending="1"'} aria-label="Años de experiencia con ${esc(s.name)}"></td><td>${esc(where(s))}${s.usedAt?`<small class="knowledge-aliases">${esc(s.usedAt)}</small>`:''}</td><td><div class="knowledge-actions">${s.status!=='confirmed'&&s.years!=null?`<button type="button" class="knowledge-confirm" data-skill-confirm="${esc(s.id)}" aria-label="Confirmar ${esc(s.name)}">Confirmar</button>`:''}<button type="button" class="link-button" data-skill-edit="${esc(s.id)}" aria-label="${s.status==='confirmed'?'Editar':'Revisar'} ${esc(s.name)}">${s.status==='confirmed'?'Editar':'Revisar'}</button><button type="button" class="link-button knowledge-quiet" data-skill-remove="${esc(s.id)}" aria-label="Quitar ${esc(s.name)}">Quitar</button></div></td></tr>`;
+ const summary=rows.length?`${pending?`<span class="knowledge-pending">${pending} por confirmar</span> · `:''}${confirmed} ${confirmed===1?'confirmada':'confirmadas'}`:'';
+ const none=lacking.length?`<div class="knowledge-lacking"><span>Sin experiencia</span>${lacking.map(s=>`<button type="button" class="knowledge-chip" data-skill-edit="${esc(s.id)}" aria-label="Editar ${esc(s.name)}, sin experiencia">${esc(s.name)}</button>`).join('')}</div>`:'';
+ return profilePanel('skills','Competencias',`${summary?summary+'. ':''}${pending?'Escribe los años y pulsa Intro para confirmar y pasar a la siguiente.':'Solo lo confirmado responde formularios y entra en tus CV.'}`,`<div class="knowledge-panel">${rows.length?`<div class="knowledge-scroll"><table class="knowledge-table"><thead><tr><th scope="col">Competencia</th><th scope="col">Años</th><th scope="col">Dónde</th><th scope="col"><span class="sr-only">Acciones</span></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table></div>`:'<p class="knowledge-empty">Aún no hay ninguna. Pide a tu agente que las proponga a partir de tu CV, o añádelas tú.</p>'}${none}</div>`,{flush:true,action:'<button type="button" data-skill-add="1">Añadir competencia</button>'});
+}
+function answerNeedsReview(a){return Boolean(a.conflict);}
+function answersList(){
+ const folded=value=>String(value??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(),query=folded(answerQuery).trim();
+ const value=v=>v===true?'Sí':v===false?'No':String(v);
+ const rows=(model.answerBank||[]).filter(a=>!query||folded(a.question+' '+value(a.value)).includes(query));
+ const shown=answersExpanded||query?rows:rows.slice(0,8);
+ if(!rows.length)return `<p class="knowledge-empty">Ninguna respuesta coincide con tu búsqueda.</p>`;
+ return `<ul class="knowledge-answers">${shown.map(a=>`<li data-answer-row="${esc(a.id)}"><div class="knowledge-question"><strong>${esc(a.question)}</strong>${a.conflict?`<span class="knowledge-pending">Después respondiste «${esc(value(a.laterValue??''))}». ¿Cuál vale?</span>`:''}</div><p class="note-text">${esc(value(a.value))}</p><div class="knowledge-actions">${a.conflict?`<button type="button" class="knowledge-confirm" data-answer-confirm="${esc(a.id)}" aria-label="Mantener la respuesta: ${esc(a.question)}">Mantener</button>`:''}<button type="button" class="link-button" data-answer-edit="${esc(a.id)}" aria-label="Editar: ${esc(a.question)}">Editar</button><button type="button" class="link-button knowledge-quiet" data-answer-remove="${esc(a.id)}" aria-label="Quitar: ${esc(a.question)}">Quitar</button></div></li>`).join('')}</ul>${rows.length>shown.length?`<button type="button" class="link-button" data-answers-more="1">Ver las ${rows.length} respuestas</button>`:''}`;
+}
+function answersPanel(){
+ const rows=model.answerBank||[],add='<button type="button" data-answer-add="1">Añadir respuesta</button>',lead='Lo que has contestado en formularios, para no volver a preguntártelo.';
+ if(!rows.length)return profilePanel('answers','Respuestas a formularios',lead,`<div class="knowledge-panel"><p class="knowledge-empty">Solo aparecerá aquí lo que tu perfil no permita responder.</p></div>`,{flush:true,action:add});
+ return profilePanel('answers','Respuestas a formularios',lead,`<div class="knowledge-panel">${rows.length>8?`<div class="knowledge-toolbar"><input type="search" class="knowledge-search" form="profile-knowledge-form" data-knowledge="1" data-answer-search="1" value="${esc(answerQuery)}" placeholder="Buscar en tus respuestas" aria-label="Buscar en tus respuestas"></div>`:''}<div id="knowledge-answers-list" aria-live="polite">${answersList()}</div></div>`,{flush:true,action:add});
+}
+function dialogResult(dialog){dialog.returnValue='cancel';dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='ok'),{once:true}));}
+async function knowledgeAction(operation,done){rememberAllForms();if(await action(operation)){renderKeepingKnowledgeInput();toast(done);}}
+// The next year may be half typed when an earlier one finishes saving.
+function renderKeepingKnowledgeInput(){
+ const active=document.activeElement,id=active?.dataset?.skillYears,value=active?.value;
+ render(true);
+ if(id){const input=main.querySelector?.(`[data-skill-years="${id}"]`);if(input){input.value=value;input.focus?.();}}
+}
+let skillSaves=Promise.resolve();
+function storedSkill(skill){const stored={};for(const key of Object.keys(skill))if(!['formYears','pending'].includes(key))stored[key]=skill[key];return stored;}
+function skillValues(skill,changes={}){return {name:skill.name,aliases:skill.aliases||[],years:skill.years??null,level:skill.level??null,kind:skill.kind||'professional',usedAt:skill.usedAt??null,lastUsed:skill.lastUsed??null,...changes};}
+function focusNextSkill(current){const pending=[...main.querySelectorAll('[data-skill-pending]')],index=pending.indexOf(current),next=pending[index+1]||pending.find(input=>input!==current);if(next)next.focus();else current.blur();}
+function saveSkillYears(input){
+ const identifier=input.dataset.skillYears,raw=input.value.trim();
+ // Saves run in order: each reads the state the previous one left.
+ skillSaves=skillSaves.then(async()=>{
+  const skill=(model.skills||[]).find(s=>s.id===identifier);if(!skill)return;
+  const years=raw===''?null:Number(raw);
+  if(years===(skill.years??null))return;
+  if(years===null&&skill.status==='confirmed'&&!(await confirmAction('Quitar los años',`«${skill.name}» dejará de responder preguntas de años hasta que los indiques.`))){const shown=main.querySelector?.(`[data-skill-years="${identifier}"]`);if(shown)shown.value=skill.years??'';return;}
+  await knowledgeAction({kind:'ui-skill-save',id:skill.id,expected:storedSkill(skill),values:skillValues(skill,{years})},years===null?`${skill.name}: años quitados.`:`${skill.name}: ${String(years).replace('.',',')} ${years===1?'año':'años'}, confirmada.`);
+ }).catch(error=>toast(error?.message||'No se pudo guardar. Vuelve a intentarlo.'));
+ return skillSaves;
+}
+async function editSkill(identifier){
+ const current=(model.skills||[]).find(s=>s.id===identifier),dialog=document.querySelector('#skill-dialog'),form=dialog.querySelector('form');
+ form.reset();
+ for(const key of ['name','years','level','kind','usedAt','lastUsed'])form.elements[key].value=current?.[key]??(key==='kind'?'professional':'');
+ form.elements.aliases.value=(current?.aliases||[]).join(', ');
+ if(!await dialogResult(dialog))return;
+ const text=key=>form.elements[key].value.trim(),years=text('years');
+ const stored=current?storedSkill(current):null;
+ const values={name:text('name'),aliases:text('aliases').split(',').map(a=>a.trim()).filter(Boolean),years:years===''?null:Number(years.replace(',','.')),level:text('level')||null,kind:text('kind'),usedAt:text('usedAt')||null,lastUsed:text('lastUsed')||null};
+ await knowledgeAction({kind:'ui-skill-save',...(current?{id:current.id,expected:stored}:{}),values},'Competencia guardada.');
+}
+async function editAnswer(identifier){
+ const current=(model.answerBank||[]).find(a=>a.id===identifier),dialog=document.querySelector('#answer-dialog'),form=dialog.querySelector('form');
+ form.reset();form.elements.question.value=current?.question||'';form.elements.value.value=current?String(current.value===true?'Sí':current.value===false?'No':current.value):'';
+ if(!await dialogResult(dialog))return;
+ await knowledgeAction({kind:'ui-answer-save',...(current?{id:current.id,expected:{value:current.value,status:current.status}}:{}),question:form.elements.question.value.trim(),value:form.elements.value.value.trim()},'Respuesta guardada.');
+}
+function offerRequirementMatch(j){
+ const m=j.requirementMatch;if(!m)return '';
+ if(m.needsSkills)return (model.skills||[]).length||!j.draft?'':`<section class="case-section offer-requirements" data-offer-section="requirements"><div class="section-heading"><h2>Requisitos</h2></div><p class="helper">Confirma tus competencias en Mi perfil para comparar esta oferta con lo que sabes hacer.</p></section>`;
+ const years=r=>r.askedYears?` (${r.askedYears} años${r.yourYears!==undefined?`; tú ${r.yourYears}`:''})`:'';
+ const groups=[['Cumples',m.met],['Piden más años',m.gaps],['No consta en tus competencias',m.missing],['Por aclarar',m.unclear],['Valorable, no lo tienes',m.niceToHave]].filter(([,rows])=>rows.length);
+ if(!groups.length)return '';
+ return `<section class="case-section offer-requirements" data-offer-section="requirements"><div class="section-heading"><h2>Requisitos</h2></div><dl class="summary-list">${groups.map(([title,rows])=>`<div><dt>${title}</dt><dd>${rows.map(r=>esc(r.name+years(r))).join(', ')}</dd></div>`).join('')}</dl><p class="helper">Comparación orientativa por palabras: no descarta ofertas ni decide por ti.</p></section>`;
+}
+const PROFILE_SECTION_LEADS={'profile-about':'Lo que piden los formularios. Las encuestas y los datos sensibles son opcionales.','profile-experience':'La base de cada CV y solicitud. Tu agente solo da por cierto lo que confirmes.','profile-answers':'Lo que tu perfil no permite deducir. Se reutiliza aunque la pregunta cambie de palabras o de idioma.','profile-permissions':'Qué puede hacer tu agente sin volver a preguntarte. Solo tú los concedes; lo que no autorices, te lo pregunta.'};
+// Each frame is a subsection: it has a title, says what it is for and holds what is useful together.
+function profilePanel(id,title,lead,body,{action='',flush=false}={}){
+ return `<div class="profile-panel${flush?' profile-panel--flush':''}" role="group" aria-labelledby="panel-${id}"><div class="profile-panel-head"><div class="profile-panel-title"><h3 id="panel-${id}">${esc(title)}</h3>${lead?`<p>${lead}</p>`:''}</div>${action}</div>${body}</div>`;
+}
+function profileCard(id,body){
+ const title=profileSections.find(([key])=>key===id)[1],lead=PROFILE_SECTION_LEADS[id];
+ return `<section class="profile-card" id="${id}"><div class="profile-section-head"><h2>${esc(title)}</h2>${lead?`<p>${esc(lead)}</p>`:''}</div><div class="profile-fields">${body}</div></section>`;
+}
+// What is left in each section, shown beside its name in the index. Empty when nothing is pending.
+function profileStatus(id,live=false){
+ const about=formSource('about'),search=formSource('search'),filled=value=>String(value??'').trim()!=='';
+ const value=(key,source)=>{const control=live?main.querySelector?.(`[name="${key}"]`):null;return control&&typeof control.value==='string'?control.value:source[key];};
+ if(id==='profile-about'){const missing=['name','email','phone'].filter(key=>!filled(value(key,about))).length;return profileMissing(missing);}
+ if(id==='profile-experience'){
+  const skills=model.skills||[],pending=skills.filter(s=>s.status!=='confirmed'||s.years==null).length;
+  if(!filled(value('text',{text:model.experience})))return 'Sin completar';
+  return pending?`${pending} por confirmar`:skills.length?'':'Sin competencias';
+ }
+ if(id==='profile-work'){const missing=['targetRoles','contract','minimumFixed'].filter(key=>!filled(value(key,search))).length+(filled(value('location',search))||filled(search.regions)?0:1);return profileMissing(missing);}
+ if(id==='profile-answers'){const review=(model.answerBank||[]).filter(answerNeedsReview).length;return review?`${review} con dudas`:'';}
+ if(id==='profile-permissions'){const undecided=(window.StubbsJobsSetup.autoApplyPermissions||[]).filter(item=>[null,undefined,''].includes(value(item.key,model.profile||{}))).length;return undecided?`${undecided} sin decidir`:'';}
+ return '';
+}
+function profileMissing(count){return !count?'':count===1?'Falta 1':`Faltan ${count}`;}
+function profileStatusHtml(id,live=false){const text=profileStatus(id,live);return `<small class="profile-nav-status" data-profile-status="${id}">${esc(text)}</small>`;}
+function syncProfileOverview(){if(screen!=='perfil'||selected)return;for(const node of main.querySelectorAll?.('[data-profile-status]')||[])if('textContent' in node)node.textContent=profileStatus(node.dataset.profileStatus,true);}
 function legacyRecoveryItems(){
  let recovered=[];try{recovered=JSON.parse(draftStorage.getItem('stubbs_jobs-recovered-drafts')||'[]');if(!Array.isArray(recovered))recovered=[];}catch{}
  return window.StubbsJobsDrafts.legacyDrafts(sessionStorage,localStorage).filter(item=>!recovered.includes(JSON.stringify(item)));
 }
 function legacyRecovery(){
  const items=legacyRecoveryItems();if(!items.length)return '';
- const titles={datos:'Sobre mi',experiencia:'Mi experiencia',busqueda:'Mis idiomas y lo que busco',fuentes:'Mis fuentes de búsqueda'};
+ const titles={datos:'Datos personales',experiencia:'Mi experiencia',busqueda:'Mis idiomas y lo que busco',fuentes:'Mis fuentes de búsqueda'};
  return `<details class="profile-card draft-recovery"><summary>Borradores de una versión anterior (${items.length})</summary><p>Comprueba que estos datos son tuyos. Su carpeta de origen no está registrada. Puedes recuperarlos como cambios sin guardar.</p>${items.map((item,index)=>`<section><h3>${titles[item.key.split(':')[1]]}</h3><dl class="summary-list">${Object.entries(item.value.values).map(([key,value])=>`<div><dt>${esc(model.labels?.[key]||window.StubbsJobsSetup.context[key]?.label||key==='text'&&'Experiencia'||key)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl><button type="button" data-recover-draft="${index}">Recuperar este borrador</button></section>`).join('')}</details>`;
 }
 async function recoverLegacyDraft(index){
@@ -1216,18 +1451,117 @@ function searchSettingsPanels(){
  const search=formSource('search'),sources=formSource('sources');
  const searchPlace=visibleSearchLocation(search.location,search.workMode,search.regions);search.location=searchPlace.location;search.workMode=searchPlace.workMode;
  const profile=currentSearchProfile(),scope=profile?` data-search-profile-id="${esc(profile.id)}"`:'';
- return `<section class="profile-card" id="profile-work"><h2>Lo que busco</h2>${searchProfileControls()}${profile?'<hr class="search-profile-separator" aria-hidden="true">':''}<div class="profile-fields"><form data-form="search" id="profile-search-form" class="profile-fields-form"${scope}>
-  <div class="form-grid">${profileGroup('Qué busco',searchCriteriaFields(search,['targetRoles','keywords'],null,{flat:true}))}${profileGroup('Dónde y cómo',searchCriteriaFields(search,['location','workMode','onsiteLocations'],null,{flat:true}))}${profileGroup('Condiciones mínimas',searchCriteriaFields(search,['contract','minimumFixed','maxTrips','requiredSchedule'],null,{flat:true}))}${profileGroup('Preferencias',searchCriteriaFields(search,['searchPriorities',...(profile?['searchNotes']:[])],null,{flat:true}))}${profileGroup('Fuentes y empresas a evitar',searchCriteriaFields(search,['previousApplications'],null,{flat:true}))}</div>${formErrors('search')}</form>
-  <form data-form="sources" class="profile-fields-form"${scope}>${searchOptionsControls(sources)}${formErrors()}</form>${String(sources.sourceUrls||'').trim()?'':sourceYieldList()}
-  ${profile?'<p class="helper">Empresas a evitar e idiomas son comunes a todos los perfiles, y el salario que pides en los formularios está en Sobre mi. El mínimo salarial y su moneda pertenecen a este perfil.</p>':''}</div></section>`;
+ const lead=profile?'Cada perfil de búsqueda guarda sus propios criterios.':'Los criterios con los que tu agente busca y elige.';
+ return `<section class="profile-card" id="profile-work"><div class="profile-section-head"><h2>Lo que busco</h2><p>${lead}</p></div>${profile?`<div class="profile-section-tools">${searchProfileControls()}</div>`:''}<div class="profile-fields"><form data-form="search" id="profile-search-form" class="profile-fields-form"${scope}>
+  ${[['roles','Puesto','Lo que tu agente busca.',['targetRoles','keywords']],['place','Ubicación','Dónde quieres trabajar y de qué forma.',['location','workMode','onsiteLocations']],['terms','Requisitos','Si una oferta no los cumple, se archiva.',['contract','minimumFixed','maxTrips','requiredSchedule']],['notes','Preferencias','Orientan a tu agente, pero no descartan ofertas.',['salaryExpectationFixed','searchPriorities',...(profile?['searchNotes']:[]),'previousApplications']]].map(([id,title,panelLead,keys])=>profilePanel(id,title,panelLead,`<div class="profile-body">${searchCriteriaFields(search,keys,null,{flat:true})}</div>`)).join('')}${formErrors('search')}</form>
+  <form data-form="sources" class="profile-fields-form"${scope}>${profilePanel('where','Dónde busca tu agente',`<span data-where-summary>${esc(whereSummaryText(sources))}</span>`,`<div class="where-body">${whereBody(sources)}</div>`,{action:whereScope(sources)})}${formErrors()}</form></div></section>`;
 }
 // Company boards the scanner checks, with what each one has produced for this person.
-function sourceYieldList(){
- const stats=model.sourceStats||[];if(!stats.length)return '';
- const plural=(n,one,many)=>`${n} ${n===1?one:many}`;
- const rows=stats.map(s=>`<li class="source-yield-row${s.enabled?'':' source-yield-row--off'}"><div class="source-yield-text"><span class="source-yield-name">${esc(s.company||s.id)}${s.lowYield&&s.enabled?'<span class="source-badge">Poco útil</span>':''}${s.enabled?'':'<span class="source-badge source-badge--off">No se revisa</span>'}</span><small>${esc([plural(s.offers,'oferta','ofertas'),plural(s.sent,'enviada','enviadas'),plural(s.discardedByYou,'descartada por ti','descartadas por ti')].join(' · '))}</small></div><button type="button" class="link-button" data-source-toggle="${esc(s.id)}" data-source-enabled="${s.enabled?'false':'true'}">${s.enabled?'Dejar de revisar':'Volver a revisar'}</button></li>`).join('');
- const low=stats.filter(s=>s.lowYield&&s.enabled).length;
- return `<div class="source-yield profile-field-wide"><span class="source-yield-title">Webs de empresa que revisa el agente</span><ul class="source-yield-list">${rows}</ul><small class="helper">${low?esc(plural(low,'web aporta','webs aportan')+' muchas ofertas que descartas y casi ningún envío. '):''}Común a todas tus búsquedas. Dejar de revisar una web conserva sus ofertas e historial; los portales de empleo se buscan aparte.</small></div>`;
+let sourceScope=null;
+const whereProfileKey=()=>currentSearchProfile()?.id||model.defaultSearchProfileId||'';
+function whereMap(){return model.whereMap?.[currentSearchProfile()?.id||model.defaultSearchProfileId]||null;}
+function sourceScopeNow(sources){return sourceScope?.profile===whereProfileKey()?sourceScope.value:(String(sources.sourceUrls||'').trim()?'exclusive':'open');}
+function excludedPortalSet(sources){return new Set(String(sources.excludedPortals||'').split(',').filter(Boolean));}
+const whereLines=value=>[...new Set(String(value||'').split('\n').map(line=>line.trim()).filter(Boolean))];
+const whereOff=sources=>new Set(String(sources.disabledSources??(model.sourceStats||[]).filter(s=>!s.enabled).map(s=>s.id).join(',')).split(',').filter(Boolean));
+function whereLinkLabel(link){try{const parts=new URL(link);return parts.hostname.replace(/^www\.|^jobs\.|^careers\./,'')+(parts.pathname.length>1?parts.pathname.replace(/\/$/,''):'');}catch{return link;}}
+const whereCount=(n,one,many)=>`${n} ${n===1?one:many}`;
+// Company rows: the boards already checked, plus what was just added and is not saved yet.
+function whereCompanies(sources){
+ const followed=whereLines(sources.followedSources),stats=model.sourceStats||[],known=new Set(stats.map(s=>s.url).filter(Boolean));
+ return [...stats.map(s=>({...s,removable:followed.includes(s.url)})),...followed.filter(link=>!known.has(link)).map(link=>({id:null,url:link,company:whereLinkLabel(link),removable:true,fresh:true}))];
+}
+function wherePortalTotals(sources){
+ const map=whereMap(),excluded=excludedPortalSet(sources),usable=(map?.portals||[]).filter(p=>p.relevant);
+ return {on:usable.filter(p=>!excluded.has(p.id)).length,all:usable.length};
+}
+function whereCompanyTotals(sources){
+ const rows=whereCompanies(sources),off=whereOff(sources);
+ return {on:rows.filter(row=>row.fresh||!off.has(row.id)).length,all:rows.length};
+}
+function whereSummaryText(sources){
+ if(sourceScopeNow(sources)==='exclusive')return whereLines(sources.sourceUrls).length?'Solo en estas webs.':'Añade una web. Hasta entonces, busca en portales y empresas.';
+ const portals=wherePortalTotals(sources).on,companies=whereCompanyTotals(sources).on;
+ return `${whereCount(portals,'portal','portales')}, ${whereCount(companies,'empresa','empresas')} y otras webs públicas que encajen.`;
+}
+function whereScope(sources){
+ const current=sourceScopeNow(sources),option=(key,label)=>`<button type="button" role="radio" aria-checked="${current===key}" data-source-scope="${key}">${label}</button>`;
+ return `<div class="knowledge-filters where-scope" role="radiogroup" aria-label="Dónde busca">${option('open','Portales y empresas')}${option('exclusive','Solo mis webs')}</div>`;
+}
+function whereSwitchRow({name,note,warn,badge,input,remove='',off=false}){
+ return `<div class="where-row${off?' where-row--off':''}"><label class="where-row-main"><span class="where-row-text"><span class="where-row-name">${esc(name)}${badge?`<span class="source-badge">${esc(badge)}</span>`:''}</span>${warn||note?`<small${warn?' class="where-row-warn"':''}>${esc(warn||note)}</small>`:''}</span>${input}</label>${remove}</div>`;
+}
+function wherePortalRow(portal,excluded){
+ const stats=[portal.found&&whereCount(portal.found,'oferta','ofertas'),portal.sent&&whereCount(portal.sent,'enviada','enviadas')].filter(Boolean).join(' · ');
+ const warn=portal.session==='login_required'?'Entra en tu cuenta':portal.session==='blocked'?'Bloqueado':portal.account==='search'&&portal.session!=='ready'?'Necesita tu cuenta':'';
+ return whereSwitchRow({name:portal.name,note:portal.relevant?stats||portal.sector||'':'Fuera de tu zona',warn:portal.relevant?warn:'',off:!portal.relevant||excluded.has(portal.id),input:`<input type="checkbox" form="profile-knowledge-form" data-knowledge="1" data-portal-toggle="${esc(portal.id)}"${portal.relevant&&!excluded.has(portal.id)?' checked':''}${portal.relevant?'':' disabled'} aria-label="Buscar en ${esc(portal.name)}">`});
+}
+function whereHeading(title,counter,totals){return `<div class="where-heading"><span>${title}</span><small data-where-count="${counter}">${totals.on} de ${totals.all}</small></div>`;}
+function wherePortals(sources){
+ const map=whereMap();if(!map)return '';
+ const excluded=excludedPortalSet(sources),rank=p=>!p.relevant?2:p.main||p.sent?0:1,portals=map.portals.map((p,index)=>[p,index]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(([p])=>p);
+ return `<div class="where-group">${whereHeading('Portales','portals',wherePortalTotals(sources))}<div class="where-grid">${portals.map(p=>wherePortalRow(p,excluded)).join('')}</div></div>`;
+}
+function whereRemoveButton(list,link,name){return `<button type="button" class="where-remove" data-where-remove="${esc(link)}" data-where-list="${list}" aria-label="Quitar ${esc(name)}" title="Quitar">${icon('close')}</button>`;}
+function whereCompanyRows(sources){
+ const off=whereOff(sources);
+ return whereCompanies(sources).map(row=>{
+  const name=row.company||row.id||whereLinkLabel(row.url),stats=row.fresh?'Nueva':[whereCount(row.offers||0,'oferta','ofertas'),row.sent&&whereCount(row.sent,'enviada','enviadas')].filter(Boolean).join(' · ');
+  return whereSwitchRow({name,note:stats,badge:row.lowYield&&!off.has(row.id)?'Poco útil':'',off:!row.fresh&&off.has(row.id),input:row.fresh?'':`<input type="checkbox" form="profile-knowledge-form" data-knowledge="1" data-company-toggle="${esc(row.id)}"${off.has(row.id)?'':' checked'} aria-label="Buscar en ${esc(name)}">`,remove:row.removable?whereRemoveButton('followedSources',row.url,name):''});
+ }).join('');
+}
+function whereSiteRows(sources){
+ return whereLines(sources.sourceUrls).map(link=>{const name=whereLinkLabel(link);return `<div class="where-row"><span class="where-row-main"><span class="where-row-text"><span class="where-row-name">${esc(name)}</span></span></span>${whereRemoveButton('sourceUrls',link,name)}</div>`;}).join('');
+}
+function whereAddRow(list,placeholder){
+ return `<div class="where-add"><input type="url" form="profile-knowledge-form" data-knowledge="1" data-where-input="${list}" placeholder="${placeholder}" aria-label="${placeholder}"><button type="button" data-where-add="${list}">Añadir</button></div><p class="where-add-error" data-where-error="${list}" role="alert" hidden></p>`;
+}
+function whereBody(sources){
+ const scope=sourceScopeNow(sources),off=[...whereOff(sources)].sort().join(',');
+ const context=model.searchContext||{},platforms=(context.platforms||'').split(',').filter(Boolean);
+ const priorities=platforms.length?`<div class="source-priorities"><p>Fuentes priorizadas: ${esc(platforms.map(id=>platformNames[id]||id).join(', '))}</p><button type="button" class="link-button" data-clear-platforms="1">Quitar prioridades</button></div>`:'';
+ return `<input type="hidden" name="platforms" value="${esc(context.platforms||'')}"><input type="hidden" name="excludedPortals" value="${esc(sources.excludedPortals||'')}"><input type="hidden" name="followedSources" value="${esc(sources.followedSources||'')}"><input type="hidden" name="sourceUrls" value="${esc(sources.sourceUrls||'')}"><input type="hidden" name="disabledSources" value="${esc(off)}">${priorities}
+ <div class="where-panel" data-source-panel="open"${scope==='exclusive'?' hidden':''}>${wherePortals(sources)}<div class="where-group">${whereHeading('Empresas','companies',whereCompanyTotals(sources))}<div class="where-grid" data-where-rows="followedSources">${whereCompanyRows(sources)}</div>${whereAddRow('followedSources','Pega la web de empleo de una empresa')}</div><p class="helper where-help">No necesitas cuenta para empezar: si una oferta la exige, te avisa.</p></div>
+ <div class="where-panel" data-source-panel="exclusive"${scope==='exclusive'?'':' hidden'}><div class="where-group"><div class="where-grid" data-where-rows="sourceUrls">${whereSiteRows(sources)}</div>${whereAddRow('sourceUrls','Pega una web donde buscar')}</div></div>`;
+}
+function whereValues(form){
+ const read=name=>form.elements.namedItem(name)?.value??'';
+ return {sourceUrls:read('sourceUrls'),followedSources:read('followedSources'),excludedPortals:read('excludedPortals'),disabledSources:read('disabledSources')};
+}
+function syncWherePanel(){
+ const form=main.querySelector?.('form[data-form="sources"]');if(!form?.elements)return;
+ const values=whereValues(form),excluded=excludedPortalSet(values),off=whereOff(values);
+ for(const box of main.querySelectorAll('[data-portal-toggle]'))if(!box.disabled){box.checked=!excluded.has(box.dataset.portalToggle);box.closest?.('.where-row')?.classList?.toggle('where-row--off',!box.checked);}
+ for(const box of main.querySelectorAll('[data-company-toggle]')){box.checked=!off.has(box.dataset.companyToggle);box.closest?.('.where-row')?.classList?.toggle('where-row--off',!box.checked);}
+ const scope=sourceScopeNow(values);
+ for(const panel of main.querySelectorAll('[data-source-panel]'))panel.hidden=panel.dataset.sourcePanel!==scope;
+ for(const button of main.querySelectorAll('[data-source-scope]'))button.setAttribute('aria-checked',String(button.dataset.sourceScope===scope));
+ const summary=main.querySelector('[data-where-summary]');if(summary)summary.textContent=whereSummaryText(values);
+ const counts={portals:wherePortalTotals(values),companies:whereCompanyTotals(values)};
+ for(const [name,totals] of Object.entries(counts)){const label=main.querySelector(`[data-where-count="${name}"]`);if(label)label.textContent=`${totals.on} de ${totals.all}`;}
+}
+function repaintWhereRows(form){
+ const values=whereValues(form),companies=main.querySelector('[data-where-rows="followedSources"]'),sites=main.querySelector('[data-where-rows="sourceUrls"]');
+ if(companies)companies.innerHTML=whereCompanyRows(values);if(sites)sites.innerHTML=whereSiteRows(values);
+}
+function setSourceScope(scope){
+ const form=main.querySelector('form[data-form="sources"]');if(!form)return;
+ const follow=form.elements.namedItem('followedSources'),only=form.elements.namedItem('sourceUrls');
+ // The same list moves with the choice, so changing it never loses what was typed.
+ if(scope==='exclusive'&&follow.value.trim()&&!only.value.trim()){only.value=follow.value;follow.value='';}
+ if(scope==='open'&&only.value.trim()){follow.value=[follow.value,only.value].filter(item=>item.trim()).join('\n');only.value='';}
+ sourceScope={profile:whereProfileKey(),value:scope};form._lastEditedField='sourceUrls';repaintWhereRows(form);syncWherePanel();rememberForm(form);
+}
+function addWhereLink(list){
+ const form=main.querySelector('form[data-form="sources"]'),input=main.querySelector(`[data-where-input="${list}"]`),error=main.querySelector(`[data-where-error="${list}"]`),field=form?.elements.namedItem(list);if(!field||!input)return;
+ let link=input.value.trim();if(!link)return;if(!/^https?:\/\//i.test(link))link='https://'+link;
+ let valid=false;try{valid=new URL(link).hostname.includes('.');}catch{}
+ if(error){error.hidden=valid;error.textContent=valid?'':'Esa dirección no parece una web.';}if(!valid)return;
+ field.value=whereLines(field.value+'\n'+link).join('\n');input.value='';form._lastEditedField=list;repaintWhereRows(form);syncWherePanel();rememberForm(form);input.focus?.();
+}
+function removeWhereLink(list,link){
+ const form=main.querySelector('form[data-form="sources"]'),field=form?.elements.namedItem(list);if(!field)return;
+ field.value=whereLines(field.value).filter(line=>line!==link).join('\n');form._lastEditedField=list;repaintWhereRows(form);syncWherePanel();rememberForm(form);
 }
 function currentSearchProfile(){return model.searchProfiles?.find(p=>p.id===searchProfileId)||null;}
 function searchProfileIconButton(action,label,name){return `<button type="button" class="profile-action-icon" data-search-profile-action="${action}" aria-label="${label}" title="${label}">${icon(name)}</button>`;}
@@ -1246,8 +1580,10 @@ function openDeletedSearchProfiles(){
 async function chooseSearchProfile(identifier){
  if(saving||actionBusy||profileSaving)return;
  if(!model.searchProfiles?.some(p=>p.id===identifier))return;
+ const restoreSelector=()=>{const select=main.querySelector?.('[data-search-profile]');if(select){select.value=searchProfileId;select.focus?.();}};
+ if(visibleForms().some(form=>form._dirty&&['search','sources'].includes(form.dataset.form))&&!await settleUnsavedProfile('Has cambiado {sections}. ¿Qué quieres hacer antes de cambiar de perfil de búsqueda?','Guardar y cambiar')){restoreSelector();return;}
  rememberAllForms();searchProfileId=identifier;workspaceSession.setItem('stubbs_jobs-search-profile',identifier);
- dirty=false;conflict=null;render(true);
+ dirty=false;conflict=null;render(true);restoreSelector();
 }
 async function searchProfileAction(kind,identifier=searchProfileId){
  const profile=[...(model.searchProfiles||[]),...(model.deletedSearchProfiles||[])].find(p=>p.id===identifier);if(!profile||saving||actionBusy||profileSaving)return;
@@ -1375,7 +1711,7 @@ function scheduleForm(){
 }
 let backupResult=null;
 function backupDrafts(){
- const sections={datos:['Sobre mi','profile-about'],experiencia:['Sobre mi','profile-about'],busqueda:['Lo que busco','profile-work'],fuentes:['Lo que busco','profile-work']};
+ const sections={datos:['Datos personales','profile-about'],experiencia:['Experiencia','profile-experience'],busqueda:['Lo que busco','profile-work'],fuentes:['Lo que busco','profile-work']};
  return window.StubbsJobsDrafts.pending(draftStorage).map(({key})=>{
   const [,page,scope]=key.match(/^stubbs_jobs-draft:([^:]+):(.+)$/),id=scope==='global'?null:scope,job=id&&getJob(id);
   if(scope.startsWith('profile:')&&sections[page]){
@@ -1414,20 +1750,6 @@ function changeForm(){
   return `<div class="form-wrap">${top(title,subtitle)}${blocked?`<p class="notice">${esc(blocked.summary||'Esta solicitud necesita una aclaración.')}</p>`:j?`<p>${esc(UI.step(j).detail)}</p>`:''}${queued?.instructions?.length?`<section class="section"><h2>Ya le pediste al agente</h2><p class="note-text">${esc(queued.instructions.map(i=>i.text).join('\n'))}</p><p class="helper">Puedes añadir otra aclaración a este trabajo pendiente.</p></section>`:''}<form data-form="change" class="panel"><label class="field"><span>${esc(label)}</span><textarea name="message" rows="5" maxlength="5000" required placeholder="${esc(guidance?.placeholder||'Por ejemplo: revisa cómo encaja mi experiencia con esta oferta.')}"></textarea></label><p class="helper">${esc(guidance?.hint||'Pedir un cambio no reabre la oferta ni autoriza un envío.')}</p><p class="helper">Después, pide «Continúa con Stubbs Jobs» en el chat del agente.</p>${formErrors()}<div class="form-actions"><button class="primary" type="submit">${blocked?'Guardar respuesta':'Guardar petición'}</button><span class="shortcut-hint" aria-hidden="true"><kbd>Ctrl</kbd><kbd>S</kbd></span></div></form></div>`;
 }
 function editForm(){const j=getJob(selected);return `<div class="form-wrap">${top('Borrador para '+esc(displayCase(j.company)),'Al guardar se revisará el borrador.')}<form data-form="draft" class="panel"><label class="field"><span>Destino</span><input name="recipient" maxlength="15000" value="${esc(j.draft.recipient)}"></label>${UI.presentationVisible(j.draft)?`<p class="helper">${esc(UI.presentationUsage(j.draft))}</p><label class="field"><span>Presentación</span><textarea name="message" rows="6" maxlength="15000">${esc(j.draft.message)}</textarea></label>`:''}${formErrors()}<div class="form-actions"><button class="primary" type="submit">Guardar borrador</button><span class="shortcut-hint" aria-hidden="true"><kbd>Ctrl</kbd><kbd>S</kbd></span></div></form></div>`;}
-const cvSummaryObserver=window.ResizeObserver?new window.ResizeObserver(entries=>{
- for(const {target} of entries)sizeCvCard(target);
-}):null;
-function sizeCvCard(summary){
- const height=summary.getBoundingClientRect?.().height,card=summary.closest?.('.cv-card');
- if(height>0&&card?.style)card.style.setProperty('--cv-summary-height',height+'px');
-}
-function syncCvCardLayout(){
- cvSummaryObserver?.disconnect();
- for(const summary of main.querySelectorAll('.cv-card-summary')){sizeCvCard(summary);cvSummaryObserver?.observe(summary);}
-}
-function rememberCvCards(){
- for(const card of main.querySelectorAll('details[data-cv-key]'))if(card.dataset.cvKey){if(card.open)openCvCards.add(card.dataset.cvKey);else openCvCards.delete(card.dataset.cvKey);}
-}
 function cvCardKey(cv,nameCounts){
  if(cv.id)return 'id:'+cv.id;
  if(cv.fingerprint)return 'fingerprint:'+cv.fingerprint+':'+(cv.path||cv.url||'');
@@ -1436,18 +1758,39 @@ function cvCardKey(cv,nameCounts){
  if(!anonymousCvKeys.has(cv))anonymousCvKeys.set(cv,'view:'+ ++anonymousCvSequence);
  return anonymousCvKeys.get(cv);
 }
+let cvDetail=null;
+function cvEntry(cv,key){
+ const recorded=Array.isArray(cv.usage)?cv.usage:null,byOffer=new Map();
+ for(const item of recorded||[])if(item&&['prepared','sent'].includes(item.kind)&&item.opportunityId){const previous=byOffer.get(item.opportunityId);if(!previous||previous.kind!=='sent')byOffer.set(item.opportunityId,item);}
+ const usage=[...byOffer.values()],own=usage.filter(item=>item.kind==='sent'&&item.reportedBy==='user').length,sent=usage.filter(item=>item.kind==='sent').length-own,prepared=usage.length-sent-own;
+ const counts=usage.length?[`${usage.length} ${usage.length===1?'oferta':'ofertas'}`,prepared&&`${prepared} ${prepared===1?'preparado':'preparados'}`,sent&&`${sent} ${sent===1?'envío confirmado':'envíos confirmados'}`,own&&`${own} ${own===1?'enviado por ti':'enviados por ti'}`].filter(Boolean).join(' · '):recorded?.length===0?'Sin ofertas asociadas':'Uso no registrado';
+ return {cv,key,recorded,usage,counts,available:cv.available!==false&&Boolean(cv.url)};
+}
+function cvOpenLink({cv,available}){return available?`<a class="cv-card-open" href="${esc(cv.url)}" target="_blank" rel="noopener" aria-label="Abrir PDF: ${esc(cv.name)}">Abrir PDF</a>`:'<span class="cv-card-unavailable">PDF no disponible</span>';}
+function cvDetailPage(entry){
+ const {cv,key,recorded,usage,counts,available}=entry;
+ const uses=usage.length?`<ul class="cv-usage-list">${usage.map(item=>`<li><a class="cv-usage-offer" id="cv-usage-${encodeURIComponent(key)}-${encodeURIComponent(item.opportunityId)}" href="#detalle/${encodeURIComponent(item.opportunityId)}" data-job="${esc(item.opportunityId)}" data-cv-key="${esc(key)}"><span class="cv-usage-company">${esc(item.company||'Oferta vinculada')}</span>${item.title?`<span class="cv-usage-title">${esc(item.title)}</span>`:''}</a><div class="cv-usage-meta"><span class="cv-usage-state${item.kind==='sent'?' cv-usage-state--sent':''}" data-kind="${item.kind}">${item.kind==='sent'?(item.reportedBy==='user'?'Enviado por ti':'Envío confirmado'):'CV preparado'}</span>${item.at||item.historical?`<small>${item.at?date(item.at):''}${item.at&&item.historical?' · ':''}${item.historical?'Registro anterior':''}</small>`:''}</div></li>`).join('')}</ul>`:`<p class="muted cv-usage-empty">${recorded?.length===0?'Sin solicitudes asociadas.':'Aún no hay usos registrados para este CV.'}</p>`;
+ return `<div class="cv-detail"><button type="button" class="quiet back cv-detail-back" data-cv-back="1">${icon('arrow-left')}<span>Currículums</span></button><div class="cv-library-heading"><h2 title="${esc(cv.name)}">${esc(cv.name)}</h2>${cvOpenLink(entry)}</div><p class="helper">${esc(counts)}</p>${available?'':'<p class="muted">Vuelve a añadir el PDF para abrirlo.</p>'}<div class="cv-detail-body"><div class="cv-detail-uses">${profilePanel('cv-uses','Ofertas con este CV','Dónde se ha preparado o enviado este mismo documento.',uses,{flush:true})}</div>${available?`<a class="cv-detail-preview" href="${esc(cv.url)}" target="_blank" rel="noopener" aria-label="Abrir PDF: ${esc(cv.name)}"><img alt="Primera página de ${esc(cv.name)}" loading="lazy" src="${esc(cv.url.replace('/api/document?','/api/preview?'))}"></a>`:''}</div></div>`;
+}
 function cvLibrary(){
   const cvs=model.cvLibrary||[],nameCounts=new Map();for(const cv of cvs)nameCounts.set(cv.name,(nameCounts.get(cv.name)||0)+1);
-  const card=cv=>{
-   const key=cvCardKey(cv,nameCounts),recorded=Array.isArray(cv.usage)?cv.usage:null,byOffer=new Map();
-   for(const item of recorded||[])if(item&&['prepared','sent'].includes(item.kind)&&item.opportunityId){const previous=byOffer.get(item.opportunityId);if(!previous||previous.kind!=='sent')byOffer.set(item.opportunityId,item);}
-   const usage=[...byOffer.values()],own=usage.filter(item=>item.kind==='sent'&&item.reportedBy==='user').length,sent=usage.filter(item=>item.kind==='sent').length-own,prepared=usage.length-sent-own;
-   const counts=usage.length?[`${usage.length} ${usage.length===1?'oferta':'ofertas'}`,prepared&&`${prepared} ${prepared===1?'preparado':'preparados'}`,sent&&`${sent} ${sent===1?'envío confirmado':'envíos confirmados'}`,own&&`${own} ${own===1?'enviado por ti':'enviados por ti'}`].filter(Boolean).join(' · '):recorded?.length===0?'Sin ofertas asociadas':'Uso no registrado';
-   const uses=usage.length?`<ul class="cv-usage-list">${usage.map(item=>`<li><a class="cv-usage-offer" id="cv-usage-${encodeURIComponent(key)}-${encodeURIComponent(item.opportunityId)}" href="#detalle/${encodeURIComponent(item.opportunityId)}" data-job="${esc(item.opportunityId)}" data-cv-key="${esc(key)}"><span class="cv-usage-company">${esc(item.company||'Oferta vinculada')}</span>${item.title?`<span class="cv-usage-title">${esc(item.title)}</span>`:''}</a><div class="cv-usage-meta"><span class="cv-usage-state${item.kind==='sent'?' cv-usage-state--sent':''}" data-kind="${item.kind}">${item.kind==='sent'?(item.reportedBy==='user'?'Enviado por ti':'Envío confirmado'):'CV preparado'}</span>${item.at||item.historical?`<small>${item.at?date(item.at):''}${item.at&&item.historical?' · ':''}${item.historical?'Registro anterior':''}</small>`:''}</div></li>`).join('')}</ul>`:`<p class="muted cv-usage-empty">${recorded?.length===0?'Sin solicitudes asociadas.':'Aún no hay usos registrados para este CV.'}</p>`;
-   const available=cv.available!==false&&Boolean(cv.url);
-   return `<article class="cv-card"><details class="cv-card-details" data-cv-key="${esc(key)}"${openCvCards.has(key)?' open':''}><summary class="cv-card-summary" id="cv-summary-${encodeURIComponent(key)}">${icon('file','cv-card-icon')}<div class="cv-card-identity"><h3 class="cv-card-title" title="${esc(cv.name)}">${esc(cv.name)}</h3><p class="cv-card-counts">${esc(counts)}</p></div>${icon('chevron-down','cv-card-chevron')}</summary><div class="cv-card-content">${!available?'<p class="muted">Vuelve a añadir el PDF para abrirlo.</p>':''}${uses}</div></details><div class="cv-card-actions">${available?`<a class="cv-card-open" href="${esc(cv.url)}" target="_blank" rel="noopener" aria-label="Abrir PDF: ${esc(cv.name)}">Abrir PDF</a>`:'<span class="cv-card-unavailable">PDF no disponible</span>'}</div></article>`;
-  };
-  return `<section class="profile-card" id="profile-cv"><div class="cv-library-heading"><h2>Currículums</h2><label class="button upload-label">Añadir PDF<input id="cv-upload" type="file" accept="application/pdf,.pdf" aria-label="Añadir currículum en PDF"></label></div><p class="helper">PDF de hasta 10 MB. Se guarda en este ordenador al añadirlo. Despliega cada tarjeta para ver las ofertas asociadas a ese mismo PDF.</p>${cvs.length?`<div class="cv-card-grid">${cvs.map(card).join('')}</div>`:'<div class="cv-library-empty"><p>Aún no hay currículums guardados. Puedes añadir un PDF o pedir ayuda al agente para prepararlo.</p></div>'}</section>`;
+  const entries=cvs.map(cv=>cvEntry(cv,cvCardKey(cv,nameCounts))),open=cvDetail?entries.find(entry=>entry.key===cvDetail):null;
+  const row=entry=>`<article class="cv-row" data-cv-row="${esc(entry.cv.name.toLowerCase())}"><button type="button" class="cv-row-open" data-cv-open="${esc(entry.key)}">${icon('file','cv-card-icon')}<span class="cv-row-identity"><span class="cv-row-title" title="${esc(entry.cv.name)}">${esc(entry.cv.name)}</span><span class="cv-card-counts">${esc(entry.counts)}</span></span>${icon('chevron-right','cv-row-chevron')}</button>${cvOpenLink(entry)}</article>`;
+  const upload='<label class="button upload-label">Añadir PDF<input id="cv-upload" type="file" accept="application/pdf,.pdf" aria-label="Añadir currículum en PDF"></label>';
+  const list=`<div class="profile-section-head"><h2>Currículums</h2><p>Los documentos que tu agente adjunta y adapta a cada oferta.</p></div>${profilePanel('cvs','Tus currículums','PDF de hasta 10 MB. Se guarda en este ordenador al añadirlo. Pulsa un currículum para ver las ofertas en las que se ha usado.',`${entries.length>8?`<div class="knowledge-toolbar"><input type="search" class="knowledge-search cv-filter" form="profile-knowledge-form" data-knowledge="1" data-cv-filter="1" placeholder="Buscar en tus currículums" aria-label="Buscar en tus currículums"></div>`:''}${entries.length?`<div class="cv-list">${entries.map(row).join('')}</div>`:'<div class="cv-library-empty"><p>Aún no hay currículums guardados. Puedes añadir un PDF o, si no tienes CV, tu agente prepara uno a partir de tu experiencia y competencias.</p></div>'}`,{flush:true,action:upload})}`;
+  const guidelines=profilePanel('cv-guidelines','Indicaciones para tus CV','Qué debe tener en cuenta tu agente al adaptar un CV a una oferta.',`<div class="profile-body"><div class="profile-field-wide">${fieldHtml('cvGuidelines',{...sectionDefinitions('search').cvGuidelines,form:'profile-search-form',labelClass:'sr-only'},formSource('search').cvGuidelines)}</div></div>`);
+  return `<section class="profile-card" id="profile-cv">${open?cvDetailPage(open):list}<div class="cv-guidelines"${open?' hidden':''}>${guidelines}</div></section>`;
+}
+function openCvDetail(key){
+ rememberAllForms();cvDetail=key;profileSection='profile-cv';render(true);
+ window.history.pushState(null,'','#profile-cv/'+encodeURIComponent(key));
+ window.scrollTo?.({top:0,behavior:'instant'});
+ const heading=document.getElementById('profile-cv')?.querySelector?.('h2');heading?.setAttribute?.('tabindex','-1');heading?.focus?.({preventScroll:true});
+}
+function closeCvDetail(push=true){
+ const key=cvDetail;rememberAllForms();cvDetail=null;render(true);
+ if(push)window.history.pushState(null,'','#perfil');
+ [...main.querySelectorAll('[data-cv-open]')].find(button=>button.dataset.cvOpen===key)?.focus?.();
 }
 function history(){
   const j=selected?getJob(selected):null,items=j?caseHistory(j):model.history;
@@ -1456,7 +1799,7 @@ function history(){
 }
 
 
-function formSource(kind){if(kind==='offer-note')return {'Notas de seguimiento':getJob(selected)?.notes??null};if(['about','search','sources'].includes(kind)){const p=currentSearchProfile();return {...model.searchContext,...model.profile,salaryCurrency:model.profile.salaryCurrency??model.searchContext.currency??'',...(p?.searchContext||{}),...(p?.criteria||model.preferences)};}return ['automation','schedule'].includes(kind)?model.automation:kind==='draft'?edit_token():kind==='preferences'?model.preferences:kind==='experience'?{text:model.experience}:kind==='context'?model.searchContext:kind==='new'?{company:'',title:'',url:''}:kind==='change'?{message:''}:selected?getJob(selected).answers:model.profile;}
+function formSource(kind){if(kind==='offer-note')return {'Notas de seguimiento':getJob(selected)?.notes??null};if(['about','search','sources'].includes(kind)){const p=currentSearchProfile();return {...model.searchContext,...model.profile,salaryCurrency:model.profile.salaryCurrency??model.searchContext.currency??'',...(p?.searchContext||{}),...(p?.criteria||model.preferences),...(p?.formSalary||{}),...(kind==='sources'?{disabledSources:(model.sourceStats||[]).filter(s=>!s.enabled).map(s=>s.id).sort().join(',')}:{})};}return ['automation','schedule'].includes(kind)?model.automation:kind==='draft'?edit_token():kind==='preferences'?model.preferences:kind==='experience'?{text:model.experience}:kind==='context'?model.searchContext:kind==='new'?{company:'',title:'',url:''}:kind==='change'?{message:''}:selected?getJob(selected).answers:model.profile;}
 function syncSourceControls(form){
  if(form?.dataset.form!=='sources')return;
  const priorities=form.querySelector?.('.source-priorities');if(priorities)priorities.hidden=!form.elements.namedItem('platforms')?.value;
@@ -1478,7 +1821,6 @@ function conflictTarget(op){if(op.kind==='ui-profile-section')return formSource(
 
 function render(preserve=false){
  if(!model)return;
- rememberCvCards();
  rendering=true;try{
  if(model.setupComplete===false&&!['configurar','copias'].includes(screen)){screen='configurar';selected=null;}
  syncUndo();
@@ -1498,7 +1840,6 @@ function render(preserve=false){
  document.querySelector('.shell')?.classList?.toggle('shell--tables',['solicitar','encontrar'].includes(screen));
  main.innerHTML=(pages[screen]||applyPage)();
  syncOfferToolbar();
- syncCvCardLayout();
  // When the timeline is wider than the screen, show its newest step first.
  for(const steps of main.querySelectorAll?.('.offer-timeline-steps')||[])steps.scrollLeft=steps.scrollWidth;
  const allMarked=main.querySelector('#bulk-all');if(allMarked){const rows=[...main.querySelectorAll('[data-bulk-select]')];allMarked.indeterminate=rows.some(row=>row.checked)&&!rows.every(row=>row.checked);}
@@ -1516,13 +1857,13 @@ function render(preserve=false){
  if(preserve){const target=anchorKey?[...main.querySelectorAll('[data-anchor]')].find(n=>n.dataset.anchor===anchorKey):null;window.scrollTo(0,target?previousScroll+target.getBoundingClientRect().top-anchorTop:previousScroll);}
  dirty=false;
  for(const form of visibleForms()){const source=formSource(form.dataset.form),keys=[...new FormData(form).keys()];form._expected=Object.fromEntries(keys.map(k=>[k,source[k]??null]));form._shown={...form._expected};projectSurveyShown(form);if(typeof form._shown.noticeDays==='number'&&form.elements.namedItem('noticeDays')?.dataset.type==='text')form._shown.noticeDays=String(form._shown.noticeDays);form._dirty=false;if(form.dataset.form==='search'){const projected=visibleSearchLocation(source.location,source.workMode,source.regions);if(projected.split||projected.mergedRegions){form._shown.location=projected.location;form._shown.workMode=projected.workMode;if(projected.split)form.dataset.splitLegacy='1';if(projected.mergedRegions){form.dataset.mergedRegions='1';form._expected.regions=source.regions;}}}restoreForm(form);syncSourceControls(form);updateSave(form);}
+ for(const form of visibleForms())if(form._dirty)settleIdleDraft(form);
  syncDirty();
  syncWorkAuthorizations();
  for(const form of visibleForms())syncProfileOptions(form);
  for(const form of visibleForms())syncSalaryCurrency(form);
  growProfileFields();
  restoreFocus(focus);
- if(screen==='perfil'&&!selected)requestAnimationFrame(updateProfileSection);
  }finally{rendering=false;}
 }
 function updateSave(form=main.querySelector('form[data-form]')){
@@ -1606,14 +1947,19 @@ document.addEventListener('click',async e=>{
  const filterSummary=e.target.closest('.column-menu>summary');
  if(filterSummary){e.preventDefault();const filter=filterSummary.parentElement;if(filter===openFilterMenu&&filter.open)closeColumnMenu(true);else openColumnMenu(filter,true);return;}
  if(openFilterMenu&&!openFilterMenu.contains(e.target)&&!columnPanel(openFilterMenu)?.contains(e.target))closeColumnMenu(!e.target.closest('button,a,input,textarea,select,summary,[tabindex]'));
- const sectionLink=e.target.closest('[data-profile-section]');if(sectionLink){e.preventDefault();profileSection=canonicalProfileSection(sectionLink.dataset.profileSection);const target=document.getElementById(profileSection);target?.scrollIntoView({block:'start',behavior:'instant'});const heading=target?.querySelector('h2')||target;heading?.setAttribute('tabindex','-1');heading?.focus({preventScroll:true});syncProfileNavigation();return;}
+ const sectionLink=e.target.closest('[data-profile-section]');if(sectionLink){e.preventDefault();showProfileSection(sectionLink.dataset.profileSection);return;}
+  const cvRow=e.target.closest('[data-cv-open]')?.dataset?.cvOpen;if(cvRow){openCvDetail(cvRow);return;}
+  if(e.target.closest('[data-cv-back]')?.dataset?.cvBack){closeCvDetail();return;}
+  const nextSection=e.target.closest('[data-profile-next]')?.dataset?.profileNext;if(nextSection){showProfileSection(nextSection);return;}
+  if(e.target.closest('[data-discard-profile]')?.dataset?.discardProfile){await discardProfileChanges();return;}
  const b=e.target.closest('button,[data-job-row],a[data-job]'),menu=document.querySelector('.header-menu');if(menu?.open&&(!menu.contains(e.target)||b?.closest?.('.header-menu')))closeHeaderMenu();if(!b)return;try{
  if(b.dataset.searchProfileAction){await searchProfileAction(b.dataset.searchProfileAction);return;}
  if(b.dataset.searchProfileTrash){openDeletedSearchProfiles();return;}
  if(b.dataset.searchProfileRestore){await searchProfileAction('restore',b.dataset.searchProfileRestore);return;}
  if(b.dataset.offerCriteriaChange){await changeOfferCriteria(b.dataset.offerCriteriaChange);return;}
- if(b.dataset.sourceToggle){const enabled=b.dataset.sourceEnabled==='true',source=(model.sourceStats||[]).find(s=>s.id===b.dataset.sourceToggle);if(!source)throw new Error('Actualiza el estado para ver esta web.');if(await action({kind:'ui-source-toggle',sourceId:source.id,enabled,expected:source.enabled})){toast(enabled?'La web vuelve a revisarse en tus búsquedas.':'Web retirada de tus búsquedas. Sus ofertas se conservan.');render(true);}return;}
- if(b.dataset.permissionAll){const form=controlForm(b),group=permissionGroups().find(item=>item.id===b.dataset.permissionAll);if(!form||!group)return;for(const item of group.items){const field=form.elements.namedItem(item.key);if(field){field.value=b.dataset.permissionValue;form._lastEditedField=field.name;}}rememberForm(form);syncProfileOptions(form);return;}
+ if(b.dataset.whereAdd){addWhereLink(b.dataset.whereAdd);return;}
+ if(b.dataset.whereRemove){removeWhereLink(b.dataset.whereList,b.dataset.whereRemove);return;}
+ if(b.dataset.permissionAll){const form=controlForm(b),group=permissionGroups().find(item=>item.id===b.dataset.permissionAll);if(!form||!group)return;for(const item of group.items){const field=form.elements.namedItem(item.key);if(field){field.value=b.dataset.permissionValue;form._lastEditedField=field.name;}}rememberForm(form);syncProfileOptions(form);syncProfileOverview();return;}
  if(b.dataset.permitAdd!==undefined){const widget=b.closest('[data-work-authorizations]'),input=widget.querySelector('[data-permit-other]'),name=input.value.trim();if(!name)return;if(name.length>100){input.reportValidity();return;}let option=[...widget.querySelectorAll('[data-permit-option]')].find(item=>item.dataset.permitOption.toLocaleLowerCase()===name.toLocaleLowerCase());if(!option){widget.querySelector('.permit-options').insertAdjacentHTML('beforeend',workAuthorizationOption(name,true));option=[...widget.querySelectorAll('[data-permit-option]')].find(item=>item.dataset.permitOption===name);}option.checked=true;saveWorkAuthorizationChoices(widget);input.value='';input.focus();return;}
  if(b.dataset.copyRecovery){const request=model.requests.find(r=>r.id===b.dataset.copyRecovery);if(!request)throw new Error('Actualiza el estado para consultar esta tarea.');const message=window.StubbsJobsRecovery.taskPrompt(model.workspacePath,request);try{await navigator.clipboard.writeText(message);toast('Petición copiada. Pégala en el chat del agente.');}catch{await confirmAction('Mensaje para tu agente',message);}return;}
  if(b.dataset.copyBackup!==undefined&&backupResult){const message=window.StubbsJobsRecovery.backupPrompt(model.workspacePath,backupResult.name);try{await navigator.clipboard.writeText(message);toast('Petición copiada. Pégala en el chat del agente.');}catch{await confirmAction('Mensaje para tu agente',message);}return;}
@@ -1654,6 +2000,19 @@ document.addEventListener('click',async e=>{
  if(b.dataset.jobRow){if(e.target.closest('a,input,textarea,select,summary,[contenteditable]')||window.getSelection?.()?.toString())return;e.preventDefault();caseReturn=screen;await setScreen('detalle',b.dataset.jobRow);return;}
  if(b.dataset.copyPath){if(!model.workspacePath?.trim()){toast('La ubicación aún no está disponible. Actualiza el estado e inténtalo de nuevo.');return;}try{await navigator.clipboard.writeText(model.workspacePath);toast('Ubicación copiada. Abre esta carpeta en tu agente.');}catch{toast('No se pudo copiar. Selecciona la ubicación visible y cópiala manualmente.');}return;}
  if(b.dataset.copySetup!==undefined){if(!model.workspacePath?.trim()){toast('La ubicación aún no está disponible. Actualiza el estado e inténtalo de nuevo.');return;}try{await navigator.clipboard.writeText(setupAgentPrompt());setupCopiedUntil=Date.now()+2000;clearTimeout(setupCopyTimer);b.textContent='Copiado';setupCopyTimer=setTimeout(()=>{setupCopiedUntil=0;for(const button of new Set([b,...main.querySelectorAll('[data-copy-setup]')]))button.textContent=button.dataset.copyLabel||'Copiar mensaje';},2000);}catch{document.getElementById('setup-message')?.focus();toast('No se pudo copiar. Selecciona el mensaje visible y cópialo manualmente.');}return;}
+ if(b.dataset.sourceScope){setSourceScope(b.dataset.sourceScope);return;}
+ if(b.dataset.languageAdd!==undefined){const list=main.querySelector('[data-language-list]');list?.insertAdjacentHTML('beforeend',languageRowHtml({name:'',level:'',note:''}));list?.lastElementChild?.querySelector('input')?.focus();return;}
+ if(b.dataset.languageRemove!==undefined){b.closest('[data-language-row]')?.remove();writeLanguageRows();return;}
+ if(b.dataset.skillConfirm){const s=(model.skills||[]).find(x=>x.id===b.dataset.skillConfirm);if(s)await knowledgeAction({kind:'ui-skill-save',id:s.id,expected:storedSkill(s),values:skillValues(s)},`${s.name}: confirmada.`);return;}
+ if(b.dataset.skillAdd!==undefined){await editSkill(null);return;}
+ if(b.dataset.skillEdit){await editSkill(b.dataset.skillEdit);return;}
+ if(b.dataset.skillRemove){const s=(model.skills||[]).find(x=>x.id===b.dataset.skillRemove);if(s&&await confirmAction('Quitar competencia',`Tu agente dejará de usar «${s.name}» en formularios, CV y encaje.`))await knowledgeAction({kind:'ui-skill-remove',id:s.id},'Competencia retirada.');return;}
+ if(b.dataset.answerAdd!==undefined){await editAnswer(null);return;}
+ if(b.dataset.answerEdit){await editAnswer(b.dataset.answerEdit);return;}
+ if(b.dataset.answerConfirm){const a=(model.answerBank||[]).find(x=>x.id===b.dataset.answerConfirm);if(a)await knowledgeAction({kind:'ui-answer-save',id:a.id,expected:{value:a.value,status:a.status},question:a.question,value:a.value},'Respuesta mantenida.');return;}
+ if(b.dataset.answerRemove){const a=(model.answerBank||[]).find(x=>x.id===b.dataset.answerRemove);if(a&&await confirmAction('Quitar respuesta','No se volverá a sugerir, aunque aparezca en otra solicitud.'))await knowledgeAction({kind:'ui-answer-remove',id:a.id},'Respuesta retirada.');return;}
+ if(b.dataset.answersMore!==undefined){rememberAllForms();answersExpanded=true;render(true);return;}
+ if(b.dataset.copyTools!==undefined){try{await navigator.clipboard.writeText(toolsAgentPrompt());toast('Mensaje copiado. Pégalo en el chat de tu agente.');}catch{toast('No se pudo copiar. Pide a tu agente que te guíe con docs/agent-tools.md.');}return;}
  if(b.dataset.setupRetry!==undefined){if(await action(setupOperation('ui-setup-retry'))){render();toast('Avance conservado. Copia el mensaje de inicio y envíalo en el nuevo chat.');}return;}
  if(b.dataset.setupFinish){if(await action(setupOperation('ui-setup-finish')))await setScreen(b.dataset.setupFinish);return;}
  if(b.dataset.saveProfile!==undefined){await saveProfileChanges();return;}
@@ -1691,7 +2050,6 @@ document.addEventListener('click',async e=>{
  if(b.dataset.report){setScreen('informe',b.dataset.report);return;}
  if(b.dataset.activity){if(!b.dataset.activity)auxReturn=screen;setScreen('actividad',b.dataset.activity);return;}
  if(b.dataset.change||b.dataset.resolve){const id=b.dataset.change||b.dataset.resolve;setScreen('cambio',id==='global'?null:id);return;}
- if(b.dataset.settingsTarget){const target=document.getElementById(b.dataset.settingsTarget);target?.scrollIntoView({block:'start',behavior:'smooth'});(target?.querySelector('input,textarea,select')||target)?.focus({preventScroll:true});return;}
  if(b.dataset.screen){if(b.dataset.screen==='encontrar'&&screen!=='encontrar')findReturn=screen;if(b.dataset.screen==='actividad'&&screen!=='actividad')auxReturn=screen;setScreen(b.dataset.screen);return;}if(b.dataset.job){if(b.tagName==='A')e.preventDefault();if([...flowScreens,'historial','encontrar'].includes(screen))caseReturn=screen;await setScreen('detalle',b.dataset.job,true,null,b.dataset.cvKey?b:null);return;}if(b.dataset.answers){setScreen('perfil',b.dataset.answers);return;}if(b.dataset.edit){setScreen('editar',b.dataset.edit);return;}
  if(b.dataset.review){setScreen('revisar',b.dataset.review);return;}
  b.disabled=true;
@@ -1705,13 +2063,12 @@ document.addEventListener('click',async e=>{
  if(b.dataset.revoke&&await action({kind:'ui-revoke',packageId:b.dataset.revoke})){toast('Permiso retirado. Si había un envío iniciado, su resultado debe comprobarse.');render();}
  if(b.dataset.cancel&&await action({kind:'ui-request-update',id:b.dataset.cancel,status:'cancelled',proof:'Cancelado por el usuario desde la aplicación.'})){toast('Encargo cancelado.');render();}
  if(b.dataset.retry&&await action({kind:'ui-request-update',id:b.dataset.retry,status:'queued',proof:'El usuario solicita reintentar; comprobar lo ocurrido antes de repetir una acción externa.'})){toast('Tarea guardada: el agente comprobará dónde continuar cuando pidas «Continúa con Stubbs Jobs» en su chat.');render();}
- if(b.dataset.seen&&await action({kind:'ui-seen',at:new Date().toISOString()})){toast('Novedades marcadas como vistas. Las tareas siguen pendientes.');render();}
  if(b.dataset.undo&&await action({kind:'ui-undo',id:Number(b.dataset.undo)})){toast('Cambio deshecho.');render(true);}
  if(b.dataset.inherit&&await action({kind:'ui-inherit',opportunityId:selected,expected:getJob(selected).answerOverrides})){draftStorage.removeItem(draftKey());dirty=false;toast('Esta solicitud vuelve a usar tus respuestas generales.');render();}
  const formConflict=controlForm(b)?._conflict;
  if(b.dataset.current&&formConflict){const op=formConflict.operation,info=formFeedback(controlForm(b),'.form-info');if(!info)return;if(op.kind==='ui-experience'){info.textContent='Experiencia actual: '+model.experience;return;}const target=conflictTarget(op);info.textContent='Valores actuales: '+Object.keys(op.values).map(k=>(model.labels[k]||k)+': '+answerText(target[k])).join(' · ');}
  if(b.dataset.keep&&formConflict&&await confirmAction('Guardar tus valores','Sustituirá los campos indicados por tus respuestas actuales. Los demás datos se conservarán.')){
-   const form=controlForm(b);if(!form)return;rememberForm(form);if(form.reportValidity&&!form.reportValidity())return;const key=draftKey(form),values=formValues(form),op=structuredClone(formConflict.operation),target=conflictTarget(op);
+   const form=controlForm(b);if(!form)return;rememberForm(form);if(!reportFormValidity(form))return;const key=draftKey(form),values=formValues(form),op=structuredClone(formConflict.operation),target=conflictTarget(op);
    if(op.kind==='ui-experience'){op.text=values.text;op.expected=model.experience;}
    else{op.values=changedFormValues(form,values);op.expected=Object.fromEntries(Object.keys(op.values).map(k=>[k,target[k]??null]));}
    const stored=JSON.parse(draftStorage.getItem(key));stored.attempt=null;saving=true;
@@ -1724,7 +2081,14 @@ document.addEventListener('change',e=>{
  if(e.target.dataset.bulkSelectAll!==undefined){if(!bulkSelectionMode)return;main.querySelectorAll('[data-bulk-select]').forEach(input=>{if(e.target.checked)tableSelection.add(input.dataset.bulkSelect);else tableSelection.delete(input.dataset.bulkSelect);});render(true);return;}
  if(e.target.dataset.tableValue===undefined)return;if(e.target.dataset.tableTab==='solicitar')tableSelection.clear();const state=tableState[e.target.dataset.tableTab],key=e.target.dataset.tableKey,choices=state.choices[key]||[];const selected=new Set(Object.hasOwn(state.filters,key)?state.filters[key]:choices);if(e.target.checked)selected.add(e.target.dataset.tableValue);else selected.delete(e.target.dataset.tableValue);if(selected.size===choices.length)delete state.filters[key];else state.filters[key]=choices.filter(value=>selected.has(value));historyLimit=30;render(true);
 });
-main.addEventListener('input',e=>{
+main.addEventListener('input',e=>{if(e.target.dataset?.cvFilter!==undefined){const query=e.target.value.trim().toLowerCase();for(const row of main.querySelectorAll('[data-cv-row]'))row.hidden=Boolean(query)&&!row.dataset.cvRow.includes(query);return;}
+ if(e.target.dataset.answerSearch!==undefined){answerQuery=e.target.value;const list=document.getElementById('knowledge-answers-list');if(list)list.innerHTML=answersList();return;}
+ if(e.target.dataset.companyToggle!==undefined){const form=main.querySelector('form[data-form="sources"]'),field=form?.elements.namedItem('disabledSources');if(field){const off=new Set(field.value.split(',').filter(Boolean));if(e.target.checked)off.delete(e.target.dataset.companyToggle);else off.add(e.target.dataset.companyToggle);field.value=[...off].sort().join(',');form._lastEditedField='disabledSources';rememberForm(form);syncWherePanel();}return;}
+ if(e.target.dataset.portalToggle!==undefined){const form=main.querySelector('form[data-form="sources"]'),field=form?.elements.namedItem('excludedPortals');if(field){const excluded=excludedPortalSet({excludedPortals:field.value});if(e.target.checked)excluded.delete(e.target.dataset.portalToggle);else excluded.add(e.target.dataset.portalToggle);field.value=[...excluded].sort().join(',');form._lastEditedField='excludedPortals';rememberForm(form);syncWherePanel();}return;}
+ if(e.target.closest?.('[data-language-rows]')){writeLanguageRows();return;}
+ if(e.target.dataset.knowledge!==undefined)return;
+ requestAnimationFrame(syncProfileOverview);
+ if(e.target.name==='workMode'||e.target.name==='onsiteLocations')syncProfileWidgets();
  if(e.target.dataset.profilePermission!==undefined){const form=controlForm(e.target),field=form?.elements.namedItem(e.target.dataset.profilePermission);if(field){field.value=String(e.target.checked);form._lastEditedField=field.name;rememberForm(form);syncProfileOptions(form);}return;}
  if(e.target.dataset.autoGrow)growField(e.target);
  if(e.target.dataset.permitOther!==undefined)return;
@@ -1733,11 +2097,11 @@ main.addEventListener('input',e=>{
  const groupForm=e.target.form?.dataset?.bulkForm?e.target.form:e.target.closest?.('form[data-bulk-form]');
  if(groupForm?.dataset?.bulkForm&&bulkEditor){const type=bulkEditorFields().find(f=>f.name===e.target.name)?.definition.type,value=e.target.value;bulkEditor.values[e.target.name]=value===''?null:type==='boolean'?value==='true':type==='number'?Number(value):value;draftStorage.setItem(bulkEditor.draftKey,JSON.stringify({fingerprints:bulkEditor.fingerprints,values:bulkEditor.values}));dirty=true;return;}
  const form=controlForm(e.target);
- if(form){if(['currency','salaryCurrency'].includes(e.target.name)){e.target.value=e.target.value.toUpperCase();syncSalaryCurrency(form);}form._lastEditedField=e.target.name;rememberForm(form);}
+ if(form){if(['currency','salaryCurrency','currentSalaryCurrency'].includes(e.target.name)){e.target.value=e.target.value.toUpperCase();syncSalaryCurrency(form);}form._lastEditedField=e.target.name;rememberForm(form);}
 });
-main.addEventListener('toggle',e=>{const card=e.target;if(card.tagName!=='DETAILS'||!main.contains(card))return;const key=card.dataset.cvKey||card.dataset.activityKey,open=card.dataset.cvKey?openCvCards:card.dataset.activityKey?openActivityGroups:null;if(!open)return;if(card.open)open.add(key);else open.delete(key);},true);
+main.addEventListener('toggle',e=>{const card=e.target;if(card.tagName!=='DETAILS'||!main.contains(card))return;const key=card.dataset.activityKey,open=card.dataset.activityKey?openActivityGroups:null;if(!open)return;if(card.open)open.add(key);else open.delete(key);},true);
 main.addEventListener('scroll',e=>{if(e.target.classList?.contains('workflow-table-wrap')&&openFilterMenu)requestAnimationFrame(()=>placeColumnMenu(openFilterMenu));},true);
-main.addEventListener('keydown',e=>{if(e.target.dataset.permitOther!==undefined&&e.key==='Enter'){e.preventDefault();e.target.closest('[data-work-authorizations]').querySelector('[data-permit-add]').click();return;}const row=e.target.closest('[data-job-row]');if(row&&e.target===row&&['Enter',' '].includes(e.key)){e.preventDefault();caseReturn=screen;setScreen('detalle',row.dataset.jobRow);}});
+main.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset?.whereInput){e.preventDefault();addWhereLink(e.target.dataset.whereInput);return;}if(['ArrowDown','ArrowUp'].includes(e.key)&&e.target.dataset.profileSection){const links=[...main.querySelectorAll('[data-profile-section]')],next=links[links.indexOf(e.target)+(e.key==='ArrowDown'?1:-1)];if(next){e.preventDefault();showProfileSection(next.dataset.profileSection,{focus:false});next.focus();}return;}if(e.target.dataset.knowledge!==undefined&&e.key==='Enter'){e.preventDefault();if(e.target.dataset.skillYears!==undefined)focusNextSkill(e.target);return;}if(e.target.dataset.permitOther!==undefined&&e.key==='Enter'){e.preventDefault();e.target.closest('[data-work-authorizations]').querySelector('[data-permit-add]').click();return;}const row=e.target.closest('[data-job-row]');if(row&&e.target===row&&['Enter',' '].includes(e.key)){e.preventDefault();caseReturn=screen;setScreen('detalle',row.dataset.jobRow);}});
 async function importCv(file){
  if(!file||saving||profileSaving)return;
  if(file.size>10000000){toast('El PDF puede ocupar hasta 10 MB.');return;}
@@ -1752,6 +2116,8 @@ async function importCv(file){
  finally{saving=false;mutationSerial++;syncDirty();for(const form of visibleForms())updateSave(form);}
 }
 main.addEventListener('change',async e=>{
+ if(e.target.dataset.skillYears!==undefined){saveSkillYears(e.target);return;}
+ if(e.target.dataset.knowledge!==undefined)return;
  if(e.target.dataset.profilePermission!==undefined){const form=controlForm(e.target),field=form?.elements.namedItem(e.target.dataset.profilePermission);if(field){field.value=String(e.target.checked);form._lastEditedField=field.name;rememberForm(form);syncProfileOptions(form);}return;}
  if(e.target.dataset.searchProfile!==undefined){await chooseSearchProfile(e.target.value);return;}
  if(e.target.dataset.offerProfile!==undefined){offerProfileFilter=e.target.value;workspaceSession.setItem('stubbs_jobs-offer-profile',offerProfileFilter);tableSelection.clear();historyLimit=100;render(true);return;}
@@ -1775,8 +2141,13 @@ async function saveAttempt(form,operation,stored,key){
 }
 async function saveForm(form,{deferRender=false}={}){
  if(saving||actionBusy)return false;rememberForm(form);form._cancelled=false;
- if(form.reportValidity&&!form.reportValidity())return false;
+ if(!reportFormValidity(form))return false;
  const key=draftKey(form),stored=JSON.parse(draftStorage.getItem(key)||'{}'),values=formValues(form),kind=form.dataset.form;
+ // Company switches are common to all search profiles and have their own writer.
+ if(kind==='sources'&&Object.hasOwn(values,'disabledSources')){
+  const off=new Set(String(values.disabledSources||'').split(',').filter(Boolean));delete values.disabledSources;
+  for(const source of model.sourceStats||[])if(off.has(source.id)===source.enabled&&!await action({kind:'ui-source-toggle',sourceId:source.id,enabled:!off.has(source.id),expected:source.enabled},null,form))return false;
+ }
  if(['search','sources'].includes(kind)&&currentSearchProfile()?.archivedAt){toast('Recupera este perfil antes de guardar sus criterios.');return false;}
  let op;
  if(['about','search','sources'].includes(kind)){for(const k of Object.keys(values))if(values[k]===null&&Object.hasOwn(window.StubbsJobsSetup.context,k))values[k]='';op={kind:'ui-profile-section',section:kind,values,expected:form._expected};}
@@ -1789,7 +2160,7 @@ async function saveForm(form,{deferRender=false}={}){
  else op={kind:kind==='preferences'?'ui-preferences':kind==='draft'?'ui-draft':selected?'ui-responses':'ui-profile',scope:'global',opportunityId:selected,values,expected:form._expected};
  if(['search','sources'].includes(kind)&&form.dataset.searchProfileId)op.searchProfileId=form.dataset.searchProfileId;
  if(kind==='new'&&currentSearchProfile())op.searchProfileId=searchProfileId;
- if(op.values&&kind!=='new'){op.values=changedFormValues(form,values);op.expected=Object.fromEntries(Object.keys(op.values).map(k=>[k,form._expected[k]??null]));if(!Object.keys(op.values).length&&!stored.attempt){draftStorage.removeItem(key);form._dirty=false;syncDirty();const info=form.querySelector('.form-info');if(info)info.textContent='';updateSave(form);if(!deferRender)toast('Sin cambios.');return true;}}
+ if(op.values&&kind!=='new'){op.values=unsavedValues(form,values,stored);op.expected=Object.fromEntries(Object.keys(op.values).map(k=>[k,form._expected[k]??null]));if(!Object.keys(op.values).length&&!stored.attempt){draftStorage.removeItem(key);form._dirty=false;syncDirty();const info=form.querySelector('.form-info');if(info)info.textContent='';updateSave(form);if(!deferRender)toast('Sin cambios.');return true;}}
  const button=form.querySelector('[type=submit]');if(button)button.disabled=true;saving=true;
  try{
   // Criteria changes re-evaluate offers at once; say what changes before saving.
@@ -1811,10 +2182,10 @@ async function saveProfileChanges(){
  rememberAllForms();
  const forms=visibleForms().filter(form=>form._dirty);
  if(!forms.length){toast('Sin cambios pendientes.');return true;}
- for(const form of forms)if(form.reportValidity&&!form.reportValidity())return false;
+ for(const form of forms)if(!reportFormValidity(form))return false;
  const focusSave=document.activeElement?.dataset?.saveProfile!==undefined;
  let saved=0,failed=null;
- profileSaving=true;syncDirty();
+ profileSaveProblem='';profileSaving=true;syncDirty();
  try{
   for(const form of forms){
    if(!await saveForm(form,{deferRender:true})){failed=form;break;}
@@ -1826,7 +2197,9 @@ async function saveProfileChanges(){
   const label=profileChangedSections([failed]).join(', ')||'el perfil';
   const key=Object.keys(formValues(failed)).find(key=>!sameFieldValue(formValues(failed)[key],failed._shown[key]));
   const card=key?document.getElementById(profileFieldSection(failed.dataset.form,key)):null;
-  (card||failed).scrollIntoView?.({block:'center',behavior:'smooth'});
+  profileSaveProblem=`No se ha guardado ${label}. Revisa el aviso.`;syncDirty();
+  if(card?.id)showProfileSection(card.id,{focus:false});else failed.scrollIntoView?.({block:'center',behavior:'smooth'});
+  formFeedback(failed,'.form-error')?.scrollIntoView?.({block:'center',behavior:'instant'});
   toast((saved?`Se ${saved===1?'guardó una sección':'guardaron '+saved+' secciones'}. `:'')+`Revisa «${label}». Los cambios pendientes se conservan.`,saved?lastUserUndo()?.id:null);
   return false;
  }
@@ -1847,10 +2220,10 @@ main.addEventListener('submit',async e=>{
  const group=e.target.closest('form[data-bulk-form]');if(group?.dataset?.bulkForm){e.preventDefault();try{await saveBulkEditor(group);}catch(error){toast(error.message);}return;}
  const form=e.target.closest('form[data-form]');if(!form)return;e.preventDefault();if(screen==='perfil'&&!selected)await saveProfileChanges();else await saveForm(form);
 });
-window.addEventListener('beforeunload',event=>{if(dirty)rememberAllForms();viewMemory[screen+'/'+(selected||'')]={filterText,...viewScroll(),focus:captureFocus(),limit:historyLimit,activityDays:activityDayLimit};workspaceSession.setItem('stubbs_jobs-views',JSON.stringify(viewMemory));if(saving||profileSaving||actionBusy||dirty&&storageProblem){event.preventDefault();event.returnValue='';}});
-window.addEventListener('scroll',()=>{if(openFilterMenu)requestAnimationFrame(()=>placeColumnMenu(openFilterMenu));if(screen==='perfil'&&!selected)requestAnimationFrame(updateProfileSection);},{passive:true});
-window.addEventListener('resize',()=>{closeColumnMenu();syncOfferToolbar();syncCvCardLayout();if(screen==='perfil'&&!selected)requestAnimationFrame(updateProfileSection);});
-async function start(){const key=new URLSearchParams(location.hash.slice(1)).get('key');if(key){await api('/api/session',{key});window.history.replaceState(null,'',location.pathname);}else if(flowScreens.includes(location.hash.slice(1)))window.history.replaceState(null,'',location.pathname);await refresh(true);await route();clearTimeout(pollTimer);pollTimer=setTimeout(poll,6000);}
+window.addEventListener('beforeunload',event=>{if(dirty)rememberAllForms();viewMemory[screen+'/'+(selected||'')]={filterText,...viewScroll(),focus:captureFocus(),limit:historyLimit,activityDays:activityDayLimit};workspaceSession.setItem('stubbs_jobs-views',JSON.stringify(viewMemory));if(saving||profileSaving||actionBusy||dirty&&(storageProblem||screen==='perfil'&&!selected)){event.preventDefault();event.returnValue='';}});
+window.addEventListener('scroll',()=>{if(openFilterMenu)requestAnimationFrame(()=>placeColumnMenu(openFilterMenu));},{passive:true});
+window.addEventListener('resize',()=>{closeColumnMenu();syncOfferToolbar();});
+async function start(){const key=new URLSearchParams(location.hash.slice(1)).get('key');if(key){await api('/api/session',{key});window.history.replaceState(null,'',location.pathname);}else if(location.hash.slice(1)!=='perfil'&&flowScreens.includes(location.hash.slice(1)))window.history.replaceState(null,'',location.pathname);await refresh(true);await route();clearTimeout(pollTimer);pollTimer=setTimeout(poll,6000);}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh(true);});
 window.addEventListener('hashchange',()=>{if(location.hash.includes('key='))start().catch(e=>{connection.textContent=e.message;});else route().catch(e=>{connection.textContent=e.message;});});
 start().catch(error=>{connection.textContent=error.message;main.innerHTML='<div class="empty">Vuelve a abrir Stubbs Jobs desde el acceso de su carpeta.</div>';});

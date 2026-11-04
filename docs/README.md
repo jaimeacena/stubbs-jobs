@@ -7,6 +7,7 @@ Los nombres de los archivos están en inglés. Los manuales y contratos operativ
 | Necesito… | Consultar |
 | --- | --- |
 | Empezar y preparar el perfil | [Primer inicio](getting-started.md) |
+| Conectar el navegador y el correo del agente | [Herramientas recomendadas](agent-tools.md) |
 | Usar la aplicación | [Manual de uso](user-guide.md) |
 | Desarrollar y comprobar cambios | [Development](development.md) · [Desarrollo](development.es.md) |
 | Comprender conceptos, autoridad y fuentes | [Diseño del sistema](system-design.md) |

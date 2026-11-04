@@ -1,5 +1,98 @@
 # Notas de cambios
 
+## Sin publicar · 04/11/2026
+
+### Entrevista inicial y casos límite · 04/11/2026
+
+- **Un solo modo de trabajo:** al confirmar la entrevista queda un perfil de búsqueda real, «Mi búsqueda». Antes, una instalación nueva funcionaba distinto hasta el primer guardado en Mi perfil: por ejemplo, una segunda búsqueda no sustituía a la anterior.
+- **Moneda de la entrevista:** la moneda confirmada vale para los dos salarios. Antes, el salario deseado podía quedar sin moneda en Mi perfil y en los formularios.
+- **Sin salario sin moneda:** Mi perfil no guarda un importe sin su moneda y lleva el cursor al campo.
+- **Preparación más clara:** el progreso cuenta los datos necesarios, «2 de 8», en vez de «2 de 44». Con un chat en marcha ya no pide pegar el mensaje otra vez.
+- **Una sola zona:** la entrevista deja de preguntar «otras zonas» aparte, igual que Mi perfil, y usa los nombres de sus campos.
+- **Envíos detenidos:** la oferta dice el motivo real, como un CAPTCHA, y si se envió o no, en lugar de un texto genérico para el agente. Si no consta el envío, **Ya la he enviado yo** aparece junto a la acción principal.
+
+### Mi perfil para pantallas grandes · 04/11/2026
+
+- **Un apartado a la vez:** un índice fijo y el apartado abierto, en lugar de una sola página de 5.000 píxeles. Cambiar de apartado no pierde lo escrito, y un punto en el índice marca dónde hay cambios sin guardar.
+- **Cada campo a su medida:** los campos ocupan el ancho de lo que contienen y aprovechan la pantalla, con menos desplazamiento.
+- **Permisos a la vista:** un interruptor por decisión, sin desplegables.
+- **Guardar y descartar:** una sola barra para todo Mi perfil nombra los apartados con cambios y permite descartarlos. Si algo no es válido, te lleva al apartado donde está.
+- **Aviso al salir:** si te vas de Mi perfil o cambias de perfil de búsqueda con cambios sin guardar, te pregunta si guardar, descartar o seguir editando.
+- **Una página por CV:** cada currículum se abre en su propia página, con su vista previa y sus ofertas, en lugar de un desplegable.
+- **Dónde busca tu agente, más sencillo:** un interruptor por portal o empresa, todos a la vista en una rejilla compacta, una frase que cuenta dónde busca y un solo campo para añadir webs. Todo se aplica con el botón de guardar.
+- **Guardar sin bloqueos:** un borrador antiguo podía impedir guardar, porque arrastraba valores que luego cambiaste en otro perfil. Ahora solo conserva lo que cambiaste. El banner dice qué perfil tiene cambios y, si algo no se guarda, lo dice y te lleva al aviso.
+- **Prioridad con regla fija:** A, B y C salen del encaje con tus competencias confirmadas, así que el mismo dato da siempre la misma prioridad.
+- **Qué pasa si…:** la guía explica los casos habituales, como no aprobar una solicitud o buscar más con ofertas pendientes.
+- **Paneles con sentido:** cada apartado se divide en subsecciones con título que reúnen lo que va junto. Sin marcos sin título ni marcos dentro de otros.
+- **Requisitos y preferencias, por separado:** en Lo que busco, lo que archiva una oferta (contrato, mínimo, viajes y horario obligatorio) ya no se mezcla con lo que solo orienta.
+- **Nombres más claros:** menos palabras y sin suponer género, como «Puedo mudarme por trabajo» o «Alta como autónomo».
+- **Media pantalla:** Mi perfil se adapta a ventanas estrechas, y cambiar a un perfil de búsqueda con más botones ya no descoloca el título.
+- **Teclado:** las flechas recorren el índice, y cada apartado termina con un enlace al siguiente.
+
+### Salario actual en cualquier moneda · 04/11/2026
+
+- **Moneda a tu elección:** el salario actual es un campo propio de Datos personales, con su importe y su moneda, igual que el mínimo y el salario que pides. Si ya lo tenías guardado, sigue apareciendo en euros hasta que lo cambies.
+- **Respuesta correcta en formularios:** una pregunta por tu salario actual ya no se responde con el salario que pides. Si falta el importe o la moneda, el agente te lo pregunta.
+- **Sin euros supuestos:** el mínimo fijo deja de mostrarse siempre como «€» en las respuestas.
+
+### Mi perfil más claro · 04/11/2026
+
+- **Una sola capa:** seis apartados (Datos personales, Experiencia, Lo que busco, Currículums, Respuestas guardadas y Permisos), cada uno con sus campos, sin subgrupos ni panel lateral. El índice dice junto a cada apartado lo que falta.
+- **Salario por perfil de búsqueda:** el salario que pides en los formularios se guarda en cada perfil de Lo que busco, junto a su mínimo. Cada oferta responde con el de su perfil.
+- **Una sola edición:** la app ya no tiene un modo con supuestos de la primera instalación (España, Madrid, euro, un nombre concreto). Un registro antiguo se migra una vez, sin cambiar la evaluación de ninguna oferta.
+- **Permisos aparte:** tienen su propia tarjeta porque no son datos sobre ti. Siguen siendo decisión tuya; nada se autoriza por defecto.
+- **Indicaciones para tus CV:** un campo propio en Currículums, común a todas tus búsquedas. Las indicaciones de búsqueda quedan solo para elegir ofertas.
+- **Datos para cualquier persona:** nivel de estudios se suma a fecha de nacimiento, nacionalidad, carnet y otros datos que ahora ves desde el principio. La ciudadanía de la UE se deduce de tu nacionalidad, sin un campo repetido.
+
+### Dónde busca tu agente · 04/11/2026
+
+- **De un vistazo:** Mi perfil dice en cuántos portales y webs busca tu agente, si puede ampliar a otras fuentes y dónde han ido tus solicitudes.
+- **Todos los portales principales:** generalistas, tecnología, remoto, Europa y otras zonas. Solo ves los de tu zona y decides con una casilla.
+- **¿No tienes cuenta?** No hace falta para empezar. La tabla indica cuándo se necesita; tu agente te avisa y nunca crea cuentas ni escribe contraseñas.
+- **Solo mis webs:** un interruptor limita la búsqueda a tu lista, sin perder lo escrito.
+- **Cuándo puedo empezar:** un único campo sustituye a Preaviso y Disponibilidad.
+- **Idiomas por filas:** idioma, nivel y certificado. Si un formulario pregunta por un idioma, se responde solo ese.
+- **Correcciones:** recargar la página ya no te saca de Mi perfil y el aviso de guardado no tapa la barra de guardar.
+
+### Respuestas y fuentes más sencillas · 04/11/2026
+
+- **Lo respondido, respondido queda:** ya no hay que confirmar respuestas una a una. Solo se guarda lo que tu perfil no permite deducir, y una sola vez aunque cambie de palabras o de idioma.
+- **Sin experiencia, aparte:** las herramientas que no has usado se muestran en una línea, sin ocupar la tabla de competencias.
+- **Empresas que quieres seguir:** cada perfil de búsqueda tiene su lista; pega la web de empleo y tu agente puede proponerte las mejores.
+- **Menos campos:** desaparecen preguntas que solo tenían sentido para una profesión.
+
+### Mi perfil para escritorio · 04/11/2026
+
+- **Aprovecha toda la pantalla:** índice de cada grupo a la izquierda, tus datos en el centro y el panel «Tu perfil» a la derecha, con lo que falta y un clic para ir a ello.
+- **Más claro:** cada grupo explica para qué sirve junto a sus campos.
+- **Competencias con teclado:** escribe los años en la tabla y pulsa Intro; se confirma y pasas a la siguiente.
+- **Respuestas con buscador y filtros.**
+- **Más rápido:** cargar el estado de la app pasó de unos 2 segundos a menos de medio segundo con 245 ofertas.
+
+### Competencias, respuestas y encaje · 04/11/2026
+
+- **Competencias en Mi perfil:** cada una con años, nivel, dónde la usas y último uso. Tu agente las propone a partir de tu CV y tú las confirmas; solo lo confirmado se usa como cierto.
+- **Respuestas guardadas:** lo que respondes en un formulario sirve para el siguiente aunque cambie la pregunta. Lo ya usado queda como sugerencia hasta que lo confirmes.
+- **Requisitos en cada oferta:** la ficha muestra qué cumples, dónde piden más años y qué no consta. Es orientativo y nunca descarta una oferta por ti.
+- **Lo que más te falta:** el informe de la tanda suma los requisitos más repetidos en tus ofertas abiertas.
+
+### Guía para empezar sin experiencia con IA · 04/11/2026
+
+- **Si aún no tienes agente:** la primera pantalla explica cómo conseguir uno.
+- **Herramientas guiadas:** al terminar el perfil, el agente te guía paso a paso para conectar la extensión de tu navegador y tu correo, comprueba que funcionan y sigue si prefieres dejarlo.
+- **Recordatorio discreto:** la bienvenida y Ofertas muestran lo que falta, con un mensaje listo para copiar en el chat. Desaparece al conectarlo o decidir no usarlo.
+
+### Tandas de solicitudes más fiables · 04/11/2026
+
+- **Respuestas de formulario:** los años se responden con el entero más cercano y las respuestas guardadas prevalecen. Mi perfil admite años por tecnología.
+- **Salario en otra moneda:** `salary-answer` lo convierte al tipo oficial del BCE e indica tipo, fecha y pagas.
+- **Comprobación antes de enviar:** `send-check` compara la revisión final del portal con lo preparado y avisa de un CV en otro idioma, respuestas prerrellenadas distintas o campos vacíos. `send-finish` no registra un envío sin ella, salvo motivo expreso.
+- **Una oferta, un comando:** `offer-start` va del anuncio al envío iniciado y `offer-correct` cambia una respuesta antes de pulsar.
+- **CV adaptado por defecto:** una oferta de prioridad A solo usa el CV general con un motivo expreso.
+- **Menos bloqueos:** una búsqueda en curso ya no impide preparar ofertas y un CV importado por el agente no suspende otros envíos.
+- **Más webs de empresa:** dieciséis bolsas de Ashby, Greenhouse y Lever comprobadas el 04/11/2026.
+- **Informe de la tanda:** `batch-report` reúne lo enviado, lo que te toca revisar y por qué se descartan las ofertas.
+
 ## Stubbs Jobs 1.0.1 · 21/10/2026
 
 ### Búsqueda en portales y fuentes agotadas · 21/10/2026
@@ -23,15 +116,15 @@
 
 ### Mi perfil más ordenado · 21/10/2026
 
-- **Sobre mi por temas:** los ~30 campos, antes en una sola lista, se agrupan con títulos ligeros dentro de la misma tarjeta: Contacto, Datos personales, Trabajo y disponibilidad, Salario, Experiencia e idiomas, Otras respuestas para formularios, Encuestas y datos sensibles (opcional) y Permisos.
+- **Sobre mí por temas:** los ~30 campos, antes en una sola lista, se agrupan con títulos ligeros dentro de la misma tarjeta: Contacto, Datos personales, Trabajo y disponibilidad, Salario, Experiencia e idiomas, Otras respuestas para formularios, Encuestas y datos sensibles (opcional) y Permisos.
 - **Lo que busco en orden de decisión:** Qué busco, Dónde y cómo, Condiciones mínimas (contrato, salario mínimo, viajes, horario obligatorio), Preferencias y Fuentes y empresas a evitar.
-- **Salario unificado:** «Salario que pido (bruto anual, para formularios)» pasa de Lo que busco a Sobre mi, junto al salario actual y con su propia moneda, porque es el mismo para todos tus perfiles de búsqueda. El mínimo sigue en cada perfil.
+- **Salario unificado:** «Salario que pido (bruto anual, para formularios)» pasa de Lo que busco a Sobre mí, junto al salario actual y con su propia moneda, porque es el mismo para todos tus perfiles de búsqueda. El mínimo sigue en cada perfil.
 - «Dispuesto a mudarme» ya no comparte fila con «Discapacidad»: va con trabajo y disponibilidad; la discapacidad, con los datos sensibles opcionales.
 - Nombres más claros: «Puedo trabajar sin patrocinio en», «Preaviso en mi empleo actual», «Disponibilidad para incorporarme», «Otras indicaciones para el agente» y «Buscar solo en estas webs (opcional)». Tus datos y su significado no cambian.
 
 ### Auto-solicitud sin interrupciones · 21/10/2026
 
-- **Permisos para Auto-solicitud** en Mi perfil › Sobre mi, con el mismo desplegable que los permisos del CV: enviar sin pedirte confirmación final, aceptar avisos de privacidad de la selección, aceptar condiciones del portal necesarias (sin pagos ni suscripciones), responder preguntas que se deducen de tus datos confirmados, usar tus sesiones abiertas y unirte a bolsas de talento opcionales. Solo tú los concedes desde la app; el agente puede retirarlos si se lo pides. No cambian ningún paquete ni autorizan envíos por sí solos.
+- **Permisos para Auto-solicitud** en Mi perfil › Sobre mí, con el mismo desplegable que los permisos del CV: enviar sin pedirte confirmación final, aceptar avisos de privacidad de la selección, aceptar condiciones del portal necesarias (sin pagos ni suscripciones), responder preguntas que se deducen de tus datos confirmados, usar tus sesiones abiertas y unirte a bolsas de talento opcionales. Solo tú los concedes desde la app; el agente puede retirarlos si se lo pides. No cambian ningún paquete ni autorizan envíos por sí solos.
 - El agente los lee en `agent-status` (`autoApply`) y sigue la nueva guía `docs/auto-apply.md`: no vuelve a preguntar lo ya autorizado; si su herramienta exige confirmar envíos, lo pide una sola vez al principio con la lista de ofertas; recorre el formulario entero al preparar la solicitud para descubrir todas las preguntas antes de enviar, y una oferta bloqueada (pregunta sin respuesta, acceso, CAPTCHA o condición no autorizada) ya no detiene la tanda: sigue con las demás y al final te da un único resumen con preguntas, accesos y decisiones pendientes.
 - Las instrucciones que la app entrega al agente ya no le piden preguntar los datos desconocidos a mitad de la tanda: los declara, bloquea esa oferta y los reúne al final.
 - Los CAPTCHA, las verificaciones antibots, las contraseñas y la creación de cuentas siguen siendo tuyos: el agente bloquea esa oferta y continúa.
@@ -107,7 +200,7 @@
 
 - Stubbs naranja cálido con corbata grafito y hombros discretos en camisa clara, sobre fondo transparente. La misma imagen se usa en la interfaz y origina el icono multirresolución del ejecutable, la ventana de Windows y el favicon; este renueva su identidad cuando cambia el archivo. Sustituye la variante anterior en todos los recursos activos. Acciones terracota y superficies piedra; tema oscuro con fondos, superficies, textos y líneas grafito neutros. Tipografía, espaciado, foco y controles coherentes.
 - Escritorio con tabla más amplia y compacta, encabezados y empresa visibles al desplazarse, orden directo y filtros explícitos que conservan la consulta.
-- Mi perfil con tres apartados y su índice, en este orden: Sobre mi, Lo que busco y Currículums. Las tarjetas compactas de PDF están en su panel propio, cerradas por defecto, con archivo, resumen de usos y Abrir PDF visible cuando está disponible. Al desplegar muestran ofertas actuales o históricas, estado y fecha registrada. Los controles nativos funcionan de manera independiente y conservan su apertura durante la navegación y actualización de la misma página, sin guardar el perfil ni iniciar trabajo sobre ofertas; no se promete conservarla tras recargar o cerrar. Los documentos que comparten nombre siguen separados. La asociación se comprueba por el contenido del PDF y conserva el historial aunque falte el archivo. Sobre mi y Lo que busco no tienen subgrupos internos. Lo que busco incluye las solicitudes anteriores y las empresas que se deben evitar, con su funcionamiento explicado. Experiencia a todo el ancho y fuentes opcionales explicadas. Conserva los cuatro borradores existentes, el guardado único y la orientación hacia los errores sin perder ediciones. Espacios entre campos, ayudas y formularios homogéneos.
+- Mi perfil con tres apartados y su índice, en este orden: Sobre mí, Lo que busco y Currículums. Las tarjetas compactas de PDF están en su panel propio, cerradas por defecto, con archivo, resumen de usos y Abrir PDF visible cuando está disponible. Al desplegar muestran ofertas actuales o históricas, estado y fecha registrada. Los controles nativos funcionan de manera independiente y conservan su apertura durante la navegación y actualización de la misma página, sin guardar el perfil ni iniciar trabajo sobre ofertas; no se promete conservarla tras recargar o cerrar. Los documentos que comparten nombre siguen separados. La asociación se comprueba por el contenido del PDF y conserva el historial aunque falte el archivo. Sobre mí y Lo que busco no tienen subgrupos internos. Lo que busco incluye las solicitudes anteriores y las empresas que se deben evitar, con su funcionamiento explicado. Experiencia a todo el ancho y fuentes opcionales explicadas. Conserva los cuatro borradores existentes, el guardado único y la orientación hacia los errores sin perder ediciones. Espacios entre campos, ayudas y formularios homogéneos.
 - Teclado con Ctrl+K para buscar, Ctrl+S para guardar ediciones y Escape para cerrar menús; retorno a la oferta de origen.
 - Experiencia de escritorio pulida: pestañas de estado como control segmentado con su número, Añadir oferta en el encabezado, Estado con etiquetas y punto de color, filtros de columna que aparecen al usarlos y nombres publicados en mayúsculas mostrados en mayúsculas y minúsculas. La ficha separa lectura y decisión: un panel lateral fijo reúne estado, los dos modos de solicitud con el mismo tamaño y Condiciones. Autorizar envío flota centrado, Resumen se lee por días con Hoy y Ayer, los formularios muestran Ctrl S y la carga inicial enseña la silueta de Ofertas. Escape también sale de la selección múltiple.
 - Una sola reconstrucción al cambiar de pestaña y preparación de valores de filtro bajo demanda.

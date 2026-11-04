@@ -9,11 +9,10 @@ def plan(data,search_profile_id=None):
     from personalization import context
     scoped=bool(search_profile_id or 'searchProfiles' in data.get('app',{}))
     if scoped:search_profiles.get(data,search_profile_id,available=True)
-    if data.get('app',{}).get('personalized') or scoped:
-        search=context(data,search_profile_id)
-        criteria=app_context.criteria(data,search_profile_id)
-        if not search['targetRoles'].strip() or not (criteria['location'].strip() or search.get('regions','').strip()):
-            raise ValueError('Antes de buscar, indica los puestos y la zona de búsqueda en Stubbs Jobs.')
+    search=context(data,search_profile_id)
+    criteria=app_context.criteria(data,search_profile_id)
+    if not search['targetRoles'].strip() or not ((criteria['location'] or '').strip() or search.get('regions','').strip()):
+        raise ValueError('Antes de buscar, indica los puestos y la zona de búsqueda en Stubbs Jobs.')
     app = w.seed(data)
     pending = [r for r in app['requests'] if r['status'] not in ('done', 'cancelled')]
     operations = []

@@ -6,14 +6,13 @@ from stubbs_jobs_core import digest, now
 
 # Related fields share a conversation, not an extra screen or a question per key.
 FIELDS = (
-    ('targetRoles', 'Puestos que buscas', 'busqueda', 'text'),
-    ('location', 'Zona de búsqueda', 'busqueda', 'text'),
-    ('regions', 'Otras zonas, si las hay', 'busqueda', 'text'),
-    ('workMode', 'Modalidad de trabajo', 'busqueda', 'text'),
-    ('onsiteLocations', 'Zonas donde aceptas presencial o híbrido (opcional)', 'busqueda', 'text'),
-    ('searchPriorities', 'Horario que prefieres', 'busqueda', 'text'),
+    ('targetRoles', 'Puestos', 'busqueda', 'text'),
+    ('location', 'Zona de búsqueda (una o varias)', 'busqueda', 'text'),
+    ('workMode', 'Modalidad', 'busqueda', 'text'),
+    ('onsiteLocations', 'Zonas para presencial o híbrido (opcional)', 'busqueda', 'text'),
+    ('searchPriorities', 'Horario que prefiero', 'busqueda', 'text'),
     ('requiredSchedule', 'Horario obligatorio (opcional): solo de mañana, solo de tarde o jornada continua', 'busqueda', 'text'),
-    ('searchNotes', 'Indicaciones adicionales de búsqueda (opcional)', 'busqueda', 'text'),
+    ('searchNotes', 'Indicaciones para tu agente (opcional)', 'busqueda', 'text'),
     ('name', 'Nombre y apellidos', 'sobre_mi', 'text'),
     ('email', 'Email para solicitudes', 'sobre_mi', 'text'),
     ('phone', 'Teléfono con prefijo internacional', 'sobre_mi', 'text'),
@@ -25,28 +24,31 @@ FIELDS = (
     ('gender', 'Género (opcional)', 'sobre_mi', 'text'),
     ('demographicSurveyParticipation', 'Encuestas demográficas (opcional)', 'sobre_mi', 'choice'),
     ('experience', 'Experiencia, formación y proyectos', 'sobre_mi', 'text'),
-    ('languages', 'Idiomas y nivel', 'sobre_mi', 'text'),
+    ('languages', 'Idiomas', 'sobre_mi', 'text'),
     ('currentCity', 'Ciudad actual', 'sobre_mi', 'text'),
     ('workAuthorizations', 'Países o zonas con permiso de trabajo sin patrocinio', 'sobre_mi', 'multiselect'),
-    ('noticeDays', 'Preaviso (laborable, natural u otra especificación)', 'sobre_mi', 'text'),
-    ('contract', 'Tipo de contrato', 'condiciones', 'text'),
-    ('minimumFixed', 'Mínimo fijo bruto anual', 'condiciones', 'number'),
-    ('salaryExpectationFixed', 'Salario deseado para formularios', 'condiciones', 'number'),
+    ('noticeDays', 'Cuándo puedo empezar (preaviso laborable, natural u otra fecha)', 'sobre_mi', 'text'),
+    ('contract', 'Contrato', 'condiciones', 'text'),
+    ('minimumFixed', 'Salario fijo mínimo (bruto anual)', 'condiciones', 'number'),
+    ('salaryExpectationFixed', 'Salario deseado (bruto anual)', 'condiciones', 'number'),
     ('currency', 'Moneda de los salarios', 'condiciones', 'text'),
-    ('maxTrips', 'Máximo de viajes al mes', 'condiciones', 'number'),
-    ('keywords', 'Palabras clave útiles', 'fuentes', 'text'),
+    ('maxTrips', 'Viajes al mes (máximo)', 'condiciones', 'number'),
+    ('keywords', 'Palabras clave', 'fuentes', 'text'),
     ('sourceUrls', 'Webs exclusivas de búsqueda (opcional)', 'fuentes', 'text'),
+    ('followedSources', 'Empresas que quiero seguir (opcional)', 'fuentes', 'text'),
+    ('excludedPortals', 'Portales que no quiero usar (opcional)', 'fuentes', 'text'),
     ('platforms', 'Plataformas preferidas', 'fuentes', 'text'),
-    ('previousApplications', 'Empresas a evitar', 'antecedentes', 'text'),
+    ('previousApplications', 'Solicitudes anteriores y empresas a evitar', 'antecedentes', 'text'),
     ('cv', 'Currículums que quieres aportar', 'curriculums', 'documents'),
+    ('cvGuidelines', 'Indicaciones para tus CV (opcional)', 'curriculums', 'text'),
 )
 GUIDANCE = {
-    'busqueda': 'Aclara puestos, zona, modalidad y prioridades; distingue límites firmes de preferencias. Usa el horario obligatorio (none, morning, afternoon o continuous) solo si la persona lo confirma como límite: descarta anuncios con un horario publicado incompatible.',
+    'busqueda': 'Aclara puestos, zona (todas en un solo campo), modalidad y prioridades; distingue límites firmes de preferencias. Usa el horario obligatorio (none, morning, afternoon o continuous) solo si la persona lo confirma como límite: descarta anuncios con un horario publicado incompatible.',
     'sobre_mi': 'Propón lo que conste en el CV para confirmarlo; separa empleo, formación y proyectos. Trata nombre, email, teléfono con prefijo, residencia, código postal, dirección y enlaces; son opcionales y pueden quedar en blanco por decisión expresa. No reutilices silenciosamente datos del CV en lugar de los guardados en Mi perfil. Confirma cada destino con permiso sin patrocinio; no amplíes un permiso nacional a toda Europa. Preaviso admite días laborables/naturales, semanas o texto. No supongas ciudad, permiso ni nivel de idioma.',
     'condiciones': 'Distingue mínimo fijo y salario deseado, siempre bruto anual con moneda. Cero viajes o días es una respuesta, no un vacío.',
     'fuentes': 'Propón palabras clave basadas en lo confirmado. Puede dejar que la IA elija fuentes: confirma qué datos deja en blanco.',
     'antecedentes': 'Distingue candidaturas previas y empresas que quiere evitar. Un campo vacío no significa que nunca haya solicitado empleo.',
-    'curriculums': 'CV opcional: confirma los documentos aportados o la decisión de continuar sin CV.',
+    'curriculums': 'CV opcional: confirma los documentos aportados o la decisión de continuar sin CV. Sin CV, la experiencia y las competencias confirmadas bastan para preparar uno con build-cv. Las indicaciones para tus CV son opcionales.',
     'otros': 'Trata también las preguntas generales que ya figuren en Mi perfil, conservando su significado.',
 }
 ESSENTIAL = {'targetRoles','location','workMode','contract','minimumFixed','maxTrips','experience','cv'}
@@ -64,7 +66,9 @@ def fields(data=None):
             definitions = app_context.definitions(copy.deepcopy(data))
         for key, definition in definitions.items():
             if key.startswith('custom_') and definition.get('scope') == 'global':
-                result[key] = {**definition, 'group': 'otros'}
+                # Universal personal data belong with the rest of Sobre mí; other general answers stay apart.
+                import app_workflow
+                result[key] = {**definition, 'group': 'sobre_mi' if key in app_workflow.UNIVERSAL_FIELDS else 'otros'}
     return result
 
 

@@ -20,6 +20,7 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
         self.row['Estado'] = 'Investigar'
 
     def evidence(self, condition, value, **extra):
+        if 'fixed' in extra: extra.setdefault('currency', 'EUR')
         self.apply({'kind': 'evidence', 'id': 'one', 'condition': condition, 'state': value,
                     'proof': 'TEST: dato explícito del anuncio ficticio.',
                     'url': self.row['URL original'], 'at': '2026-10-06T10:00:00+02:00', **extra})
@@ -120,7 +121,7 @@ class MinimumsTests(WorkflowFixture, unittest.TestCase):
 
     def test_explicit_remote_contract_travel_and_salary_failures_archive(self):
         for condition, extra in [('Remoto España', {}), ('Indefinido', {}),
-                                 ('Viajes ≤1/mes', {'trips': 2}), ('Fijo ≥32 k€', {'fixed': 34000})]:
+                                 ('Viajes ≤1/mes', {'trips': 2}), ('Fijo ≥32 k€', {'fixed': 34000, 'currency': 'EUR'})]:
             with self.subTest(condition=condition):
                 self.setUp()
                 self.evidence(condition, 'No', **extra)

@@ -48,7 +48,9 @@ def _simulate(data,request):
             if not isinstance(values,dict) or not values:raise ValueError('Indica los criterios que quieres comprobar')
             import personalization
             identifier=request.get('searchProfileId')
-            old={**personalization.context(candidate,identifier),**candidate['profile'],**context.criteria(candidate,identifier)}
+            import search_profiles
+            old={**personalization.context(candidate,identifier),**candidate['profile'],**context.criteria(candidate,identifier),
+                 **search_profiles.form_salary(candidate,identifier if 'searchProfiles' in candidate['app'] else None)}
             workflow.handle(candidate,{'kind':'ui-profile-section','section':SEARCH_SECTION,'values':values,
                                        'expected':{k:old.get(k) for k in values},'actor':'Vista previa',
                                        **({'searchProfileId':identifier} if identifier else {})})

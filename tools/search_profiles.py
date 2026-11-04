@@ -12,11 +12,14 @@ import view_cache
 VERSION = 1
 LEGACY_ID = 'search-current'
 SEARCH_FIELDS = ('targetRoles', 'keywords', 'searchPriorities', 'requiredSchedule', 'regions', 'workMode',
-                 'onsiteLocations', 'currency', 'sourceUrls', 'platforms', 'searchNotes')
+                 'onsiteLocations', 'currency', 'sourceUrls', 'followedSources', 'excludedPortals', 'platforms', 'searchNotes')
 CRITERIA_FIELDS = ('contract', 'location', 'maxTrips', 'minimumFixed')
 # Fields added after profiles were first saved. A stored profile without one
 # keeps its meaning ("no requirement"), so older registries stay readable.
-ADDED_SEARCH_FIELDS = {'requiredSchedule': ''}
+ADDED_SEARCH_FIELDS = {'requiredSchedule': '', 'followedSources': '', 'excludedPortals': ''}
+# The salary a person asks for in forms depends on the kind of job: each profile keeps its own.
+# A profile saved before 04/11/2026 has no formSalary and keeps answering the common value.
+FORM_SALARY = ('salaryExpectationFixed', 'salaryCurrency')
 
 
 def upgrade(saved):
@@ -47,7 +50,7 @@ def profiles(data):
     from app_context import DEFAULT_CRITERIA
     search = {**CONTEXT, **app.get('searchContext', {})}
     criteria = {**DEFAULT_CRITERIA, **app.get('criteria', {}),
-                'minimumFixed': data['profile'].get('minimumFixed', 32000)}
+                'minimumFixed': data['profile'].get('minimumFixed')}
     return [{'id': LEGACY_ID, 'name': 'Criterios actuales', 'revision': 1,
              'searchContext': {k: search.get(k, '') for k in SEARCH_FIELDS},
              'criteria': {k: criteria[k] for k in CRITERIA_FIELDS}, 'archivedAt': None}]
@@ -91,6 +94,8 @@ def validate(saved, default):
         from personalization import validate_context
         validate_context(profile['searchContext'])
         validate_criteria(profile['criteria'])
+        if 'formSalary' in profile:
+            validate_form_salary(profile['formSalary'], complete=True)
         if profile['name'].strip().casefold() in names:
             raise ValueError('Hay perfiles de búsqueda con el mismo nombre')
         if profile.get('archivedAt') is not None and not instant(profile['archivedAt']):
@@ -147,6 +152,48 @@ def validate_criteria(values):
             raise ValueError('Revisa el número de viajes')
         if key == 'minimumFixed' and value is not None and (type(value) is not int or not 0 <= value <= 1000000000):
             raise ValueError('Revisa el salario fijo mínimo')
+
+
+def validate_form_salary(values, complete=False):
+    if not isinstance(values, dict) or set(values) - set(FORM_SALARY) or complete and set(values) != set(FORM_SALARY):
+        raise ValueError('El salario para formularios del perfil no es válido')
+    amount, currency = values.get('salaryExpectationFixed'), values.get('salaryCurrency')
+    if amount is not None and (type(amount) is not int or not 1 <= amount <= 1000000000):
+        raise ValueError('Revisa el salario que pides en los formularios')
+    if currency not in (None, '') and (not isinstance(currency, str) or not re.fullmatch('[A-Z]{3}', currency)):
+        raise ValueError('Usa una moneda de tres letras para el salario de formularios')
+
+
+def form_salary(data, identifier=None):
+    """Salary answered in forms for one search profile, with its currency."""
+    common = {key: data.get('profile', {}).get(key) for key in FORM_SALARY}
+    if 'searchProfiles' not in data.get('app', {}):
+        return common
+    saved = get(data, identifier).get('formSalary')
+    return dict(saved) if isinstance(saved, dict) else common
+
+
+def offer_form_salary(data, key):
+    """The salary of the profile that found the offer; the default profile otherwise."""
+    if 'searchProfiles' not in data.get('app', {}):
+        return form_salary(data)
+    identifier = offer_info(data, key).get('searchProfileId')
+    if identifier and not any(p['id'] == identifier for p in profiles(data)):
+        identifier = None
+    return form_salary(data, identifier)
+
+
+def set_form_salary(data, identifier, values):
+    """Writer only: the caller has checked expectations against form_salary."""
+    migrate(data)
+    profile = get(data, identifier, available=True)
+    validate_form_salary(values)
+    updated = {**form_salary(data, profile['id']), **values}
+    if updated == profile.get('formSalary'):
+        return False
+    profile['formSalary'] = updated
+    profile['updatedAt'] = now()
+    return True
 
 
 def migrate(data):
@@ -222,7 +269,7 @@ def snapshot(data, identifier=None):
     from personalization import context, FIT_CONTEXT
     from app_context import criteria
     search = context(data, identifier)
-    result = {'searchContext': {k: search[k] for k in sorted(FIT_CONTEXT | {'sourceUrls', 'platforms'})
+    result = {'searchContext': {k: search[k] for k in sorted(FIT_CONTEXT | {'sourceUrls', 'followedSources', 'excludedPortals', 'platforms'})
                                if search.get(k) not in (None, '')}, 'criteria': criteria(data, identifier)}
     if 'searchProfiles' in data.get('app', {}):
         profile = get(data, identifier, available=True)
@@ -359,8 +406,12 @@ def handle(data, operation):
         else:
             search = dict.fromkeys(SEARCH_FIELDS, '')
             conditions = {'contract': 'Sin preferencia', 'location': '', 'maxTrips': None, 'minimumFixed': None}
+        source = profile
         profile = {'id': identifier, 'name': name, 'revision': 1, 'searchContext': search, 'criteria': conditions,
                    'createdAt': now(), 'updatedAt': now(), 'archivedAt': None}
+        # A copy answers forms with the salary of its source; a new profile starts from the common one.
+        if action == 'duplicate' and 'formSalary' in source:
+            profile['formSalary'] = copy.deepcopy(source['formSalary'])
         app['searchProfiles'].append(profile)
     elif action == 'rename':
         profile['name'] = name

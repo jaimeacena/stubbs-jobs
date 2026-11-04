@@ -54,7 +54,13 @@ class WorkflowFixture:
 
     def apply(self, operation):
         self.index += 1
-        stubbs_jobs.apply_batch(self.data, {'id': str(self.index), 'operations': [operation]})
+        batch = {'id': str(self.index), 'operations': [operation]}
+        # Only an agent updates a task, always under its own execution identifier.
+        if operation.get('kind') in ('ui-request-update', 'event') and not workflow.execution_id():
+            with patch.dict('os.environ', {'STUBBS_JOBS_EXECUTION_ID': 'TEST-agent'}):
+                stubbs_jobs.apply_batch(self.data, batch)
+            return
+        stubbs_jobs.apply_batch(self.data, batch)
 
     def review(self):
         # The fictional portal explicitly asks the questions used by each case.

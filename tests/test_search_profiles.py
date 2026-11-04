@@ -6,6 +6,7 @@ import app_context as context
 import app_workflow as w
 import criteria_preview
 import personalization
+import portal_plans
 import search_profiles as profiles
 import stubbs_jobs as j
 from workflow_fixtures import WorkflowFixture
@@ -15,6 +16,7 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.data['app']['searchContext']={**personalization.CONTEXT,'targetRoles':'Analista BI','workMode':'Remoto','currency':'EUR'}
+        self.data['app']['criteria']={'contract':'Indefinido','location':'Remoto desde España (TEST)','maxTrips':1}
         self.data['updatedAt']=w.now()
         self.migrate()
 
@@ -84,6 +86,21 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
         self.assertEqual(w.stamp(self.data,'one'),stamp)
         self.assertEqual(w.answers(self.data,'one')['minimumFixed'],32000)
         self.assertEqual(context.definitions(self.data)['salaryExpectationFixed']['label'],'Salario deseado (bruto anual, EUR)' if self.data['app'].get('personalized') else w.LABELS['salaryExpectationFixed'])
+
+    def test_portal_plans_and_queued_round_keep_each_profiles_roles_and_schedule(self):
+        self.duplicate()
+        self.edit('search-two',targetRoles='AI Automation Engineer',requiredSchedule='morning')
+        first=portal_plans.plans(self.data,profiles.LEGACY_ID)
+        second=portal_plans.plans(self.data,'search-two')
+        self.assertEqual(first['terms'],['Analista BI'])
+        self.assertEqual(second['terms'],['AI Automation Engineer'])
+        self.assertFalse(any('Horario obligatorio' in note for plan in first['plans'] for note in plan['filtersToSet']))
+        self.assertTrue(any('Horario obligatorio: solo de mañana' in note for plan in second['plans'] for note in plan['filtersToSet']))
+        request=self.queue('search-two')
+        self.edit('search-two',targetRoles='AI Application Developer')
+        frozen=portal_plans.plans(profiles.discovery_data(self.data,request),'search-two')
+        self.assertEqual(frozen['terms'],['AI Automation Engineer'])
+        self.assertEqual(portal_plans.plans(self.data,'search-two')['terms'],['AI Application Developer'])
 
     def test_common_salary_currency_changes_material_without_changing_search_minimum(self):
         self.data['profile']['salaryExpectationFixed']=35000
@@ -212,9 +229,39 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
         self.assertEqual(request_view['preferences']['minimumFixed'],32000)
         self.assertEqual(request_view['searchContext']['workMode'],'Remoto')
 
+    def test_schedule_and_sources_follow_the_requested_profile_not_the_default(self):
+        import agent_context
+        self.duplicate()
+        self.edit(requiredSchedule='morning',sourceUrls='https://example.org/jobs')
+        self.edit('search-two',requiredSchedule='',sourceUrls='https://second.example.org/jobs')
+        first=self.queue()
+        second=self.queue('search-two')
+        self.assertEqual(first['round']['searchContext']['requiredSchedule'],'morning')
+        self.assertNotIn('requiredSchedule',second['round']['searchContext'])
+        self.manage('default',id='search-two')
+        first_view=agent_context.view(self.data,request_id=first['id'])
+        second_view=agent_context.view(self.data,request_id=second['id'])
+        self.assertEqual(first_view['searchContext']['requiredSchedule'],'morning')
+        self.assertEqual(second_view['searchContext']['requiredSchedule'],'')
+        self.assertEqual(first_view['searchContext']['sourceUrls'],'https://example.org/jobs')
+        self.assertEqual(second_view['searchContext']['sourceUrls'],'https://second.example.org/jobs')
+        self.assertEqual(first_view['sourceStats'][0]['company'],'example.org')
+        self.assertEqual(second_view['sourceStats'][0]['company'],'second.example.org')
+        self.assertEqual(profiles.default_id(self.data),'search-two')
+        self.assertEqual(context.scoped_search(self.data,'one')['sourceUrls'],'https://example.org/jobs')
+        self.apply({'kind':'ui-add-opportunity','searchProfileId':'search-two',
+                    'values':{'company':'TEST','title':'TEST Analyst','url':'https://example.org/test-no-schedule'}})
+        import offer_minimums
+        row=self.data['sheets']['Oportunidades'][-1]
+        self.assertEqual(profiles.offer_info(self.data,row['ID'])['searchProfileId'],'search-two')
+        self.assertEqual(context.scoped_search(self.data,row['ID'])['sourceUrls'],'https://second.example.org/jobs')
+        self.assertNotIn('Horario',[item['key'] for item in offer_minimums.view(self.data,row)['violations']])
+
     def test_manual_offers_are_bound_immediately_even_when_the_search_blocks(self):
         request=self.start(self.queue());self.edit(workMode='Híbrido')
-        self.apply({'kind':'ui-add-opportunity','values':{'company':'TEST','title':'TEST','url':'https://example.org/test-two'}})
+        # The agent running the search adds the offer under its own execution.
+        with patch.dict('os.environ',{'STUBBS_JOBS_EXECUTION_ID':'TEST-agent'}):
+            self.apply({'kind':'ui-add-opportunity','values':{'company':'TEST','title':'TEST','url':'https://example.org/test-two'}})
         key=self.data['sheets']['Oportunidades'][-1]['ID']
         self.assertEqual(context.scoped_search(self.data,key)['workMode'],'Remoto')
         self.assertEqual(self.data['app']['offerRounds'][key],request['id'])
@@ -339,7 +386,7 @@ class SearchProfilesTests(WorkflowFixture, unittest.TestCase):
     def test_native_feed_cannot_silently_inherit_the_only_running_request(self):
         self.start(self.queue())
         payload={'schemaVersion':2,'checkedAtUtc':w.now(),'boards':[],'candidates':[]}
-        with self.assertRaisesRegex(ValueError,'requestId y searchKey'):j.ingest(self.data,payload)
+        with patch.dict('os.environ',{'STUBBS_JOBS_EXECUTION_ID':'TEST-agent'}),self.assertRaisesRegex(ValueError,'requestId y searchKey'):j.ingest(self.data,payload)
 
     def test_delete_is_recoverable_and_preserves_historical_material_and_requests(self):
         from agent_context import view

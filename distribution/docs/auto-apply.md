@@ -4,15 +4,15 @@
 
 ## Principios
 
-1. **El permiso ya está dado.** Elegir una oferta en Auto-solicitud autoriza su envío tras `ui-review`. Los permisos de `autoApply` en `agent-status` (Mi perfil › Sobre mi › «Permisos para Auto-solicitud») cubren los pasos habituales del portal. Con `true`, actúa sin volver a preguntar. Con `false` o `null`, ese paso no está autorizado: bloquea solo esa oferta.
+1. **El permiso ya está dado.** Elegir una oferta en Auto-solicitud autoriza su envío tras `ui-review`. Los permisos de `autoApply` en `agent-status` (Mi perfil › Permisos) cubren los pasos habituales del portal. Con `true`, actúa sin volver a preguntar. Con `false` o `null`, ese paso no está autorizado: bloquea solo esa oferta.
 2. **Una oferta bloqueada nunca detiene la tanda.** Registra `blocked` con `summary`, `need` y `proof` y continúa con la siguiente.
 3. **No preguntes a mitad de la tanda.** Reúne preguntas, accesos y decisiones pendientes y preséntalos juntos al final.
-4. **Nunca inventes.** Ni respuestas, ni experiencia, ni cifras, ni conversiones que la persona no haya autorizado.
+4. **Nunca inventes.** Ni respuestas, ni experiencia, ni cifras, ni conversiones que la persona no haya autorizado. Con `autoApplyDerivedAnswers = true`, la conversión de `salary-answer` está autorizada (04/11/2026).
 
 ## 1. Al empezar (una sola vez)
 
 1. `agent-status --execution-id ID_PROPIO`: lee `autoApply`, `queuedSnapshot`, `eligibleContinuations` y las ofertas con `selection.mode = auto`. Fija la tanda con `--request-ids`.
-2. Comprueba qué portales usa cada oferta y si hay sesión abierta (`portalAccess`). Si la persona tiene que iniciar sesión en alguno, díselo ahora en **un solo mensaje** con todos los portales y sigue con las ofertas que no lo necesitan.
+2. Consulta `agentTools`: comprueba otra vez las conexiones y, si falta alguna, recomiéndala con [agent-tools.md](agent-tools.md) sin detener la tanda. Comprueba qué portales usa cada oferta y si hay sesión abierta (`portalAccess`). Si la persona tiene que iniciar sesión en alguno, díselo ahora en **un solo mensaje** con todos los portales y sigue con las ofertas que no lo necesitan.
 3. Si tu herramienta o tu navegador exigen una confirmación humana para enviar formularios o aceptar condiciones, pídela **una sola vez para toda la tanda**: lista de ofertas (empresa · puesto · portal) y los permisos de `autoApply` que vas a aplicar. Una respuesta afirmativa cubre esa tanda; no vuelvas a pedirla por oferta ni por paso.
 
 ## 2. Preparar cada oferta (review)
@@ -20,13 +20,13 @@
 Usa `prepare` (docs/operations.md, «Preparar y enviar una oferta en tres comandos»): una sola descripción JSON registra hechos del anuncio, evidencias, valoración, encaje, CV, formulario, respuestas y revisión; el comando calcula huellas y valores esperados.
 
 - Abre el formulario real y recórrelo **hasta la página del botón final sin pulsarlo**. Declara todas sus preguntas en `ui-draft` (`questions`, `requiredAnswers`, `formAnswerKeys`, `messageUsage`). Las preguntas que aparecen por primera vez al enviar son la causa más frecuente de paradas.
-- Responde con los datos confirmados de Mi perfil. Con `autoApplyDerivedAnswers = true`, responde también lo que se deduce sin ambigüedad (años calculados con las fechas de la experiencia, Sí o No según lo que figura en ella, equivalencias estándar de nivel de idioma) y anota la deducción en `proof`.
+- Responde con los datos confirmados de Mi perfil y las reglas de `formRules` en `agent-status`, consultando `answer-lookup` ante cada pregunta nueva: lo ya respondido se reutiliza sin volver a preguntar, en el idioma y con las opciones del formulario, y una sugerencia se comprueba antes de usarla. Solo se pregunta a la persona lo que su perfil no permite responder, y se guarda con `ui-answer-save`. `requirementMatch` ayuda a priorizar, pero no descarta por sí solo. Con `autoApplyDerivedAnswers = true`, responde también lo que se deduce sin ambigüedad (años calculados con las fechas de la experiencia, Sí o No según lo que figura en ella, equivalencias estándar de nivel de idioma) y anota la deducción en `proof`. En un campo de enteros usa el entero más cercano (3,7 → 4). Si el formulario pide otra moneda o periodo, usa `salary-answer` y copia su `proof`; nunca contestes en otra moneda.
 - Una pregunta sin respuesta posible: decláralo con `scope: global` si sirve para otras candidaturas (la persona la responde una vez en Mi perfil y se reutiliza) y bloquea solo esa oferta con `need: answers`.
-- Prepara el CV (`build-cv` o `reused` con motivo), registra `ui-review` y continúa con el `send` de `eligibleContinuations` en la misma tanda.
+- Prepara el CV: adaptarlo con `build-cv` es lo predeterminado y `reused` necesita motivo; con prioridad A, también `cv.whyNotAdapted`. Registra `ui-review` y continúa con el `send` de `eligibleContinuations` en la misma tanda. `offer-start` encadena estos pasos para una oferta.
 
 ## 3. Enviar: qué hacer en el portal sin preguntar
 
-`send-start --case ID` inicia el envío y te da el CV listo para adjuntar con su nombre, las respuestas y la presentación. Rellena el formulario con ese material y registra el resultado con `send-finish`: `sent` con la confirmación del portal, o `not_sent` / `unknown` con `need`, `summary` y las preguntas nuevas en `form`; el comando deja la comprobación del portal registrada.
+`send-start --case ID` inicia el envío y te da el CV listo para adjuntar con su nombre, las respuestas y la presentación. Rellena el formulario con ese material, lee la revisión final del portal y compárala con `send-check` antes de pulsar: detecta CV en otro idioma, respuestas prerrellenadas distintas del paquete y campos vacíos. Si cambia una respuesta, usa `offer-correct`. Registra el resultado con `send-finish`: `sent` con la confirmación del portal, o `not_sent` / `unknown` con `need`, `summary` y las preguntas nuevas en `form`; el comando deja la comprobación del portal registrada.
 
 | Situación | Acción |
 | --- | --- |
@@ -44,13 +44,13 @@ Usa `prepare` (docs/operations.md, «Preparar y enviar una oferta en tres comand
 | Aviso de automatización o restricción de cuenta | Dejar de usar ese portal en esta tanda: bloquear sus ofertas y seguir con las demás. |
 | Vídeo, prueba técnica o declaración personal | `blocked`, `need: decision`. |
 | Error del portal o adjunto que no carga | Un solo reintento razonable; después `blocked`, `need: other`, con captura o texto. |
-| Botón final | Con `autoApplySubmit` true, pulsarlo sin pedir confirmación. Registrar `sent` solo con confirmación real del portal. |
+| Botón final | Con `autoApplySubmit` true y `send-check` correcto, pulsarlo sin pedir confirmación. Si el portal no muestra revisión, explicarlo en `finalCheckSkipped`. Registrar `sent` solo con confirmación real del portal. |
 
 Si te detienes **antes** de pulsar el botón final, dilo en `proof` y registra a continuación `ui-delivery-check` con `outcome: not_sent`. Esa constancia vale una hora: cuando la oferta se desbloquee (respuestas guardadas, acceso completado), vuelve a mirar el portal tú mismo y registra otra comprobación `not_sent` justo antes de revisar o enviar de nuevo; no hace falta la persona. Si pulsaste el botón y no hay recibo, es `unknown` hasta comprobarlo; nunca repitas el formulario sin comprobar.
 
 ## 4. Al terminar: un único resumen
 
-Envía a la persona un solo mensaje con:
+`batch-report --from INICIO` guarda el informe en `outputs/informes/`. Envía a la persona un solo mensaje con:
 
 - **Enviadas** con su confirmación.
 - **Preguntas pendientes**, agrupadas y sin repetir. Se responden en la app (Mi perfil o la ficha de la oferta); al guardarlas, la oferta vuelve sola a la cola.

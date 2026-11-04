@@ -51,6 +51,9 @@ runtime/python/python.exe -B tools/stubbs_jobs.py apply --file data/lote.json --
 | init | Crear solo si no existe; no reiniciar un perfil existente. |
 | import-cv --file | PDF aportado, comprobado y deduplicado; no confirma sus afirmaciones. |
 | build-cv --case ID --file adaptación.json [--preview archivo.pdf] | CV de una página adaptado a una oferta solo con hechos del perfil confirmado; registra su PDF propio como «CV preparado» y declara cvAdaptation=adapted. Véase «CV adaptado con build-cv». |
+| offer-start / send-check / offer-correct | Oferta del anuncio al envío iniciado, comparación con la revisión final del portal y corrección de una respuesta sin haber pulsado. Véase «Tanda de solicitudes». |
+| salary-answer --case ID --currency USD [--period year\|month] [--payments 12] | Salario para formularios del perfil de búsqueda de esa oferta (o `--search-profile ID`) en otra moneda o periodo, al tipo del BCE. Solo lectura; sin datos o sin red, no devuelve cifra. |
+| batch-report [--from FECHA] | Enviadas, respuestas por revisar, lo pendiente de la persona y embudo, en outputs/informes. No escribe el registro. |
 | apply: ui-cv-retire / ui-cv-restore | Retirar versiones sustituidas o recuperarlas expresamente, con revisión y huellas actuales. Solo mediante el escritor; sin borrar archivos, modificar copias enviadas ni iniciar empleo. Contrato en docs/application-contract.md. |
 | plan | Planificar descubrimiento y preparación pertinente de ofertas seleccionadas; solo con mandato de búsqueda. |
 | handoff | Obtener los IDs queued y sus instrucciones. Copiar no inicia trabajo ni transfiere propietario. |
@@ -61,7 +64,7 @@ runtime/python/python.exe -B tools/stubbs_jobs.py apply --file data/lote.json --
 | doctor / maintenance | Dependencias e informe de conservación; maintenance no borra. |
 | upgrade-app | Migración compatible prevista, sin reconstruir desde Excel. No ejecutar por rutina sin necesidad. |
 
-Los comandos administrativos migrate y clear-opportunities no forman parte del trabajo cotidiano: requieren su alcance concreto, protecciones y conciliación. No utilizarlos para eliminar impedimentos de una candidatura.
+El comando administrativo clear-opportunities no forma parte del trabajo cotidiano: requiere su alcance concreto, protecciones y conciliación. No utilizarlos para eliminar impedimentos de una candidatura.
 
 clear-opportunities bloquea el reinicio si queda un envío iniciado sin resultado conciliado. Cuando el reinicio está expresamente autorizado y permitido, retira también las comprobaciones, valoraciones, planes de seguimiento y ámbitos de ejecución vinculados a las ofertas y encargos retirados. Conserva el contexto personal, los perfiles de búsqueda, los CV y las preguntas reutilizables; la revisión anterior se conserva mediante la copia del escritor.
 
@@ -85,6 +88,7 @@ runtime/python/python.exe -B tools/stubbs_jobs.py send-finish --case ID --file r
   "sourceUrl": "https://… (por defecto, el enlace de la oferta)",
   "facts": {"País": "España", "Modalidad": "Remoto", "Contrato": "Indefinido", "Horario real": "8:00–15:00", "Banda publicada": "40.000–50.000 EUR"},
   "factsProof": "Lo que dice el anuncio",
+  "requirements": "Requisitos copiados del anuncio",
   "evidence": [{"condition": "Cumple modalidad", "state": "Sí", "proof": "…", "fixed": 40000, "fixedMax": 50000, "currency": "EUR"}],
   "assessment": {"reason": "…", "references": [{"url": "…", "text": "…"}], "unknowns": [], "proof": "…"},
   "fit": {"accept": true, "proof": "…"},
@@ -95,7 +99,7 @@ runtime/python/python.exe -B tools/stubbs_jobs.py send-finish --case ID --file r
 }
 ```
 
-`evidence` usa `sourceUrl` y `observedAt` por defecto. `fit.apply` toma el valor de los mínimos. `cv` admite `{"build": ESPECIFICACIÓN_DE_BUILD_CV}` (como `build-cv`), `{"use": "ruta de Currículums", "adaptation", "reason"}` o solo `adaptation` y `reason` para el CV ya asignado. `review.checks` marca por defecto las cinco comprobaciones. Con `review` y sin `result`, la tarea termina como done; `result` permite dejarla blocked con su motivo. La respuesta indica pasos aplicados, `missing`, paquete, si quedó autorizado y los envíos en cola; en Auto-solicitud el envío causal queda en `queuedSends` y `next` indica `send-start`.
+Guarda siempre `requirements` con el texto del anuncio: sin él, el encaje no puede leer la oferta y la respuesta devuelve `requirementsMissing`. `evidence` usa `sourceUrl` y `observedAt` por defecto. `fit.apply` toma el valor de los mínimos. `cv` admite `{"build": ESPECIFICACIÓN_DE_BUILD_CV}` (como `build-cv`), `{"use": "ruta de Currículums", "adaptation", "reason"}` o solo `adaptation` y `reason` para el CV ya asignado. `review.checks` marca por defecto las cinco comprobaciones. Con `review` y sin `result`, la tarea termina como done; `result` permite dejarla blocked con su motivo. La respuesta indica pasos aplicados, `missing`, paquete, si quedó autorizado y los envíos en cola; en Auto-solicitud el envío causal queda en `queuedSends` y `next` indica `send-start`.
 
 **send-start.** Justo antes de transmitir, inicia el envío en cola de la oferta (lo repone en cola primero si estaba bloqueado con una comprobación not_sent vigente), comprueba el paquete conservado y devuelve el material exacto: `cvUpload` (copia del CV del paquete con el nombre «CV Nombre - Empresa.pdf», lista para adjuntar), `cvArchived`, destino, enlace, respuestas del formulario con su etiqueta, presentación solo si se usa y los permisos `autoApply`. `--file` opcional admite solo `proof`.
 
@@ -105,9 +109,29 @@ runtime/python/python.exe -B tools/stubbs_jobs.py send-finish --case ID --file r
 - `{"outcome": "not_sent", "need": "answers|access|decision|contact|other", "summary": "…", "proof": "…", "form": {"questions": [], "requiredAnswers": [], "formAnswerKeys": []}}`: no se pulsó el botón final. Deja la tarea blocked con su motivo, registra ui-delivery-check not_sent y, con `form`, declara las preguntas nuevas para que la persona las responda en la app.
 - `{"outcome": "unknown", …}`: se pulsó y no hay recibo; blocked con comprobación unknown. Nunca repetir el formulario sin comprobar.
 
+## Tanda de solicitudes · 04/11/2026
+
+Atajos sobre los tres comandos anteriores, con las mismas guardias y un solo guardado. No autorizan nada que la persona no haya pedido.
+
+```text
+runtime/python/python.exe -B tools/stubbs_jobs.py offer-start --file oferta.json [--case ID] [--execution-id ID_PROPIO]
+runtime/python/python.exe -B tools/stubbs_jobs.py send-check --case ID --file revision.json --execution-id ID --request-ids IDS
+runtime/python/python.exe -B tools/stubbs_jobs.py offer-correct --case ID --file correccion.json --execution-id ID --request-ids IDS
+```
+
+**offer-start.** `{"entryId": "…", "promote": {"reason": "…", "priority": "B"}, "mandate": {"text": "palabras literales", "at": "fecha", "scope": "…"}, "prepare": {…}}`. Promueve el anuncio si hace falta, elige la oferta en Auto-solicitud si no estaba elegida, ejecuta `prepare` y, con un envío autorizado, `send-start`. Crea un identificador propio de ejecución si no se indica y devuelve `executionId`, `requestIds` y el material del envío. Repetirlo devuelve el mismo envío; antes de pulsar, comprobar el portal. En modo review o con datos pendientes, termina con `started: false`. Rechaza ofertas ya enviadas.
+
+**send-check.** `{"cv": {"name": "nombre que muestra el portal"}, "answers": [{"key": "clave", "label": "pregunta", "value": "respuesta"}], "proof": "…"}`; `cvNotRequested: true` si no se pide CV. Devuelve `ok`, `issues` y `warnings`: CV en otro idioma o distinto, respuestas distintas, vacías o ajenas al paquete, y obligatorias que no aparecen. Las diferencias de formato no cuentan (`35.000`, `3,7`, `Sí`). `send-finish` con `sent` exige el último resultado correcto de ese paquete o `finalCheckSkipped` con el motivo, que queda en la prueba.
+
+**offer-correct.** `{"answers": {"clave": "valor"}, "proof": "…"}`, siempre antes del botón final. Cierra el envío en curso como `not_sent`, lo cancela, vuelve a revisar el paquete e inicia otro envío con su propio identificador.
+
+**Reglas de respuesta.** `formRules` de `agent-status` devuelve competencias, lo pendiente de confirmar, respuestas guardadas y reglas vigentes. Antes de contestar una pregunta nueva, consultar `answer-lookup --case ID --question "texto"` (sin `--case`, el salario es el del perfil predeterminado): `use=answer` se responde, `use=suggest` se comprueba contra datos confirmados y `use=ask` no se inventa. `prepare` devuelve `answerNotes` si una respuesta difiere de lo guardado o si había una disponible.
+
+**Competencias y respuestas.** `ui-skill-save` (`values`: name, aliases, years, level, kind, usedAt, lastUsed) propone una competencia con `proof`; solo con las palabras de la persona admite `status: confirmed`. `ui-skill-remove`, `ui-answer-save` y `ui-answer-remove` completan su gestión; `ui-answer-import` unifica una lista con otros textos e idiomas como `aliases`, y `ui-answer-tidy` retira lo que el perfil ya responde. Lo ya respondido se reutiliza sin pedir confirmación. Guardar `form.questions` con etiquetas en español y sin el nombre de la empresa. Un envío confirmado guarda solo lo que el perfil no permite deducir, y una herramienta preguntada pasa a ser competencia; si después se responde distinto, se conserva la primera y se marca para que la persona decida. **Encaje.** `requirementMatch` en `agent-status --case` compara el anuncio con las competencias confirmadas; orienta y nunca archiva ni bloquea.
+
 ## CV adaptado con build-cv · 18/10/2026
 
-Herramienta oficial para el CV adaptado del contrato «Horario obligatorio confirmado y CV adaptado» (docs/application-contract.md). Úsala al preparar una solicitud elegida; no autoriza envíos ni sustituye ui-review.
+Herramienta oficial para el CV adaptado del contrato «Horario obligatorio confirmado y CV adaptado» (docs/application-contract.md). Úsala al preparar una solicitud elegida; no autoriza envíos ni sustituye ui-review. Antes de escribir la adaptación, aplica `searchContext.cvGuidelines` (Currículums › Indicaciones para tus CV): qué priorizar según el puesto o el idioma y qué omitir. Si contradice una regla de abajo, prevalece la regla. Sin CV aportado, build-cv parte igualmente de la experiencia y las competencias confirmadas. Para el salario de un formulario usa `answer-lookup --case ID_OFERTA` o `salary-answer --case ID_OFERTA`: cada perfil de búsqueda tiene el suyo.
 
 ```text
 runtime/python/python.exe -B tools/stubbs_jobs.py build-cv --case ID_OFERTA --file data/cv-ID_OFERTA.json --preview outputs/vista-cv.pdf

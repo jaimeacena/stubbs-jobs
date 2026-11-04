@@ -1,8 +1,11 @@
 """Read-only, decision-sized context derived from the existing operational store."""
 import copy
 
+import agent_tools
 import app_workflow as workflow
+import form_rules
 import pending_entries
+import requirement_match
 from state_support import instant
 from stubbs_jobs_core import ROOT, digest
 
@@ -92,8 +95,10 @@ def auto_apply(data):
     """Standing permissions for Auto-solicitud, as the person saved them in Mi perfil."""
     profile = data.get('profile', {})
     labels = {key: field['label'] for key, field in workflow.AUTO_APPLY_FIELDS.items()}
+    # The history keeps the wording in use when each permission was saved.
+    saved_labels = {*labels.values(), 'Responder preguntas que se deducen sin ambigüedad de mis datos confirmados (años según las fechas de mi experiencia, Sí o No según lo que figura en ella, equivalencias estándar de idioma)'}
     changes = [item for item in data.get('app', {}).get('history', [])
-               if set(item.get('changedFields') or []) & set(labels.values())]
+               if set(item.get('changedFields') or []) & saved_labels]
     return {'permissions': {key: profile.get(key) for key in labels}, 'labels': labels,
             'updatedAt': changes[-1].get('at') if changes else None, 'guide': 'docs/auto-apply.md',
             'meaning': 'true: la persona ya autorizó ese paso para las ofertas elegidas en Auto-solicitud; '
@@ -171,8 +176,14 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         item = {k: copy.deepcopy(row.get(k)) for k in (
             'id', 'company', 'title', 'state', 'archivedAt', 'archiveReason', 'minimums', 'priority', 'selection', 'apply',
             'missing', 'integrityError', 'pendingChange', 'selectionProgress', 'fingerprint', 'fitFingerprint',
-            'assessmentFingerprint', 'cvFingerprint','notes','lifecycle',
+            'assessmentFingerprint', 'cvFingerprint','notes','lifecycle','requirementMatch',
             'searchProfileId','searchProfileName','displaySearchProfileId','displaySearchProfileName')}
+        if not scoped:
+            # The general listing keeps only what orders attention; --case has every requirement.
+            fit = requirement_match.for_offer(data, workflow.row_for(data, row['id']))
+            item['requirementMatch'] = {'verdict': fit['verdict'], 'missing': [entry['name'] for entry in fit['missing']],
+                                        'gaps': [entry['name'] for entry in fit['gaps']]}
+            item['suggestedPriority'] = requirement_match.suggested_priority(fit)
         item['minimums'] = neutral_minimums(item['minimums'])
         item['sent'] = bool(row.get('sent'))
         if (row.get('sent') or {}).get('reportedBy') == 'user':
@@ -207,8 +218,9 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
               'setupComplete': state['setupComplete'],
               # Name without company; each offer's cvUploadName adds « - Empresa».
               'cvUploadName': cv_file_name(data),
-              'profile': {k:v for k,v in state['profile'].items() if k!='minimumFixed' or 'searchProfiles' not in data.get('app',{})}, 'preferences': state['preferences'],
-              'searchProfiles':[{k:p.get(k) for k in ('id','name','revision','archivedAt')} for p in state['searchProfiles']],
+              # With search profiles, the minimum and the form salary belong to each profile, not to the person.
+              'profile': {k:v for k,v in state['profile'].items() if k not in ('minimumFixed','salaryExpectationFixed','salaryCurrency') or 'searchProfiles' not in data.get('app',{})}, 'preferences': state['preferences'],
+              'searchProfiles':[{k:p.get(k) for k in ('id','name','revision','archivedAt','formSalary')} for p in state['searchProfiles']],
               'deletedSearchProfiles':copy.deepcopy(state.get('deletedSearchProfiles',[])),
               'defaultSearchProfileId':state['defaultSearchProfileId'],'searchProfileDetailCommand':'agent-status --search-profile ID',
               'searchSourcesExclusive':bool(state['searchContext'].get('sourceUrls','').strip()),
@@ -222,6 +234,8 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
                              ('status', 'token', 'revision', 'workspaceId', 'summary', 'needsWelcome', 'coverage')},
               'applicationVerification': state['applicationVerification'],
               'autoApply': auto_apply(data),
+              'formRules': form_rules.view(data),
+              'agentTools': agent_tools.view(data),
               'execution': {**{k: execution.get(k) for k in
                                 ('id', 'status', 'updatedAt', 'startedAt', 'presenceUnconfirmed', 'message')},
                             'legacyTracking': True},
@@ -274,8 +288,8 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
             import portal_plans
             profile_id=requested['round'].get('searchProfileId')
             result['portalPlans']=portal_plans.plans(effective,profile_id)
-            result['discoveryYield']=portal_plans.discovery_yield(data,profile_id)
-            result['sourceStats']=portal_plans.source_stats(data)
+            result['discoveryYield']=portal_plans.discovery_yield(effective,profile_id)
+            result['sourceStats']=portal_plans.source_stats(effective)
     if history and not detail_case:
         result['history'] = copy.deepcopy(data.get('app', {}).get('history', [])[-limit:])
     if profile_detail:
@@ -299,6 +313,7 @@ def view(data, case=None, request_id=None, history=False, limit=20, since=None,p
         result['searchProfile']=copy.deepcopy(profile)
         result['searchContext']=personalization.context(data,search_profile_id)
         result['preferences']=app_context.criteria(data,search_profile_id)
+        result['formSalary']=search_profiles.form_salary(data,search_profile_id)
         result['searchSourcesExclusive']=bool(result['searchContext'].get('sourceUrls','').strip())
         import portal_plans
         result['portalPlans']=portal_plans.plans(data,search_profile_id)

@@ -24,7 +24,7 @@ Stubbs Jobs es una app para Windows que reúne tu perfil, ofertas, currículums 
 - Un agente de IA que pueda leer y escribir archivos y ejecutar comandos en una carpeta de tu ordenador. Los chats web, como chatgpt.com o claude.ai, no pueden hacerlo. Por ejemplo:
   - **Claude Code**, en la pestaña Code de la [app de escritorio de Claude](https://claude.com/download). Necesita un plan de pago de Claude.
   - **Codex** de OpenAI ([chatgpt.com/codex](https://chatgpt.com/codex)). Necesita un plan de ChatGPT que incluya Codex.
-- Para buscar y solicitar, el agente necesita además acceso a un navegador. Si un portal exige cuenta, te pedirá que inicies sesión tú; nunca te pedirá contraseñas.
+- Para buscar y solicitar, conecta la extensión de tu navegador (Chrome o Edge) y tu correo. No hace falta prepararlo antes: con el perfil listo, el agente te guía paso a paso y puedes dejarlo para más tarde. Si un portal exige cuenta, te pedirá que inicies sesión tú; nunca te pedirá contraseñas.
 
 La descarga no incluye cuentas, suscripciones ni acceso a portales; los costes y condiciones dependen del servicio que elijas. Cada chat nuevo lee primero las instrucciones de Stubbs Jobs, lo que consume parte de tu plan. La app abre Edge cuando está disponible o tu navegador habitual.
 

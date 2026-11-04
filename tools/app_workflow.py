@@ -45,11 +45,33 @@ AUTO_APPLY_FIELDS={
     'autoApplySubmit':{'label':'Enviar sin pedirme confirmación final las ofertas que elija en Auto-solicitud','short':'Envío final sin preguntar'},
     'autoApplyPrivacy':{'label':'Aceptar avisos de privacidad y tratamiento de mis datos limitados a la selección de esa oferta','short':'Privacidad de la selección'},
     'autoApplyTerms':{'label':'Aceptar las condiciones de uso del portal necesarias para presentar la solicitud, sin pagos ni suscripciones','short':'Condiciones del portal'},
-    'autoApplyDerivedAnswers':{'label':'Responder preguntas que se deducen sin ambigüedad de mis datos confirmados (años según las fechas de mi experiencia, Sí o No según lo que figura en ella, equivalencias estándar de idioma)','short':'Respuestas deducidas'},
+    'autoApplyDerivedAnswers':{'label':'Responder preguntas que se deducen sin ambigüedad de mis datos confirmados (años según las fechas de mi experiencia, Sí o No según lo que figura en ella, equivalencias estándar de idioma, y mi salario en la moneda que pida el formulario al tipo oficial del día)','short':'Respuestas deducidas'},
     'autoApplySessions':{'label':'Usar las sesiones que tenga abiertas en el navegador del agente (LinkedIn, InfoJobs…) para solicitar','short':'Sesiones abiertas'},
     'autoApplyTalentPool':{'label':'Unirme a la bolsa de talento de la empresa cuando sea opcional','short':'Bolsas de talento'},
 }
-FORM_FIELDS=(*PERSONAL,'noticeDays',*CONTACT_FIELDS,*DEMOGRAPHIC_FIELDS)
+# Personal data that forms ask in any sector, shown in Mi perfil before a form needs them.
+# They keep the custom_ keys already stored, so saved answers and history keep their meaning.
+UNIVERSAL_FIELDS={
+    'custom_birth_date':{'label':'Fecha de nacimiento','type':'text'},
+    'custom_nationality':{'label':'Nacionalidad','type':'text'},
+    'custom_driving_license':{'label':'Carnet de conducir','type':'text'},
+    'custom_own_vehicle':{'label':'Tengo vehículo propio','type':'boolean'},
+    'custom_disability':{'label':'Tengo alguna discapacidad','type':'boolean'},
+    'custom_self_employed':{'label':'Alta como autónomo','type':'boolean'},
+    'custom_open_to_relocation':{'label':'Puedo mudarme por trabajo','type':'boolean'},
+    'custom_education_level':{'label':'Nivel de estudios más alto','type':'text'},
+}
+# Outside LABELS on purpose: answers() puts LABELS in every offer's material, and a new
+# entry there would invalidate packages already prepared.
+CURRENT_SALARY=('currentSalary','currentSalaryCurrency')
+LEGACY_CURRENT_SALARY='custom_current_gross_annual_salary_eur'
+FORM_FIELDS=(*PERSONAL,'noticeDays',*CONTACT_FIELDS,*DEMOGRAPHIC_FIELDS,*CURRENT_SALARY)
+
+def current_salary(profile):
+    """Current salary with its currency; the earlier custom question was declared in euros."""
+    legacy=profile.get(LEGACY_CURRENT_SALARY)
+    return {'currentSalary':profile['currentSalary'] if 'currentSalary' in profile else legacy,
+            'currentSalaryCurrency':profile['currentSalaryCurrency'] if 'currentSalaryCurrency' in profile else 'EUR' if legacy is not None else None}
 CHECKS=('cv','form','destination','vacancy','duplicates')
 CLOSED=('Rechazada','Descartada','Cerrada','Lograda','Oferta')
 AUTOMATION_DEFAULTS={'applicationMode':'review'}
@@ -308,12 +330,38 @@ def row_for(data,op_id):
     rows=view_cache.memo(('rows',id(data)),lambda:{r['ID']:r for r in data['sheets']['Oportunidades']})
     return rows[op_id]
 
+def generalize(data):
+    """Registries of the first edition become ordinary installations, once and without guessing.
+
+    That edition assumed what it did not store: salaries in euros, a single person and a finished
+    setup. The migration writes those assumptions down so that no code depends on them afterwards.
+    """
+    app=state(data)
+    if app.get('personalized'):return
+    for row in data['sheets'].get('Oportunidades',[]):
+        if row.get('Estado')=='Pendiente de Usuario':row['Estado']='Pendiente de ti'
+        if row.get('Fijo mín. confirmado') is not None and not row.get('Moneda fijo confirmado'):row['Moneda fijo confirmado']='EUR'
+    for block in data.get('blocks',[]):
+        if block.get('owner')=='Usuario':block['owner']='Usuario'
+    app.setdefault('setupComplete',True)
+    # Its CV originals live in outputs/ as CV-*.pdf; they stay visible and in backups.
+    app.setdefault('legacyCvOriginals',True)
+    app['personalized']=True
+
 def seed(data):
     app=state(data)
+    generalize(data)
     retire_mail(data)
     automation(data)
-    app.setdefault('legacyImported',True)
-    for row in data['sheets']['Oportunidades']:draft(data,row['ID'])
+    if not app.get('legacyImported'):
+        for item in data['sheets'].get('Actividad',[]):
+            if 'Migración' in str(item.get('Acción','')):continue
+            day=item.get('Fecha')
+            at=excel_date(day) if type(day) in (int,float) else data.get('createdAt',now())
+            app['history'].append({'id':len(app['history'])+1,'at':at,'opportunityId':item.get('ID oportunidad'),'actor':'Registro anterior','title':item.get('Acción','Actividad anterior'),'detail':item.get('Resultado / prueba') or ''})
+        app['legacyImported']=True
+    for row in data['sheets']['Oportunidades']:
+        if row['ID'] not in app['drafts']:draft(data,row['ID'])
     return app
 
 def retire_mail(data):
@@ -368,9 +416,12 @@ def answers(data,op_id):
     result={k:data['profile'].get(k) for k in LABELS}
     if 'searchProfiles' in data.get('app',{}):
         result['minimumFixed']=context.scoped_criteria(data,op_id)['minimumFixed']
+        import search_profiles
+        result['salaryExpectationFixed']=search_profiles.offer_form_salary(data,op_id)['salaryExpectationFixed']
     d=draft(data,op_id)
     requested=set(d['requiredAnswers'])|set(d.get('formAnswerKeys') or [])
     result.update({k:data['profile'].get(k) for k in (*CONTACT_FIELDS,'demographicSurveyParticipation') if k in requested})
+    result.update({k:v for k,v in current_salary(data['profile']).items() if k in requested})
     if 'gender' in requested:
         participation=d['answers'].get('demographicSurveyParticipation',data['profile'].get('demographicSurveyParticipation'))
         mode=survey_mode(participation)
@@ -417,7 +468,8 @@ def payload(data,op_id):
     if contacts:result['profileContacts']=contacts
     if 'searchContext' in state(data):result['searchContext']=context.application_context(data,context.scoped_search(data,op_id))
     if 'searchProfiles' in state(data) and result['answers'].get('salaryExpectationFixed') is not None:
-        currency=data['profile'].get('salaryCurrency') or ''
+        import search_profiles
+        currency=search_profiles.offer_form_salary(data,op_id)['salaryCurrency'] or ''
         if currency!=result.get('searchContext',{}).get('currency',''):
             result['salaryExpectationCurrency']=currency
     if context.offer_requirements(row):result['offerRequirements']=context.offer_requirements(row)
@@ -458,9 +510,12 @@ def record(data,title,op_id=None,actor='Agente',detail='',artifact=None):
     return item
 
 def validate_answer(key,value,definition=None):
-    if key=='salaryCurrency':
+    if key in ('salaryCurrency','currentSalaryCurrency'):
         if value not in (None,'') and (not isinstance(value,str) or not re.fullmatch('[A-Z]{3}',value)):
-            raise ValueError('Usa una moneda de tres letras para el salario de formularios')
+            raise ValueError('Usa una moneda de tres letras para el salario actual' if key=='currentSalaryCurrency' else 'Usa una moneda de tres letras para el salario de formularios')
+        return
+    if key=='currentSalary':
+        if value is not None and (type(value) is not int or not 1<=value<=1000000000):raise ValueError('Revisa tu salario actual')
         return
     if definition and key.startswith('custom_'):return context.validate_custom(definition,value)
     if key in AUTO_APPLY_FIELDS:
@@ -518,6 +573,9 @@ def undo_current(data,item):
         from personalization import context as search_context
         profile_id=item.get('searchProfileId')
         values={**search_context(data,profile_id),**data['profile'],**context.criteria(data,profile_id)}
+        if item.get('section')=='search' and 'searchProfiles' in app:
+            import search_profiles
+            values.update(search_profiles.form_salary(data,profile_id))
         return {k:values.get(k) for k in item['after']}
     if kind=='experience':return context.experience(data)
     if kind=='responses':return {scope:{k:(data['profile'] if scope=='global' else draft(data,key)['answers']).get(k) for k in values} for scope,values in item['after'].items()}
@@ -679,10 +737,10 @@ def reconcile(data):
                     row['Estado']='Preparar';row['Siguiente paso']='Comprobar el formulario actualizado antes de continuar.'
             continue
         if not block:
-            block={'id':block_id,'opportunityId':row['ID'],'owner':'Usuario' if app.get('personalized') else 'Usuario','due':None};data['blocks'].append(block)
+            block={'id':block_id,'opportunityId':row['ID'],'owner':'Usuario','due':None};data['blocks'].append(block)
         block.update(status='open' if unanswered else 'resolved',question=('Responder: '+', '.join(context.definitions(data,row['ID'])[k]['label'].lower() for k in unanswered)+'.') if unanswered else 'Respuestas guardadas.')
         if unanswered:
-            row['Estado']='Pendiente de ti' if app.get('personalized') else 'Pendiente de Usuario';row['Siguiente paso']='Responder: '+', '.join(context.definitions(data,row['ID'])[k]['label'].lower() for k in unanswered)+'. Después, comprobación del agente.'
+            row['Estado']='Pendiente de ti';row['Siguiente paso']='Responder: '+', '.join(context.definitions(data,row['ID'])[k]['label'].lower() for k in unanswered)+'. Después, comprobación del agente.'
         elif row['Estado'] in ('Pendiente de Usuario','Pendiente de ti'):
             row['Estado']='Preparar';row['Siguiente paso']='Respuestas completas. Revisar vigencia, destinatario y formulario con el CV seleccionado.'
     # Silence is a presentation cue, never evidence that work stopped or ownership ended.
@@ -770,7 +828,7 @@ def handle(data,op):
     elif kind=='ui-bulk-action':
         import offer_actions
         import sys
-        offer_actions.handle(data,op,__import__('sys').modules[__name__])
+        offer_actions.handle(data,op,sys.modules[__name__])
     elif kind=='ui-contact-draft':
         row_for(data,op_id)
         recipient=op.get('recipient');message=op.get('message');purpose=op.get('purpose','Contacto sobre la oferta')
@@ -855,7 +913,7 @@ def handle(data,op):
                     raise ValueError('Los datos de Mi perfil tienen alcance general')
                 if re.sub(r'[^a-z0-9]','',field['key'][7:].lower()) in canonical:
                     raise ValueError('Utiliza el campo personal existente, sin duplicarlo')
-        values=op['values']; before={k:target.get(k) for k in values}; absent=[k for k in values if k not in target]
+        values=op['values']; shown={**target,**current_salary(target)} if scope=='global' else target; before={k:shown.get(k) for k in values}; absent=[k for k in values if k not in target]
         granted=[k for k in values if k in AUTO_APPLY_FIELDS]
         if granted and scope!='global':raise ValueError('Los permisos de Auto-solicitud se guardan en Mi perfil')
         # The agent may withdraw a standing permission when asked, never grant one.
@@ -863,6 +921,8 @@ def handle(data,op):
             raise ValueError('Solo la persona concede permisos de Auto-solicitud, desde Mi perfil')
         if 'minimumFixed' in values and 'searchProfiles' in app:
             raise ValueError('Guarda el mínimo en el perfil de búsqueda mediante ui-preferences y searchProfileId')
+        if scope=='global' and {'salaryExpectationFixed','salaryCurrency'}&set(values) and 'searchProfiles' in app:
+            raise ValueError('Guarda el salario para formularios en su perfil de búsqueda mediante ui-profile-section (section search) y searchProfileId')
         expect(before,op['expected'])
         if 'workAuthorizations' in values:
             if scope!='global':raise ValueError('Los destinos con permiso se guardan en Mi perfil')
@@ -901,7 +961,9 @@ def handle(data,op):
         if set(op['values'])-{'message','recipient','answers','requiredAnswers','cvReason','changes','questions','messageUsage','formAnswerKeys','cvAdaptation'}:raise ValueError('Campo de borrador no admitido')
         values=op['values']
         if 'questions' in values:context.validate_questions(data,op_id,values['questions'])
-        allowed_questions=set(FORM_FIELDS)|{f['key'] for f in values.get('questions',d.get('questions',[]))}
+        # A general answer saved in Mi perfil is reusable without declaring it again.
+        allowed_questions=(set(FORM_FIELDS)|{f['key'] for f in values.get('questions',d.get('questions',[]))}|
+                           {k for k,f in context.definitions(data,op_id).items() if k.startswith('custom_') and f['scope']=='global'})
         if 'messageUsage' in values and values['messageUsage'] not in ('form','email','unused','unknown'):
             raise ValueError('Indica dónde se utiliza el texto de presentación')
         if 'cvAdaptation' in values and values['cvAdaptation'] not in CV_ADAPTATIONS:
@@ -989,7 +1051,6 @@ def handle(data,op):
         request_workflow.handle(data,op)
     elif kind=='ui-offer-assessment':
         import offer_quality
-        import sys
         offer_quality.assess(data,op,__import__('sys').modules[__name__])
     elif kind=='ui-dispatch-attempt':
         raise ValueError('El lanzador local se ha retirado; continúa desde tu agente externo.')
@@ -1214,13 +1275,13 @@ def request(data,op_id,kind,package_id=None,actor='Usuario',continuation=None,in
                 'proof':'Nueva petición de búsqueda con los mismos criterios; se reintenta la búsqueda bloqueada.'},sys.modules[__name__])
             return
         if r['status'] in ('queued','running','blocked','interrupted'):return
-    if kind=='discovery' and snapshot.get('searchProfileId'):
+    if kind=='discovery':
         # A queued search nobody has started would run with criteria this profile
         # no longer has. The new one supersedes it; started searches keep theirs.
         import request_workflow
         for r in app['requests']:
             if (r['type']=='discovery' and r['status']=='queued' and not r.get('startedAt') and
-                    (r.get('round') or {}).get('searchProfileId',r.get('searchProfileId'))==snapshot['searchProfileId']):
+                    (r.get('round') or {}).get('searchProfileId',r.get('searchProfileId'))==snapshot.get('searchProfileId')):
                 request_workflow.update(data,{'id':r['id'],'status':'cancelled','actor':actor,
                     'proof':'Sustituida por una búsqueda nueva del mismo perfil con sus criterios actuales; no se había iniciado.'},sys.modules[__name__])
     req={'id':'req-'+digest([now(),len(app['requests']),op_id,kind])[:16],'type':kind,'opportunityId':op_id,'packageId':package_id,'status':'queued','createdAt':now(),'result':'Pendiente de la próxima ejecución del agente.'}

@@ -1,6 +1,5 @@
 """Create an allowlisted, empty Windows distribution. Never copies operational data."""
 import argparse
-import ast
 import hashlib
 import json
 import re
@@ -13,7 +12,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 MODULES=('stubbs_jobs.py','stubbs_jobs_core.py','stubbs_jobs_app.py','window_icon.py','cv_usage.py','app_workflow.py','app_context.py','assistant_flow.py','agent_runner.py','agent_context.py','source_reviews.py','personalization.py','onboarding.py','profile_interview.py','runtime.py','maintenance.py','backup.py','request_workflow.py','offer_quality.py','view_cache.py','state_support.py','scan_boards.py','export-tracker.mjs')
 MODULES+=('offer_actions.py','offer_minimums.py','application_lifecycle.py','search_profiles.py','criteria_preview.py')
-MODULES+=('cv_retirement.py','user_submission.py','build_cv.py','pending_entries.py','offer_flow.py','portal_plans.py')
+MODULES+=('cv_retirement.py','user_submission.py','build_cv.py','pending_entries.py','offer_flow.py','portal_plans.py','form_rules.py','batch_report.py','agent_tools.py','skills.py','answer_bank.py','requirement_match.py')
 APP_FILES=('index.html','app.js','icons.js','client.js','formatting.js','activity.js','workflow.js','recovery.js','explanations.js','presentation.js','drafts.js','setup.js','theme.js','release.js','redesign.css','criteria.js')
 APP_ASSETS=('stubbs.png','stubbs.ico')
 DOCUMENTS=('AGENTS.md','README.en.md','README.es.md','CHANGELOG.md','LICENSE',
@@ -21,7 +20,7 @@ DOCUMENTS=('AGENTS.md','README.en.md','README.es.md','CHANGELOG.md','LICENSE',
            'docs/operations.md','private/profile-template.md','docs/scheduling.md',
            'docs/user-guide.md','docs/third-party-notices.md','docs/limits.md',
            'docs/authorship.md','docs/backup-and-recovery.md','docs/system-design.md',
-           'docs/agent-guide.md','docs/auto-apply.md','docs/work-plan.md','docs/job-discovery.md',
+           'docs/agent-guide.md','docs/auto-apply.md','docs/agent-tools.md','docs/work-plan.md','docs/job-discovery.md',
            'docs/development.md','docs/development.es.md')
 SOURCE_TESTS=('test_distribution.py','test_distribution_runtime.py','test_review_20261002.py','test_workflow_fresh_audit.py','test_window_icon.py','test_cv_usage.py','test_fresh_audit.py','test_export_tracker.py','test_client.cjs','test_recovery.cjs','test_activity.cjs','test_presentation.cjs','test_browser_flow.cjs','test_workflow.cjs','workflow_fixtures.py','test_profile_interview.py','test_delivery_recovery.py','test_request_continuity.py','test_system_contracts.py','test_backup.py','test_offer_quality.py','test_best_argument.py','test_agent_context.py','test_source_reviews.py','test_source_scan.py','quality_cases.json')
 SOURCE_TESTS+=('test_bulk_actions.py','test_minimums.py','test_profile_contacts.py','test_offer_display.py','test_review_corrections.py')
@@ -104,11 +103,6 @@ def render_document(text,info,template=False):
     if re.search(r'\{\{RELEASE_[A-Z]+\}\}',text):raise ValueError('Hay un dato de publicación sin resolver')
     if not template:text=text.replace('README.en.md','README.md')
     return text
-
-def replace_function(text,name,replacement):
-    function=next(node for node in ast.parse(text).body if isinstance(node,ast.FunctionDef) and node.name==name)
-    lines=text.splitlines(keepends=True)
-    return ''.join(lines[:function.lineno-1])+replacement+'\n'+''.join(lines[function.end_lineno:])
 
 PERSONAL_FIELDS=('email','phone','address','postalCode','linkedinUrl','websiteUrl')
 PUBLIC_IDENTITIES=('github.com/jaimeacena','[jaimeacena]','cuenta jaimeacena','jaimeacena/stubbs-jobs')
@@ -195,13 +189,6 @@ def build(destination,runtime):
     destination.mkdir(parents=True)
     for name in MODULES:
         text=source_text('tools/'+name)
-        # Only historical personal initialization is excluded. Live protocols are shared.
-        if name=='stubbs_jobs.py':
-            text=replace_function(text,'migrate',"def migrate():\n    raise ValueError('Esta copia empieza con init; no importa datos históricos de otra persona')")
-        if name=='app_workflow.py':
-            text=replace_function(text,'seed',"def seed(data):\n    app=state(data)\n    retire_mail(data)\n    automation(data)\n    app.setdefault('legacyImported',True)\n    for row in data['sheets']['Oportunidades']:draft(data,row['ID'])\n    return app")
-        if name=='stubbs_jobs_core.py':
-            text=re.sub(r"^WORKBOOK = ROOT / '[^']+'$","WORKBOOK = ROOT / 'outputs/busqueda-empleo.xlsx'",text,flags=re.M)
         text=replace_private(text,'tools')
         if name!='scan_boards.py':
             # City names in the scanner are geographic rules, not private profile data.

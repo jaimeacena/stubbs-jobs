@@ -34,6 +34,7 @@ import view_cache
 import personalization
 import onboarding
 import offer_quality
+import requirement_match
 import window_icon
 from runtime import excel_available, synced_folder
 from state_support import cycle_view, excel_date, instant, first_seen_dates
@@ -106,10 +107,6 @@ def transact(batch):
             if retry==11:raise ValueError('El registro está ocupado. Tu borrador se conserva; vuelve a guardar en unos segundos.')
             time.sleep(.15)
 
-def edit_token(data,op_id):
-    d=w.draft(data,op_id)
-    return {k:d.get(k) for k in ('message','recipient')}
-
 def document_name(identifier,path):
     """A CV prepared or sent for an offer downloads as «CV Nombre Apellidos.pdf», never as its storage name."""
     kind,_,value=identifier.partition(':')
@@ -132,6 +129,15 @@ def request_view(request,unresolved_ids=None,superseded=None):
             and request.get('deliveryCheck',{}).get('outcome')=='not_sent'):
         result['deliveryRecheckRequired']=request['id'] in unresolved_ids
     return result
+
+def where_map(data):
+    """Portal map of each visible search profile, so changing profile needs no reload."""
+    import portal_plans,search_profiles
+    try:
+        return {profile['id']:portal_plans.where_view(data,profile['id']) for profile in search_profiles.visible_profiles(data)}
+    except (ValueError,KeyError,TypeError):
+        return {}
+
 
 def state_view(data=None,brief=False,case=None,history=False,since=None,pure=False):
     cases = set(case) if isinstance(case, (list, tuple)) else {case} if case else set()
@@ -275,7 +281,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
         profile_info=search_profiles.offer_info(data,op_id)
         schedule_checks={profile['id']:offer_minimums.schedule_outcome(row.get('Horario real'),profile['searchContext'].get('requiredSchedule'))
                          for profile in search_profiles.profiles(data)}
-        rows.append({'id':op_id,'company':row['Empresa'],'title':personalization.display_title(row),'originalTitle':row['Puesto'],'priority':row['Prioridad'],'state':row['Estado'],'next':row.get('Siguiente paso'),'due':due,'externalDeadline':row.get('Plazo externo'),'canonicalKey':vacancy_key(row),'fieldDefinitions':context.definitions(data,op_id) if full else None,'fitFingerprint':context.fit_stamp(data,row),
+        rows.append({'id':op_id,'company':row['Empresa'],'title':personalization.display_title(row),'originalTitle':row['Puesto'],'priority':row['Prioridad'],'state':row['Estado'],'next':row.get('Siguiente paso'),'due':due,'externalDeadline':row.get('Plazo externo'),'canonicalKey':vacancy_key(row),'fieldDefinitions':context.definitions(data,op_id) if full else None,'requirementMatch':requirement_match.for_offer(data,row) if full else None,'fitFingerprint':context.fit_stamp(data,row),
                      'url':row['URL original'],'source':row['Fuente'],'family':row.get('Familia'),'owner':who,'cv':shown['cv'],'cvLabel':personalization.cv_file_name(data,row['Empresa']) if shown['cv'] else None,
                      'integrityError':integrity_error,'cvFingerprint':context.cv_stamp(data,op_id),'cvHash':p['cvHash'],'cvState':cv_state,'cvUrl':cv_url,'cvReason':shown['cvReason'],'changes':shown['changes'],
                      'draft':d,'answers':p['answers'],'answerOverrides':d['answers'],'missing':missing,'questions':required,'fingerprint':current_hash,'packages':records,'sent':sent,'sentMaterial':shown if sent else None,
@@ -286,7 +292,7 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
                      'lifecycle':lifecycle, 'selectionProgress':selection_progress, 'minimums':offer_minimums.view(data,row), 'archiveReason':(w.archived(data,op_id) or {}).get('reason'), 'archiveOutcome':application_lifecycle.archive_outcome(data,row),
                      'fixedSalary':numbers.get('Fijo mín. confirmado'),
                      'fixedSalaryMax':numbers.get('Fijo máx. confirmado'), 'minimumTrips':numbers.get('Viajes mín. al mes'),
-                     'fixedSalaryCurrency':numbers.get('Moneda fijo confirmado') or ('EUR' if not app.get('personalized') else None),
+                     'fixedSalaryCurrency':numbers.get('Moneda fijo confirmado'),
                      'pendingChange':w.pending_change(data,op_id),'selfReport':user_submission.view(data,row,w),
                      'assessmentFingerprint':offer_quality.fingerprint(data,row),'assessment':offer_quality.view(data,row),'evidence':evidence.get(op_id,[]) if full else None,'lastActivityAt':latest_activity.get(op_id,(None,None))[1]})
         if not full:
@@ -308,12 +314,12 @@ def build_state(data,include_export=True,include_instructions=True,execution=Non
            'actor':history_by_id.get(x['id'],{}).get('actor','Agente')} for x in app['undo'] if w.undo_available(data,x)]
     setup=onboarding.view(data,ROOT)
     if not include_instructions:setup.pop('draft',None)
-    return {'revision':data['revision'],'updatedAt':data['updatedAt'],'workspaceId':digest(str(ROOT.resolve()))[:24],'onboarding':setup,'opportunities':rows,'profile':data['profile'],'labels':{k:f['label'] for k,f in context.definitions(data).items()},'fieldDefinitions':context.definitions(data),'preferences':context.criteria(data),
-            'setupComplete':app.get('setupComplete',True),'personalized':app.get('personalized',False),'legacyEvidenceMode':not bool(data.get('lastOpportunityReset')) and not app.get('personalized',False),'searchContext':personalization.context(data),'excelAvailable':excel_available(ROOT),
-            'searchProfiles':search_profiles.visible_profiles(data),'deletedSearchProfiles':search_profiles.deleted_profiles(data),
+    return {'revision':data['revision'],'updatedAt':data['updatedAt'],'workspaceId':digest(str(ROOT.resolve()))[:24],'onboarding':setup,'opportunities':rows,'profile':{**data['profile'],**{k:v for k,v in w.current_salary(data['profile']).items() if v is not None}},'labels':{k:f['label'] for k,f in context.definitions(data).items()},'fieldDefinitions':context.definitions(data),'preferences':context.criteria(data),
+            'setupComplete':app.get('setupComplete',True),'searchContext':personalization.context(data),'excelAvailable':excel_available(ROOT),
+            'searchProfiles':[{**p,'formSalary':search_profiles.form_salary(data,p['id'])} for p in search_profiles.visible_profiles(data)],'deletedSearchProfiles':search_profiles.deleted_profiles(data),
             'defaultSearchProfileId':search_profiles.default_id(data),
             'assistantMode':personalization.assistant_mode(data),'automation':{'applicationMode':w.automation(data)['applicationMode']},'workspacePath':str(ROOT),'syncedFolder':view_cache.memo(('synced-folder',),lambda:synced_folder(ROOT)),'agentInstructions':agent_runner.external_prompt(data) if include_instructions else '',
-            'experience':context.experience(data),'applicationVerification':personalization.application_verification(data),
+            'experience':context.experience(data),'applicationVerification':personalization.application_verification(data),'agentTools':__import__('agent_tools').view(data),'whereMap':where_map(data),'skills':__import__('skills').view(data),'answerBank':__import__('answer_bank').view(data),
             'history':application_lifecycle.history_view(data,history_scope),'seenAt':app['seenAt'],'snoozes':app['snoozes'],'rounds':w.rounds(data),'requests':[application_lifecycle.request_view(data,request_view(req,unresolved_ids,superseded) if request_detail is None or req.get('opportunityId') in request_detail else without(request_view(req,unresolved_ids,superseded),REQUEST_DETAIL),w) for req in app['requests']],'undo':undo,
             'metrics':j.metrics(data),
             'health':health,'sourceConfigurationError':source_error,'publicSources':[{'id':s['id'],'company':s['company'],'checked':s['id'] in data['sourceHealth']} for s in public_sources],
@@ -546,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
             kind=operation.get('kind')
             allowed={'ui-setup-retry','ui-setup-finish','ui-profile-section','ui-assistant-settings','ui-search-context','ui-add-opportunity','ui-profile','ui-preferences','ui-experience','ui-responses','ui-change','ui-offer-note','ui-inherit','ui-draft','ui-request','ui-approve','ui-revoke','ui-request-update','ui-snooze','ui-seen','ui-undo','ui-automation-settings','ui-select-opportunity','ui-criteria-scope'}
             allowed.add('ui-search-profile')
-            allowed.update(('ui-bulk-action','ui-followup-plan','ui-entry-decision','ui-user-sent','event','ui-source-toggle'))
+            allowed.update(('ui-bulk-action','ui-followup-plan','ui-entry-decision','ui-user-sent','event','ui-source-toggle','ui-skill-save','ui-skill-remove','ui-answer-save','ui-answer-remove'))
             if kind not in allowed:raise ValueError('Acción no disponible desde la aplicación')
             if kind=='event':validate_user_selection_event(operation)
             if kind=='ui-request' and operation.get('type')=='send':raise ValueError('Revisa y autoriza el paquete antes de solicitar su envío')
@@ -556,7 +562,7 @@ class Handler(BaseHTTPRequestHandler):
                 allowed_fields=set(w.PERSONAL)|{k for k,f in fields.items() if k.startswith('custom_') and (operation.get('scope')!='global' or f['scope']=='global')}
                 if set(operation['values'])-allowed_fields:raise ValueError('Ese dato no pertenece a estas respuestas')
             if kind=='ui-draft' and set(operation['values'])-{'message','recipient'}:raise ValueError('Ese cambio requiere revisión del agente')
-            operation['actor']='Usuario' if read_store().get('app',{}).get('personalized') else 'Usuario'
+            operation['actor']='Usuario'
             transact({'id':body['id'],'operations':[operation]})
             return self.send(200,{'ok':True,'state':self.requested_state()})
         except w.Conflict as exc:return self.send(409,{'error':str(exc),'state':self.requested_state()})

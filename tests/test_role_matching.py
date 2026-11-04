@@ -54,6 +54,11 @@ class RoleMatching(unittest.TestCase):
         self.assertEqual(s.role_match('Backend Developer', '', 'Ingeniero de software'), 'direct')
         self.assertIsNone(s.role_match('Data Entry Clerk', 'Enter customer records.', 'Data Analyst'))
 
+    def test_included_domain_after_full_stop_is_not_lost(self):
+        roles=('Cualquier puesto técnico remoto de mañana. Incluye datos, desarrollo, QA, sistemas.')
+        self.assertEqual(s.role_match('Data Analyst', '', roles), 'direct')
+        self.assertEqual(s.role_match('QA Engineer', '', roles), 'direct')
+
 
 if __name__ == '__main__':
     unittest.main()

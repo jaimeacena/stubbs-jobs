@@ -59,18 +59,20 @@ class ProfileInterviewTests(unittest.TestCase):
         return {field['key']: field['status'] for field in self.coverage()['fields']}
 
     def test_inventory_covers_all_current_fields_including_cv_but_not_retired_mail(self):
-        active = set(personalization.CONTEXT) - {'checkMail'}
+        # All zones share one answer, as in Mi perfil: `regions` remains readable for older data only.
+        active = set(personalization.CONTEXT) - {'checkMail', 'regions'}
         active.update(workflow.CONTACT_FIELDS)
         active.update(workflow.DEMOGRAPHIC_FIELDS)
+        active.update(workflow.UNIVERSAL_FIELDS)
         active.update({'experience', 'currentCity', 'workAuthorizations', 'salaryExpectationFixed',
                        'contract', 'location', 'maxTrips', 'minimumFixed', 'noticeDays', 'cv'})
         self.assertEqual(set(interview.fields(self.data)), active)
-        self.assertEqual(self.coverage()['total'], 33)
+        self.assertEqual(self.coverage()['total'], 43)
 
     def test_new_or_inherited_defaults_are_pending_and_view_does_not_write(self):
         self.data['app']['searchContext']['currency'] = 'EUR'  # Old incomplete installation.
         before = copy.deepcopy(self.data)
-        self.assertEqual(self.coverage()['pending'], 33)
+        self.assertEqual(self.coverage()['pending'], 43)
         self.assertEqual(self.coverage()['blank'], 0)
         self.assertEqual(self.coverage()['provided'], 0)
         self.assertEqual(self.data, before)
@@ -87,14 +89,14 @@ class ProfileInterviewTests(unittest.TestCase):
     def test_a_filled_draft_does_not_count_as_human_confirmation(self):
         self.access()
         self.progress(values=self.values)
-        self.assertEqual(self.coverage()['pending'], 33)
+        self.assertEqual(self.coverage()['pending'], 43)
         self.assertTrue(all(field['status'] == 'pending' for field in self.coverage()['fields']))
 
     def test_related_answers_merge_and_only_missing_fields_drive_next_questions(self):
         self.access()
         proof = 'TEST: quiero ser analista en España y prefiero dejar las otras zonas vacías.'
         first = {'targetRoles': {'status': 'provided', 'proof': proof},
-                 'location': {'status': 'provided', 'proof': proof}, 'regions': {'status': 'blank', 'proof': proof}}
+                 'location': {'status': 'provided', 'proof': proof}, 'onsiteLocations': {'status': 'blank', 'proof': proof}}
         self.progress(values=self.values, fieldDecisions=first)
         self.progress(fieldDecisions={'name': {'status': 'provided', 'proof': 'TEST: confirmo el nombre ficticio.'}})
         self.assertEqual(self.coverage()['provided'], 3)
@@ -148,12 +150,12 @@ class ProfileInterviewTests(unittest.TestCase):
         self.assertFalse(self.data['app']['requests'])
         self.assertFalse(self.data['app']['packages'])
         self.assertFalse(self.data['events'])
-        self.assertEqual(self.coverage()['blank'], 29)
+        self.assertEqual(self.coverage()['blank'], 39)
 
     def test_even_essential_fields_can_be_consciously_blank_but_search_requires_roles_and_location(self):
         self.prepare({})
         self.apply(self.confirmation())
-        self.assertEqual(self.coverage()['blank'], 33)
+        self.assertEqual(self.coverage()['blank'], 43)
         self.assertEqual(self.data['app']['experience'], '')
         with self.assertRaisesRegex(ValueError, 'puestos y la zona'):assistant_flow.plan(self.data)
         self.assertFalse(self.data['app']['requests'])
@@ -296,7 +298,7 @@ class ProfileInterviewTests(unittest.TestCase):
         before = copy.deepcopy(self.data)
         state = onboarding.view(self.data)
         self.assertEqual(state['status'], 'preparing')
-        self.assertEqual(state['coverage']['pending'], 33)
+        self.assertEqual(state['coverage']['pending'], 43)
         self.assertEqual(state['draft'], self.values)
         self.assertEqual(self.data, before)
 
@@ -313,10 +315,44 @@ class ProfileInterviewTests(unittest.TestCase):
         before = copy.deepcopy(self.data)
         for detailed in (False, True):
             shown = agent_context.view(self.data, profile_detail=detailed)
-            self.assertEqual(shown['onboarding']['coverage']['pending'], 33)
+            self.assertEqual(shown['onboarding']['coverage']['pending'], 43)
             self.assertTrue(shown['onboarding']['coverage']['nextQuestions'])
             self.assertFalse(shown['queuedSnapshot'])
         self.assertEqual(self.data, before)
+
+    def test_a_confirmed_interview_leaves_one_real_search_profile_and_no_work(self):
+        import search_profiles
+        values = {**self.values, 'contract': 'Indefinido', 'minimumFixed': 31000, 'salaryExpectationFixed': 42000, 'currency': 'USD', 'maxTrips': 2,
+                  'workMode': 'Remoto', 'keywords': 'SQL', 'followedSources': 'https://jobs.lever.co/ficticia', 'excludedPortals': 'jooble', 'searchNotes': 'TEST notas'}
+        self.prepare(values)
+        self.apply(self.confirmation())
+        app = self.data['app']
+        self.assertEqual([profile['name'] for profile in app['searchProfiles']], ['Mi búsqueda'])
+        profile = app['searchProfiles'][0]
+        self.assertEqual(app['defaultSearchProfileId'], profile['id'])
+        self.assertEqual((profile['searchContext']['targetRoles'], profile['searchContext']['searchNotes'], profile['searchContext']['followedSources'], profile['searchContext']['excludedPortals']),
+                         ('Analista', 'TEST notas', 'https://jobs.lever.co/ficticia', 'jooble'))
+        self.assertEqual((profile['criteria']['location'], profile['criteria']['contract'], profile['criteria']['maxTrips'], profile['criteria']['minimumFixed']), ('España', 'Indefinido', 2, 31000))
+        # The one currency the person confirmed covers both salaries; none is left blank beside an amount.
+        self.assertEqual(search_profiles.form_salary(self.data, profile['id']), {'salaryExpectationFixed': 42000, 'salaryCurrency': 'USD'})
+        self.assertEqual(app['searchContext']['currency'], 'USD')
+        self.assertEqual(app['requests'], [])
+
+    def test_a_currency_left_blank_stays_blank_after_the_interview(self):
+        self.prepare()
+        self.apply(self.confirmation())
+        self.assertEqual(self.data['profile']['salaryCurrency'], '')
+        self.assertEqual(self.data['app']['searchContext']['currency'], '')
+
+    def test_a_search_with_no_roles_asks_for_them_after_a_blank_interview(self):
+        self.prepare({'experience': 'Primer empleo.'})
+        self.apply(self.confirmation())
+        identifier = self.data['app']['defaultSearchProfileId']
+        with self.assertRaisesRegex(ValueError, 'puestos'):
+            assistant_flow.plan(self.data)
+        with self.assertRaisesRegex(ValueError, 'puestos y la zona'):
+            self.apply({'kind': 'ui-request', 'type': 'discovery', 'searchProfileId': identifier, 'actor': 'Usuario'})
+        self.assertEqual(self.data['app']['requests'], [])
 
 
 if __name__ == '__main__':
