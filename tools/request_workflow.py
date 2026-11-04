@@ -127,9 +127,12 @@ def update(data, operation, workflow):
         raise ValueError('Un bloqueo necesita un resumen concreto y el tipo de ayuda pendiente')
     if status == 'running':
         if previous!='running':workflow.bind_execution_scope(data,request)
-        if app.get('personalized') and not owner:
+        if not owner:
             raise ValueError('Indica --execution-id con un identificador propio para este trabajo')
-        if any(item['status'] == 'running' and item.get('executionId') != owner for item in app['requests']):
+        # A search running elsewhere does not touch one offer's material or delivery
+        # (04/11/2026). Changes can reach the profile, so they still wait for it.
+        if any(item['status'] == 'running' and item.get('executionId') != owner
+               and (item['type'] != 'discovery' or request['type'] not in ('review', 'investigate', 'send')) for item in app['requests']):
             raise ValueError('Otra IA está trabajando. Espera a que termine.')
         execution = agent_runner.read_state()
         if agent_runner.view()['status'] in agent_runner.ACTIVE and execution.get('id') != owner:
@@ -238,8 +241,8 @@ def interrupt(data, operation, workflow):
         invalidated = request.setdefault('invalidatedExecutionIds', [])
         if previous_owner not in invalidated:
             invalidated.append(previous_owner)
-    summary = ('Envío interrumpido de forma explícita. Comprobar el portal antes de continuar.' if request['type'] == 'send'
-               else 'Trabajo interrumpido de forma explícita. Comprobar el último paso antes de continuar.')
+    summary = ('El envío se interrumpió a mitad. El agente comprobará el portal antes de continuar.' if request['type'] == 'send'
+               else 'El trabajo se interrumpió a mitad. El agente comprobará dónde quedó antes de continuar.')
     request.update(status='interrupted', result=proof, updatedAt=workflow.request_timestamp(request), summary=summary, need='other')
     history = workflow.record(data, 'Encargo interrumpido de forma explícita', request.get('opportunityId'),
                               operation.get('actor', 'Agente'), proof)

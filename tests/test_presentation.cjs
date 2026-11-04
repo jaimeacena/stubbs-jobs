@@ -186,21 +186,13 @@ test('an unchecked offer explains the check before proposing selection',()=>{
   assert.match(ui.step(job({apply:'Revisar'})).detail,/comprobar las condiciones/);
   assert.match(ui.step(job({apply:'Sí'})).detail,/Puedes solicitarla/);
 });
-test('offer modality preserves confirmed negatives and contradictions in all projections',()=>{
- assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Remoto desde España');
- assert.equal(ui.offerMode(job({conditions:{'Remoto España':'No'}})),'No remoto desde España');
+test('offer modality is described against the saved preference, with contradictions and unknowns kept',()=>{
+ assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Cumple tu modalidad');
+ assert.equal(ui.offerMode(job({conditions:{'Remoto España':'No'}})),'No cumple tu modalidad');
  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Contradicción'}})),'Datos contradictorios');
  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Pendiente'}})),'Sin concretar');
  assert.equal(ui.offerMode(job(), '—'),'—');
-});
-test('personalized installations describe modality against the saved preference and use local days',()=>{
- try{
-  ui.configure({personalized:true});
-  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Cumple tu modalidad');
-  assert.equal(ui.offerMode(job({conditions:{'Remoto España':'No'}})),'No cumple tu modalidad');
-  assert.equal(ui.day(at),new Intl.DateTimeFormat('sv-SE').format(at));
- }finally{ui.configure({personalized:false});}
- assert.equal(ui.offerMode(job({conditions:{'Remoto España':'Sí'}})),'Remoto desde España');
+ assert.equal(ui.day(at),new Intl.DateTimeFormat('sv-SE').format(at));
 });
 test('profile questions never hide a ready packet',()=>{
   const items=ui.inbox(model([job({questions:[{key:'currentCity'}]}),job({id:'b',missing:[],selection:{selected:true,mode:'review'}})]),at);
@@ -379,7 +371,7 @@ test('confirmed original delivery remains follow-up even if a cancelled task was
 test('legacy interrupted-by-silence remains unconfirmed even with a recent not-sent portal result',()=>{
  const request={id:'legacy-send',type:'send',status:'interrupted',executionId:'old-owner',packageId:'original',startedAt:'2026-10-01T08:00:00Z',result:'No se ha recibido actividad durante dos horas. Revisar antes de reintentar.',deliveryCheck:{outcome:'not_sent',packageId:'original',at:new Date().toISOString(),proof:'TEST old check'}},j=job({apply:'No',selection:{selected:false},requests:[request]}),step=ui.step(j);
  assert.equal(step.label,'Actividad pendiente de confirmar');assert.equal(step.action,'recovery');assert.equal(step.requestId,'legacy-send');
- assert.equal(step.cta,'Copiar petición para retomar');assert.match(step.detail,/detención real/);
+ assert.equal(step.cta,'Copiar petición para retomar');assert.match(step.detail,/sigue trabajando/);
  assert.equal(ui.progress(model([j],{requests:[request]})).label,'Actividad pendiente de confirmar');
  assert.equal(request.status,'interrupted');assert.equal(request.executionId,'old-owner');
 });

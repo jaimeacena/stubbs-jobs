@@ -4,6 +4,7 @@ import ast
 import json
 import re
 import runpy
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +37,8 @@ def check(output):
     results = []
     for command, filename in commands:
         with (output / filename).open('wb') as handle:
-            result = subprocess.run(command, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT)
+            # Fictional dates are written for one zone: results must not depend on the machine's.
+            result = subprocess.run(command, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT, env={**os.environ, 'TZ': 'Europe/Madrid'})
         log = (output / filename).read_text(encoding='utf-8', errors='replace')
         count = re.search(r'Ran (\d+) tests', log) or re.search(r'(?:# tests|ℹ tests) (\d+)', log)
         results.append({'suite': filename, 'ok': result.returncode == 0, 'tests': int(count[1]) if count else None})

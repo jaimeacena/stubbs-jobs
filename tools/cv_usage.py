@@ -5,15 +5,14 @@ import view_cache
 from stubbs_jobs_core import digest, identity, vacancy_key
 
 
-LEGACY_PATTERNS = ('CV-Usuario-*.pdf', 'CV-Usuario-*.pdf')
+LEGACY_PATTERN = 'CV-*.pdf'
 
 
 def legacy_paths(data, root):
     """The same visible legacy originals belong to the library and its backup."""
-    if data.get('app', {}).get('personalized'):
+    if not data.get('app', {}).get('legacyCvOriginals'):
         return []
-    return sorted({path for pattern in LEGACY_PATTERNS
-                   for path in (root / 'outputs').glob(pattern) if path.is_file()})
+    return sorted(path for path in (root / 'outputs').glob(LEGACY_PATTERN) if path.is_file())
 
 
 def file_hash(root, relative):

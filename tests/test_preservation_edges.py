@@ -78,6 +78,7 @@ class PreservationEdgesTests(WorkflowFixture, unittest.TestCase):
 
     def test_generic_legacy_pdf_is_visible_openable_and_backed_up(self):
         name = 'CV-Usuario-ficticio.pdf'
+        self.data['app']['legacyCvOriginals'] = True
         (self.root / 'outputs' / name).write_bytes(b'%PDF-TEST generic legacy')
         core.save_store(self.data, self.root / 'data/registry.json')
         with patch.object(server, 'ROOT', self.root), patch.object(server, 'read_store', return_value=self.data):

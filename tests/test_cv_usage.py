@@ -117,9 +117,10 @@ class CVUsageTests(WorkflowFixture, unittest.TestCase):
         self.assertEqual(self.project()[0]['usage'], [])
 
     def test_unused_legacy_pdf_changes_state_version_and_library_stays_bounded(self):
-        # Personal and generic editions retain different legacy filename prefixes.
-        # Both aliases are fictional; the catalog must still observe actual bytes.
-        legacy = [self.root / 'outputs' / name for name in sorted({pattern.replace('*', 'TEST') for pattern in cv_usage.LEGACY_PATTERNS})]
+        # A migrated first-edition registry keeps its originals as outputs/CV-*.pdf;
+        # the catalog must still observe actual bytes.
+        self.data['app']['legacyCvOriginals'] = True
+        legacy = [self.root / 'outputs' / name for name in ('CV-TEST.pdf', 'CV-TEST-2.pdf')]
         for path in legacy:
             path.write_bytes(b'%PDF-first')
         with patch.object(server, 'ROOT', self.root):

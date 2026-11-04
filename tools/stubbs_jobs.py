@@ -24,6 +24,7 @@ NEUTRAL_CONDITIONS={**{stored:neutral for neutral,stored in CONDITION_ALIASES.it
 def condition_key(name):
     return CONDITION_ALIASES.get(name,name) if isinstance(name,str) else name
 STATES={'Investigar','Preparar','Lista para revisión','Pendiente de Usuario','Pendiente de empresa','Enviada','Entrevista','Oferta','Rechazada','Descartada','Cerrada'}
+# «Pendiente de Usuario» is read only from backups of the first edition; it is migrated to «Pendiente de ti».
 STATES.update(('Pendiente de ti','Lograda'))
 EVENTS={'ready','sent','response','interview','offer','rejected','closed','work','note'}
 
@@ -81,9 +82,6 @@ def read_xlsx(path):
             result[name]=[{label:grid[r].get(col) for col,label in header.items()} for r in sorted(grid)
                           if r>h and any(value not in (None,'') for value in grid[r].values())]
         return result
-
-def migrate():
-    raise ValueError('Esta copia empieza con init; no importa datos históricos de otra persona')
 
 def get_op(data,op_id):
     found=[r for r in data['sheets']['Oportunidades'] if r['ID']==op_id]
@@ -297,17 +295,14 @@ def _apply_batch(data,batch):
             if 'trips' in op and key!='Viajes ≤1/mes':raise ValueError('La frecuencia pertenece a la condición de viajes')
             if key=='Fijo ≥32 k€' and 'fixed' in op:
                 if type(op['fixed']) not in (int,float) or not 0<=op['fixed']<=1000000000:raise ValueError('Sueldo confirmado no válido')
-                if data.get('app',{}).get('personalized'):
-                    from personalization import context
-                    import app_context
-                    if op.get('currency')!=app_context.scoped_search(data,row['ID'])['currency']:raise ValueError('La moneda confirmada debe coincidir con la del perfil; no se convierte por suposición')
-                    row['Moneda fijo confirmado']=op['currency']
+                import app_context
+                if op.get('currency')!=app_context.scoped_search(data,row['ID'])['currency']:raise ValueError('La moneda confirmada debe coincidir con la del perfil; no se convierte por suposición')
+                row['Moneda fijo confirmado']=op['currency']
                 row['Fijo mín. confirmado']=op['fixed']
                 row['Fijo máx. confirmado']=op.get('fixedMax')
                 if 'fixedMax' in op and (type(op['fixedMax']) not in (int,float) or not op['fixed']<=op['fixedMax']<=1000000000):raise ValueError('La banda fija confirmada no es válida')
             if key=='Fijo ≥32 k€':
                 import app_context
-                from personalization import context as search_context
                 data['sheets']['Evidencias'][-1].update(minimumFixed=app_context.scoped_criteria(data,op['id'])['minimumFixed'],currency=app_context.scoped_search(data,op['id'])['currency'] or 'EUR')
             if key=='Viajes ≤1/mes' and 'trips' in op:
                 if type(op['trips']) not in (int,float) or not 0<=op['trips']<=31:raise ValueError('La frecuencia de viajes no es válida')
@@ -616,7 +611,7 @@ def export(data=None):
     # Rendering happens outside the writer lock. User answers remain writable.
     with lock():
         data=read_store();recover_export(data)
-        if data.get('app',{}).get('personalized') and not excel_available(ROOT):
+        if not excel_available(ROOT):
             atomic_bytes(ROOT/'outputs/candidaturas.csv',table_csv(data));return data
         fingerprint=export_fingerprint(data)
     receipt=DATA/'export-receipt.json'
@@ -645,7 +640,7 @@ def export(data=None):
 def main():
     configure_stdio()
     ap=argparse.ArgumentParser()
-    ap.add_argument('command',choices=['init','plan','handoff','migrate','upgrade-app','ingest','apply','import-cv','build-cv','export','status','app-status','agent-status','refresh','packages','doctor','maintenance','backup','check-backup','restore','clear-opportunities','prepare','send-start','send-finish'])
+    ap.add_argument('command',choices=['init','plan','handoff','upgrade-app','ingest','apply','import-cv','build-cv','export','status','app-status','agent-status','refresh','packages','doctor','maintenance','backup','check-backup','restore','clear-opportunities','prepare','send-start','send-finish','offer-start','send-check','offer-correct','salary-answer','batch-report','answer-lookup'])
     ap.add_argument('--file'); ap.add_argument('--name'); ap.add_argument('--destination')
     ap.add_argument('--execution-id'); ap.add_argument('--expected-revision',type=int)
     ap.add_argument('--request-ids',help='IDs originales de la tanda, separados por comas')
@@ -660,9 +655,14 @@ def main():
     ap.add_argument('--entries',action='store_true',help='Anuncios captados sin revisar (agent-status), por páginas y opcionalmente por --search-profile')
     ap.add_argument('--page',type=int,default=1,help='Página del listado general de agent-status')
     ap.add_argument('--page-size',type=int,default=20,help='Ofertas por página en agent-status (1-100)')
+    ap.add_argument('--currency',help='salary-answer: moneda que pide el formulario, como USD')
+    ap.add_argument('--period',default='year',help='salary-answer: year o month')
+    ap.add_argument('--payments',type=int,default=12,help='salary-answer: número de pagas al año para el importe mensual')
+    ap.add_argument('--from',dest='from_date',help='batch-report: inicio del periodo (por defecto, las últimas 24 horas)')
+    ap.add_argument('--question',help='answer-lookup: texto de la pregunta del formulario')
     args=ap.parse_args()
-    if args.search_profile and args.command not in ('agent-status','plan'):
-        raise ValueError('--search-profile corresponde a agent-status o plan; el captador utiliza --request')
+    if args.search_profile and args.command not in ('agent-status','plan','answer-lookup','salary-answer'):
+        raise ValueError('--search-profile corresponde a agent-status, plan, answer-lookup o salary-answer; el captador utiliza --request')
     if args.execution_id:
         import os
         os.environ['STUBBS_JOBS_EXECUTION_ID']=args.execution_id
@@ -672,6 +672,15 @@ def main():
                                     history=args.history,limit=args.limit,since=args.since,profile_detail=args.profile,search_profile_id=args.search_profile,
                                     offers=args.offers,page=args.page,page_size=args.page_size,entries=args.entries),ensure_ascii=False))
         return
+    if args.command=='salary-answer':
+        import form_rules
+        print(json.dumps(form_rules.salary_answer(read_store(),args.currency,args.period,args.payments,case=args.case,search_profile_id=args.search_profile),ensure_ascii=False));return
+    if args.command=='answer-lookup':
+        import answer_bank
+        print(json.dumps(answer_bank.lookup(read_store(),args.question,case=args.case,search_profile_id=args.search_profile),ensure_ascii=False));return
+    if args.command=='batch-report':
+        import batch_report
+        print(json.dumps(batch_report.write(read_store(),args.from_date),ensure_ascii=False));return
     if args.command=='doctor':
         result=doctor(ROOT);print(json.dumps(result,ensure_ascii=False));return
     if args.command=='maintenance':
@@ -708,8 +717,7 @@ def main():
         if completed.returncode not in (0,1): raise ValueError('Captador abortado; no importar resultados antiguos')
         if json.loads((ROOT/'outputs/feeds/latest.json').read_text(encoding='utf-8')).get('runId')==before_run: raise ValueError('El captador no produjo una ejecución nueva')
     with lock():
-        if args.command=='migrate': data=migrate()
-        elif args.command=='init':data=initialize()
+        if args.command=='init':data=initialize()
         else:
             data=read_store()
             recover_export(data)
@@ -723,7 +731,13 @@ def main():
             import app_workflow as workflow
             with workflow.execution_scope(args.request_ids.split(',') if args.request_ids is not None else None):
                 if apply_batch(data,parse_json(Path(args.file).read_text(encoding='utf-8-sig'))): save_store(data)
-        if args.command in ('prepare','send-start','send-finish'):
+        if args.command=='offer-start':
+            import offer_flow
+            if not args.file:raise ValueError('Indica la descripción JSON con --file')
+            result=offer_flow.start_offer(data,parse_json(Path(args.file).read_text(encoding='utf-8-sig')),args.case,args.execution_id)
+            save_store(data)
+            print(json.dumps(result,ensure_ascii=False));return
+        if args.command in ('prepare','send-start','send-finish','send-check','offer-correct'):
             # Composite commands: one JSON description, the same writer operations, one save.
             import offer_flow
             import app_workflow as workflow
@@ -733,6 +747,8 @@ def main():
             with workflow.execution_scope(args.request_ids.split(',') if args.request_ids is not None else None):
                 if args.command=='prepare':result=offer_flow.prepare(data,args.case,spec)
                 elif args.command=='send-finish':result=offer_flow.send_finish(data,args.case,spec)
+                elif args.command=='send-check':result=offer_flow.send_check(data,args.case,spec)
+                elif args.command=='offer-correct':result=offer_flow.correct_offer(data,args.case,spec)
                 else:
                     if set(spec)-{'proof'}:raise ValueError('send-start solo admite proof en --file')
                     result=offer_flow.send_start(data,args.case,spec.get('proof'))
@@ -818,7 +834,9 @@ def import_cv(data,name,content,actor='Usuario',review=True):
     w.record(data,'CV añadido',actor=actor)
     # build-cv generates from the confirmed profile; only an outside PDF needs this review.
     if review and data.get('app',{}).get('setupComplete',True):
-        c.add_change(data,None,'Revisar el CV aportado: '+relative+'. Contrastar sus datos con la experiencia confirmada; preguntar ante discrepancias. No reemplazar paquetes enviados.',actor)
+        # A person's PDF may correct the profile and holds every send until reviewed; a
+        # PDF added by an agent only asks for that review and blocks no other offer.
+        c.add_change(data,None,'Revisar el CV aportado: '+relative+'. Contrastar sus datos con la experiencia confirmada; preguntar ante discrepancias. No reemplazar paquetes enviados.',actor,interpretation_only=actor=='Agente')
     return True
 
 if __name__=='__main__':

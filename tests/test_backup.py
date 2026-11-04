@@ -100,8 +100,9 @@ class BackupTests(unittest.TestCase):
         self.data['sheets']['Oportunidades'] = []
         self.data['app']['cvLibrary'] = []
         self.data['app']['packages'] = []
-        self.data['app']['personalized'] = False
-        for name in {pattern.replace('*', 'TEST') for pattern in cv_usage.LEGACY_PATTERNS}:
+        # A migrated first-edition registry keeps its CV originals in outputs/CV-*.pdf.
+        self.data['app']['legacyCvOriginals'] = True
+        for name in ('CV-TEST.pdf', 'CV-TEST-2.pdf'):
             (self.root / 'outputs' / name).write_bytes(b'%PDF-test-one')
         with patch.object(server, 'ROOT', self.root):
             documents = server.cv_library(self.data)

@@ -15,6 +15,7 @@ import stubbs_jobs_app as server
 
 class EvidenceChronologyTests(WorkflowFixture, unittest.TestCase):
     def evidence(self, at, state, **values):
+        if 'fixed' in values: values.setdefault('currency', 'EUR')
         self.apply({'kind': 'evidence', 'id': 'one', 'condition': 'Fijo ≥32 k€',
                     'state': state, 'at': at, 'url': self.row['URL original'],
                     'proof': 'TEST: condición observada a las ' + at, **values})
@@ -64,6 +65,7 @@ class EvidenceChronologyTests(WorkflowFixture, unittest.TestCase):
         self.assertEqual(self.data, before)
 
     def test_legacy_condition_indicators_cannot_override_the_newest_proof(self):
+        self.data['app']['criteria']={'contract':'Indefinido','location':'Remoto desde España (TEST)','maxTrips':1}
         for condition in ('Indefinido', 'Fijo ≥32 k€'):
             with self.subTest(condition=condition):
                 self.apply({'kind': 'evidence', 'id': 'one', 'condition': condition, 'state': 'No',
@@ -106,7 +108,7 @@ class EvidenceChronologyTests(WorkflowFixture, unittest.TestCase):
                 before = copy.deepcopy(self.data)
                 with self.assertRaises(ValueError):
                     self.apply({'kind': 'evidence', 'id': 'one', 'condition': 'Fijo ≥32 k€',
-                                'state': 'Sí', 'at': at, 'url': url, 'proof': 'TEST', 'fixed': 40000})
+                                'state': 'Sí', 'at': at, 'url': url, 'proof': 'TEST', 'fixed': 40000, 'currency': 'EUR'})
                 self.assertEqual(self.data, before)
 
 

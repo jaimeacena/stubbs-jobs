@@ -10,9 +10,10 @@
     'País de residencia para el formulario':'País','Disponibilidad de incorporación para el formulario':'Disponibilidad',
     '¿Has solicitado antes esta oferta o han presentado ya tu perfil al mismo cliente?':'Solicitud o presentación previa',
     'Salario para formularios (€ brutos al año)':'Salario esperado (€ brutos/año)',
-    'Salario fijo mínimo anual':'Mínimo fijo (€ brutos/año)',
+    'Salario fijo mínimo anual':'Mínimo fijo (bruto anual)',
     'Disponibilidad orientativa de incorporación':'Disponibilidad para incorporarme',
-    'Dispuesto a mudarse por trabajo':'Dispuesto a mudarme por trabajo',
+    'Dispuesto a mudarse por trabajo':'Puedo mudarme por trabajo',
+    'Dispuesto a mudarme por trabajo':'Puedo mudarme por trabajo',
     'Salario actual bruto anual (EUR)':'Salario actual (bruto anual, EUR)',
     'Encuestas demográficas (opcional)':'Encuestas demográficas',
     'He participado en competiciones de programación o hackathons':'Competiciones de programación o hackathons',
@@ -53,14 +54,9 @@
     return '';
   }
   const approved = job => job.packages.some(p => p.isCurrent && p.approvedAt && !p.revokedAt);
-  // Personalized installations use the viewer's own timezone and describe the mode
-  // condition against their saved preference; the original edition keeps Spain.
-  let personalizedView = false;
-  const configure = ({personalized=false}={}) => { personalizedView = Boolean(personalized); };
-  const offerMode = (job,unknown='Sin concretar') => (personalizedView
-    ? {Sí:'Cumple tu modalidad',No:'No cumple tu modalidad',Contradicción:'Datos contradictorios'}
-    : {Sí:'Remoto desde España',No:'No remoto desde España',Contradicción:'Datos contradictorios'})[job.conditions?.['Remoto España']]||unknown;
-  const day = (at = new Date()) => new Intl.DateTimeFormat('sv-SE', personalizedView ? {} : {timeZone:'Europe/Madrid'}).format(at);
+  // The mode condition is described against the person's saved preference, in the viewer's time zone.
+  const offerMode = (job,unknown='Sin concretar') => ({Sí:'Cumple tu modalidad',No:'No cumple tu modalidad',Contradicción:'Datos contradictorios'})[job.conditions?.['Remoto España']]||unknown;
+  const day = (at = new Date()) => new Intl.DateTimeFormat('sv-SE').format(at);
   const snoozed = (model, key, at = new Date()) => new Date(model.snoozes[key] || 0) > at;
   function flowStage(job) {
     if (job.historical || !active(job)) return 'historial';
@@ -296,7 +292,7 @@
     return {operation:{kind:'ui-user-sent',opportunityId:job.id,sentAt,cv:option.cv,...(note?{note}:{}),duplicatesChecked:true,
       ...(choices.reapplication?{reapplication:true}:{}),expected:choices.conciliation}};
   }
-  const api={actionPlace,stateCounts,userSentChoices,userSentOperation,configure,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,offerAttention,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
+  const api={actionPlace,stateCounts,userSentChoices,userSentOperation,active,approved,offerMode,day,snoozed,flowStage,offerStates,offerState,offerAttention,canChoose,status,inbox,reviewValid,decisions,progress,archive,step,detailMessage,rank,answerTitle,presentationUsage,presentationVisible,formAnswers,nextAction};
   if (typeof module!=='undefined') module.exports=api;
   else window.StubbsJobsUI=api;
 })();

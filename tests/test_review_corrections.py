@@ -18,6 +18,7 @@ class ReviewCorrectionsTests(WorkflowFixture, unittest.TestCase):
         self.row['Estado'] = 'Investigar'
 
     def evidence(self, condition, state, **values):
+        if 'fixed' in values: values.setdefault('currency', 'EUR')
         self.apply({'kind':'evidence', 'id':'one', 'condition':condition, 'state':state,
                     'proof':'TEST: observación ficticia '+str(self.index),
                     'url':'https://example.org/jobs/123-role', 'at':'2026-10-06T10:00:00+02:00', **values})
@@ -100,7 +101,7 @@ class ReviewCorrectionsTests(WorkflowFixture, unittest.TestCase):
 
     def test_older_source_date_cannot_resurrect_a_superseded_observation(self):
         self.evidence('Fijo ≥32 k€','No')
-        self.apply({'kind':'evidence','id':'one','condition':'Fijo ≥32 k€','state':'Sí','fixed':40000,
+        self.apply({'kind':'evidence','id':'one','condition':'Fijo ≥32 k€','state':'Sí','fixed':40000, 'currency': 'EUR',
                     'proof':'TEST: comprobación anterior recuperada', 'url':self.row['URL original'],
                     'at':'2026-10-05T10:00:00+02:00'})
         row=jobs.get_op(self.data,'one')
@@ -114,7 +115,7 @@ class ReviewCorrectionsTests(WorkflowFixture, unittest.TestCase):
         self.evidence('Fijo ≥32 k€','No')
         self.data['sheets']['Evidencias'][0].pop('numericValues')
         jobs.get_op(self.data,'one')['Fijo mín. confirmado']=40000
-        self.apply({'kind':'evidence','id':'one','condition':'Fijo ≥32 k€','state':'Sí','fixed':40000,
+        self.apply({'kind':'evidence','id':'one','condition':'Fijo ≥32 k€','state':'Sí','fixed':40000, 'currency': 'EUR',
                     'proof':'TEST anterior recuperada','url':self.row['URL original'],'at':'2026-10-05T10:00:00+02:00'})
         row=jobs.get_op(self.data,'one')
         self.assertIsNone(offer_minimums.current_numbers(self.data,row)['Fijo mín. confirmado'])

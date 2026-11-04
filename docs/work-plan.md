@@ -1,81 +1,12 @@
 # Plan de evolución del sistema
 
-## Sobre mi: orden por significado y eliminación de campos adicionales · 14/10/2026
+**Plan vigente.** Desarrolla [system-design.md](system-design.md) mediante recorridos completos y conserva [agent-guide.md](agent-guide.md), [operations.md](operations.md) y [application-contract.md](application-contract.md). Las reglas de lo ya entregado están en el contrato y los límites públicos en [limits.md](limits.md). Este plan no autoriza búsquedas de empleo ni candidaturas.
 
-La petición humana retira un campo específico de tecnología y reorganiza Sobre mi para cualquier puesto. La vista agrupa campos relacionados mediante un orden estable dentro del mismo formulario plano: contacto, identidad/residencia, situación laboral/movilidad, experiencia/idiomas, otras respuestas, permisos y datos demográficos. No cambia valores, borradores, criterios ni permisos. El escritor ui-profile-field-remove elimina un campo general adicional libre de usos en borradores y conserva significado, historial y Deshacer; el contrato vigente está en docs/application-contract.md.
+## Decisiones abiertas
 
-Implementación y comprobaciones completadas: 784 casos Python (783 correctos y una comprobación nativa opcional omitida), 409 pruebas de interfaz, migración y Excel ficticios con fórmulas y reapertura, y revisión en navegador en escritorio y anchura estrecha. El perfil real conserva los demás datos y documentos. Las pruebas y la aceptación humana, todavía no acreditada, se separan en las notas de validación de la instalación. No inicia búsquedas, candidaturas, contactos ni programación.
-
-## Datos personales adicionales sin vacante · 14/10/2026
-
-ui-profile permite declarar datos generales mediante questions custom_ con proof humano y expectedRevision. El registro conserva significado y tipo; Sobre mi muestra las respuestas con sus controles actuales y Deshacer no olvida la definición. No se crea una oferta, una tarea ni un permiso para guardar datos personales. Contrato en docs/application-contract.md.
-
-**Plan vigente · 14/10/2026.** Desarrolla [system-design.md](system-design.md) mediante recorridos completos y conserva [agent-guide.md](agent-guide.md), [operations.md](operations.md) y [application-contract.md](application-contract.md). La reorganización documental conserva los contratos y la procedencia compartida entre código y descarga. Perfiles de búsqueda está implementado y se comprueba como producto; no autoriza trabajo de empleo. Las demás evoluciones conservan su condición de propuesta.
-
-## Organización documental y presentación bilingüe · 14/10/2026
-
-La raíz conserva README.md, README.es.md, LICENSE, CHANGELOG.md, AGENTS.md y CLAUDE.md. El [índice](README.md) dirige a manuales, contratos y diseño en docs/ con nombres en inglés. Los contratos operativos permanecen en español; la guía de desarrollo está disponible en ambos idiomas. Los documentos personales de private/ se excluyen de Git y de los insumos de construcción; el constructor crea solo la plantilla vacía de perfil. Los documentos personales antiguos siguen siendo legibles y recuperables por compatibilidad.
-
-La terminación exige enlaces e instrucciones actualizados, descarga vacía y código genérico construidos desde la misma revisión, pruebas de recuperación ficticia y control de calidad completo. Los antecedentes conservan fecha e identidad. Esta reorganización no publica una entrega ni autoriza tareas de empleo. Las comprobaciones y su alcance se registran por separado en las notas de validación de la instalación de desarrollo; [limits.md](limits.md) conserva los límites públicos.
-
-## Opciones sencillas en Sobre mi · 14/10/2026
-
-La petición humana reúne los permisos del CV en un único desplegable con decisiones independientes, hace condicional el detalle de competiciones y el género, mantiene tres opciones ordenadas para encuestas y conserva estatus legalmente protegido como Sí/No reutilizable. docs/application-contract.md define significado y compatibilidad; AGENTE/INICIO explican el uso sin convertir opciones pendientes en respuestas. Los booleanos y textos antiguos, borradores, conflictos, Deshacer y paquetes se conservan. No modifica permisos de envío ni inicia empleo.
-
-La terminación requiere pruebas de guardado y recuperación, opciones independientes con Sí/No/pendiente, diferencia entre omitir y declinar, precedencia de respuestas particulares, compatibilidad de entrevista, batería completa, migración y Excel ficticios, revisión de navegador en claro/oscuro y anchura estrecha, conservación de documentos y aceptación humana separada en docs/validation.md.
-
-## Entrega 1.0 · 09/10/2026
-
-13/10/2026 — La limpieza de CV sustituidos separa disponibilidad futura de conservación histórica mediante ui-cv-retire/ui-cv-restore. Modelo en docs/system-design.md, contrato en docs/application-contract.md, entrada del escritor en docs/operations.md y lectura en docs/agent-guide.md. Se filtran las vistas de persona/agente y se bloquea la preparación con bytes retirados; se preservan PDF, paquetes y recibos. La terminación requiere conflictos y recuperación probados, batería completa, Excel y migración ficticios y comprobación visual. No autoriza búsquedas ni candidaturas.
-
-La petición humana autoriza preparar y publicar la versión 1.0 en jaimeacena/stubbs-jobs. Se conservan datos personales e historial local y se publica únicamente la edición genérica comprobada. La identidad estable, el README y las comprobaciones en Windows comparten insumos con el ZIP vacío. La aceptación humana, otros equipos y efectos reales permanecen separados de la validación automática y de plataforma. El alcance de las comprobaciones y sus límites se describe en docs/limits.md; no cambia permisos ni inicia encargos de empleo.
-
-## Corrección de conexiones rotas · 09/10/2026
-
-Se corrigen seis fallos reproducidos: hechos de ofertas antiguas que sobrevivían al reinicio, pérdida de envíos inciertos al reiniciar, identificación incoherente del propietario de un cambio, seguimiento confundido con investigación de preparación, dependencias de pruebas ausentes en el código genérico y saltos de línea de Windows duplicados al construirlo. docs/operations.md concreta el reinicio administrativo; los permisos y el modelo conceptual se conservan. Las regresiones usan datos ficticios y la distribución incluye sus dependencias locales. La aceptación humana y los efectos reales se comprueban por separado.
-
-## Revisión adicional del código · 09/10/2026
-
-Cuatro reproducciones adicionales corrigen conexiones existentes: las operaciones de un lote conservan su contenido original durante el procesamiento; un envío anterior no resuelve un bloqueo nuevo de seguimiento; Deshacer conserva el perfil de un guardado compatible de perfil único; la presentación de salarios interpreta rangos con miles compartidos y unidades mezcladas. No cambian el modelo conceptual, los mínimos ni la autoridad para operaciones de empleo. Las regresiones usan datos ficticios y se comprueban junto a la migración, Excel y el código genérico aislado; la aceptación humana permanece separada.
-
-## Repaso con ojos frescos · 09/10/2026
-
-Tres fallos adicionales reproducidos: la participación demográfica particular debe gobernar la reutilización del género; la vista previa debe contar las revisiones después de completar edición y cambio de base; un recibo antiguo sin paquete no acredita los materiales actuales. Las correcciones aplican los contratos existentes, sin cambiar permisos, paquetes históricos ni datos personales. La terminación exige regresiones, batería completa, migración y Excel ficticios, procedencia común de portable y código genérico, y comparación de archivos protegidos. Implementación, pruebas y aceptación se acreditan por separado; las revisiones anteriores conservan identidad.
-
-## Revisión exhaustiva adicional · 09/10/2026
-
-Se corrigen cinco grupos de fallos reproducidos: cronología de comprobaciones dentro del mismo día y entre zonas horarias, fechas y fuentes inválidas, guardado de perfiles de búsqueda incompletos, tareas bloqueadas sin explicación y representación de salarios con monedas entre cifras o límites de bonus. La cronología se aplica también a decisiones, interfaz, Excel e indicadores antiguos mediante una proyección sin escritura. Los permisos, las copias históricas y el modelo conceptual se conservan. La terminación exige regresiones, batería completa, migración y Excel ficticios con fórmulas, reapertura y vistas, procedencia del código genérico y conservación de archivos protegidos. La aceptación humana y los efectos reales se comprueban por separado.
-
-## Cierre funcional por recorridos completos · 09/10/2026
-
-La ronda de cierre reproduce y corrige una preparación terminada que dejaba otra revisión en cola por sus propios cambios y una ficha que pedía aprobar de nuevo un envío ya autorizado. El propietario conserva su preparación vigente; los cambios humanos posteriores siguen separados. La ficha distingue permiso guardado de envío confirmado. Los recorridos ficticios comprueban guardado y reapertura, criterios y elección, versiones y permisos, tanda original y continuación causal, interrupción y conciliación y recuperación aislada. Se verifican además migración, Excel con fórmulas y reapertura, procedencia genérica y conservación. La aceptación humana y los portales reales se acreditan por separado.
-
-## Perfiles de búsqueda: plan corregido del 08/10
-
-La implementación de perfiles de búsqueda corrige estas fisuras; la aceptación humana y los resultados de empleo se comprueban por separado:
-
-| Fisura | Decisión corregida |
-| --- | --- |
-| Separar solo los formularios deja encargos y fuentes leyendo la configuración global. | Guardar una copia de los criterios al crear cada búsqueda; utilizarla en captación, incorporación y lectura del agente. |
-| Un selector global puede cambiar otra ventana o alterar ofertas previas. | Perfil consultado por ventana; perfil predeterminado persistido mediante una acción distinta. Cada oferta conserva su base de evaluación. |
-| Duplicar toda la persona crea idiomas, experiencia y CV contradictorios. | Compartir identidad, experiencia, idiomas, notas de empresas y documentos. Separar únicamente objetivos, condiciones y fuentes. |
-| Una matriz de candidaturas por perfil duplica permisos y posibles envíos. | Una vacante y una candidatura; registrar apariciones en varias búsquedas. Cambiar su base de evaluación exige acción expresa con vista previa. |
-| Cambiar criterios revoca permisos de ofertas que conservan otra foto. | Comparar el material efectivo de cada oferta; revisar solamente lo que realmente cambia. Renombrar, consultar o eliminar un perfil no altera material. |
-| El mínimo y la moneda de búsqueda se cuelan en respuestas personales. | Mínimo propio de cada perfil; salario para formularios y su moneda comunes e independientes. Conservar las huellas de paquetes históricos. |
-| El horario guarda instrucciones operativas completas. | Horario e indicaciones adicionales en campos distintos; conservar el texto original en el historial. No convertir prosa ambigua en reglas automáticas. |
-| Un bloqueo de una búsqueda impide crear otra diferente. | Distinguir solicitudes por perfil y copia de criterios, manteniendo propiedad, reintentos y guardias de envío. |
-| La migración puede inventar las dos estrategias antiguas o su procedencia. | Conservar una copia exacta inicial; crear estrategias históricas solo con operaciones y decisiones acreditadas. No atribuir ofertas antiguas por fecha. |
-| Los borradores y Deshacer pueden terminar en otro perfil. | Identificador estable en guardados, conflictos, borradores, intentos y Deshacer. Compatibilidad explícita con instalaciones de un único perfil. |
-| La cobertura global reciente y las filas nuevas pueden atribuirse a otra búsqueda. | Contar comprobaciones y apariciones registradas por el encargo; una búsqueda sin hallazgos propios conserva cero. |
-| Un feed sin identificador puede adoptar silenciosamente la única búsqueda en curso. | Exigir requestId y searchKey coincidentes en instalaciones con perfiles. El captador produce ambos. |
-
-Orden de aplicación: modelo y escritor; aislamiento de encargos/fuentes/ofertas; selector y borradores; migración aislada y comprobación de preservación; documentación personal y genérica; pruebas completas, Excel ficticio y revisión de la interfaz. Conservar la vista previa existente. No ampliar esta entrega a un intérprete automático de horarios, vigilancia o nuevos modos de envío. La prueba de terminación exige dos perfiles distintos sin contaminación, una oferta compartida sin duplicación, guardias intactas, migración sin pérdidas y resultados de verificación separados de la aceptación humana.
-
-Antecedente: implementación y comprobación automática cerradas el 08/10/2026: modelo/escritor, aislamiento operativo, interfaz/borradores, migración sin pérdidas, documentación y Excel ficticio. La batería del proyecto registra 692 casos Python (691 correctos y una prueba nativa opcional omitida) y 385 de interfaz. El recorrido en navegador integrado conserva borradores independientes y una sola candidatura por oferta. Esto no acredita una búsqueda o envío real, aceptación humana, lector de pantalla, ventana nativa de Windows, otro ordenador ni rendimiento con volumen. Las restantes evoluciones conservan su condición de propuesta.
-
-Antecedente: ampliación del 08/10: eliminación recuperable que retira perfiles del selector y conserva las referencias históricas; recuperación expresa, sin cambiar predeterminado ni devolver permisos. El predeterminado y los perfiles con discovery queued/running no se eliminan. Crear/Duplicar/Renombrar usan vectores con nombre accesible y título; las demás acciones mantienen texto. Cambiar perfil de evaluación pasa a Más acciones, fuera de Condiciones. Verificación del proyecto: 696 casos Python (695 correctos y una omisión nativa opcional), 388 de interfaz, recorrido ficticio de eliminación/recuperación y Excel ficticio con fórmulas/reapertura. Se conservan los límites de aceptación y plataforma anteriores.
-
-Actualización del 09/10: Eliminar usa únicamente una papelera vectorial con nombre accesible y ayuda al pasar el cursor. Conserva la confirmación previa y la recuperación. Se retira Archivar de la interfaz y del escritor; las marcas antiguas se leen por compatibilidad, sin ofrecer esa operación. La comprobación exige cancelar sin efectos, confirmar la eliminación, recuperar el mismo perfil y conservar registro y materiales personales. La evidencia se añade en docs/validation.md.
+- **Base de datos, aplazada:** `data/registry.json` sigue siendo el registro operativo. Reabrir si guardar supera 2 s de forma sostenida o el registro pasa de 100 MB.
+- **Límite conocido del encaje:** compara palabras y no entiende equivalencias no listadas.
+- **Sin acreditar:** aceptación humana de lo entregado, lector de pantalla, otro ordenador y resultados en portales reales.
 
 ## Resultado buscado
 

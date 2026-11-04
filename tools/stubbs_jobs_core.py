@@ -19,8 +19,6 @@ DATA = ROOT / 'data'
 STORE = DATA / 'registry.json'
 WORKBOOK = ROOT / 'outputs/busqueda-empleo.xlsx'
 
-if (ROOT/'config/distribution.json').is_file():WORKBOOK=ROOT/'outputs/busqueda-empleo.xlsx'
-
 def now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 

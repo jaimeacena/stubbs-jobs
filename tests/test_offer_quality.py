@@ -17,8 +17,14 @@ class QualityBenchmarkTests(unittest.TestCase):
         for record in records:
             with self.subTest(record['name']):
                 data = fixture()
+                # The fictional person states every limit; nothing is assumed by default.
+                import app_workflow
+                app_workflow.state(data)['criteria'] = {'contract':'Indefinido','location':'Remoto desde España (TEST)','maxTrips':1}
+                app_workflow.state(data)['searchContext'] = {'workMode': 'Remoto', 'currency': 'EUR'}
+                data['profile']['minimumFixed'] = 32000
                 row = data['sheets']['Oportunidades'][0]
                 row.update(record['changes'])
+                if row.get('Fijo mín. confirmado') is not None: row.setdefault('Moneda fijo confirmado', 'EUR')
                 self.assertEqual(stubbs_jobs.conditions(data, row)[0], record['expected'])
                 self.assertFalse(data['events'])
 

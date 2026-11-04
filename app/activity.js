@@ -173,7 +173,7 @@
     }
     return results.sort((a,b)=>(Dates.tableTimestamp(b.at)??-Infinity)-(Dates.tableTimestamp(a.at)??-Infinity));
   }
-  function days(items,timeZone='Europe/Madrid'){
+  function days(items,timeZone=Intl.DateTimeFormat().resolvedOptions().timeZone){
     const groups=new Map(),format=new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone});
     for(const item of items){
       const at=Dates.tableTimestamp(item.at);

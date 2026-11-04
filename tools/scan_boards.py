@@ -228,7 +228,8 @@ def role_terms(target_roles):
     "Data Engineer junior y puestos mixtos". One-word fragments stay inside
     their original phrase, so "Seguridad y salud" never matches any security job."""
     terms=[]
-    for role in re.split('[,;\n]',target_roles):
+    for role in re.split('[,;\n.]',target_roles):
+        role=re.sub(r'^\s*incluye\s+','',role,flags=re.I)
         if not role.strip():continue
         terms.append(role_tokens(role))
         parts=CONJUNCTION.split(role)
@@ -602,7 +603,7 @@ def main():
         raise ValueError('Indica --request con una búsqueda autorizada en curso')
     store=search_profiles.discovery_data(store,request)
     CURRENT_SEARCH={**context(store),'_location':criteria(store).get('location','')}
-    if store.get('app',{}).get('personalized') and not store['app'].get('setupComplete'):
+    if store.get('app',{}).get('setupComplete') is False:
         raise ValueError('Completa primero tu perfil y los puestos que buscas')
     from personalization import public_sources, validate_source_configuration
     # Validate the entire configuration before opening the network or using an

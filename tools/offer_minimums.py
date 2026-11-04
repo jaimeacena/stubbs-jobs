@@ -12,6 +12,9 @@ import unicodedata
 import view_cache
 from state_support import instant, excel_date
 
+# Evidence recorded before minimums were stored applied the first edition's limit; newer evidence stores its own.
+FIRST_EDITION_MINIMUM = 32000
+
 
 def normalized(value):
     return ''.join(c for c in unicodedata.normalize('NFKD', str(value or '').lower())
@@ -308,7 +311,6 @@ def current_facts(data, row):
 @view_cache.cached(lambda data, row: (id(data), row['ID']))
 def view(data, row):
     import app_context
-    from personalization import context
     row = {**row, **current_facts(data, row)}
     criteria = app_context.scoped_criteria(data, row['ID'])
     search = app_context.scoped_search(data, row['ID'])
@@ -353,7 +355,7 @@ def view(data, row):
             unknowns.append('Viajes ≤1/mes')
     minimum = criteria.get('minimumFixed')
     currency = search.get('currency') or 'EUR'
-    same_currency = row.get('Moneda fijo confirmado') == currency if data.get('app', {}).get('personalized') else (row.get('Moneda fijo confirmado') or 'EUR') == currency
+    same_currency = row.get('Moneda fijo confirmado') == currency
     low, high = row.get('Fijo mín. confirmado'), row.get('Fijo máx. confirmado')
     if number(minimum):
         # A range crossing the minimum is an opportunity to negotiate, not a rejection.
@@ -362,7 +364,7 @@ def view(data, row):
             violations.append({'key': 'Fijo ≥32 k€', 'reason': 'El fijo publicado queda por debajo de '+str(minimum)+' '+currency+' brutos anuales.'})
         else:
             latest = latest_evidence(data, row, 'Fijo ≥32 k€')
-            limit = latest.get('minimumFixed', 32000)
+            limit = latest.get('minimumFixed', FIRST_EDITION_MINIMUM)
             evidence_currency = latest.get('currency', 'EUR')
             if not number(ceiling) and row.get('Fijo ≥32 k€') == 'No' and number(limit) and minimum >= limit and evidence_currency == currency:
                 violations.append({'key': 'Fijo ≥32 k€', 'reason': 'El salario publicado incumple el mínimo fijo de '+str(minimum)+' '+currency+' brutos anuales.'})

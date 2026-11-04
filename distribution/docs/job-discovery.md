@@ -14,7 +14,7 @@ Consulta agent-status y amplía perfil, antecedentes o casos pertinentes. Recupe
 
 Cuando la petición identifica una estrategia, consulta `agent-status --search-profile ID`; en caso contrario usa la predeterminada. Para esa búsqueda autorizada, `plan --search-profile ID` o crear discovery con ese searchProfileId conserva su copia de criterios. Desde entonces `agent-status --request ID` es el ámbito de captación, incluido mínimo, moneda, fuentes, horario e indicaciones adicionales. Cambiar el predeterminado no redirige ese encargo ni sus reintentos. No utilizar el campo Horario para guardar cantidad de resultados, instrucciones de ejecución o permisos.
 
-`sourceUrls` no vacío limita toda captación a esas webs y sustituye las fuentes iniciales; plataformas no permiten salir de ese alcance. Con fuentes vacías, usar las pertinentes para el perfil dentro de la petición. Un enlace de candidatura encontrado puede llevar al destino de esa misma oferta, sin habilitar búsquedas ajenas.
+`followedSources` son empresas elegidas para ese perfil y se suman a los portales y a la lista de la instalación, que en una copia nueva está vacía. `sourceUrls` no vacío limita toda captación a esas webs y sustituye las fuentes iniciales; plataformas no permiten salir de ese alcance. Con fuentes vacías, usar las pertinentes para el perfil dentro de la petición. Un enlace de candidatura encontrado puede llevar al destino de esa misma oferta, sin habilitar búsquedas ajenas.
 
 El encargo, inicio real, dueño y tanda siguen OPERACION. La lectura del método no inicia plan/refresh/handoff. Captación por correo retirada; la excepción de verificación de candidatura no es una fuente de empleo.
 
@@ -49,15 +49,21 @@ Mantener Sí, No, Pendiente y Contradicción con pruebas. Registrar el horario p
 
 Ausencia de sueldo, contrato o viajes no es cumplimiento ni incompatibilidad. Un híbrido/presencial explícito incumple 100 % remoto; contrato explícitamente incompatible incumple su criterio. Una banda fija que alcanza el mínimo permite negociar, sin confirmar fijo final; banda total con variable no acredita fijo. Conservar moneda y periodo, sin convertirlos por suposición.
 
-Si no existe incumplimiento mínimo explícito, la oferta puede quedar Por decidir y elegirse aun con dudas técnicas o condiciones no publicadas. `ui-fit-review`.apply debe coincidir con esos mínimos; no se usa para bloquear por capacidad, años o A/B/C. Las preguntas de un formulario necesitan su significado y ámbito propios; el mínimo no se usa como sueldo deseado.
+`requirementMatch` compara por palabras el anuncio con las competencias confirmadas para ordenar la atención; no sustituye leer el anuncio ni cuenta como mínimo. Si no existe incumplimiento mínimo explícito, la oferta puede quedar Por decidir y elegirse aun con dudas técnicas o condiciones no publicadas. `ui-fit-review`.apply debe coincidir con esos mínimos; no se usa para bloquear por capacidad, años o A/B/C. Las preguntas de un formulario necesitan su significado y ámbito propios; el mínimo no se usa como sueldo deseado.
 
 Antes de una candidatura, comprobar publicación, formulario, destino, material y permiso pertinentes. Elegir y preparar no acreditan envío ni condiciones para aceptar. Una enviada no se vuelve a preparar; comprobarla pertenece al seguimiento autorizado.
 
 ## Consejo de prioridad y valoración
 
-- **A:** merece atención prioritaria para una decisión humana; explicar mejora, relación con experiencia y duda decisiva.
-- **B:** alternativa razonable si una comprobación resoluble puede cambiar su valor.
-- **C:** baja prioridad; conservar motivo útil, sin archivar automáticamente por una brecha técnica.
+La prioridad sigue una regla fija, para que dos agentes den el mismo resultado con los mismos datos. `agent-status` y `prepare` la devuelven como `suggestedPriority`, calculada desde `requirementMatch`:
+
+| Encaje con las competencias confirmadas | Prioridad |
+| --- | --- |
+| `strong` | A |
+| `partial` o `unknown` (sin requisitos legibles) | B |
+| `weak` | C |
+
+Usar `suggestedPriority` al promover o actualizar una oferta. Apartarse de ella solo con un motivo concreto y comprobable en `reason`, nunca por impresión general. La prioridad ordena la atención: no archiva por una brecha técnica, no selecciona ni autoriza.
 
 Guardar ui-offer-assessment con assessmentFingerprint, reason, references, observedAt, unknowns y proof. `ui-fit-review` comprueba mínimos por su propia huella. Ninguna operación selecciona ni autoriza transmisión. `bestArgument` puede conservar un ejemplo defendible ligado a requisito/fuente; no garantiza éxito ni demuestra que esté en el CV enviado.
 
@@ -67,9 +73,13 @@ Preparar solo las ofertas elegidas con modo review/auto actual. Reutilizar respu
 
 Las webs de empresa configuradas (captador) y los portales de empleo son fuentes distintas. Con `sourceUrls` vacío, `agent-status --request ID` de una búsqueda (y `--search-profile ID`) devuelve:
 
-- **portalPlans:** búsquedas listas para LinkedIn, Indeed, InfoJobs y Tecnoempleo construidas con los puestos breves del perfil, su modalidad y su zona. La ventana de fechas empieza en la búsqueda anterior terminada de ese perfil (últimas 24 horas, 7 días o 15 días), para revisar solo lo nuevo. `filtersApplied` indica lo que ya fija el enlace (comprobado en cada portal el 21/10/2026: LinkedIn `geoId`, `f_WT`, `f_TPR`; Indeed `l=Teletrabajo`, `fromage`; InfoJobs `sinceDate`, `teleworkingIds`; Tecnoempleo `te`, `ult_24h`) y `filtersToSet` lo que hay que marcar a mano en la página. Abrir cada enlace con la sesión de la persona, revisar los anuncios nuevos, promover solo los que cumplen los mínimos y registrar cada portal con `ui-source-review` (sourceUrl = url del plan, alcance y resultado reales). Con un perfil redactado como frase, sin puestos breves, `available` es false: proponer a la persona puestos concretos.
-- **discoveryYield:** cuántas búsquedas seguidas de ese perfil terminaron sin ofertas nuevas. Con `sourcesExhausted`, no repetir el captador ni la misma búsqueda complementaria; con `skipScanner`, las webs configuradas se revisaron hace menos de 24 horas y no se vuelven a recorrer. Pasar directamente a portalPlans.
+- **portalPlans:** una consulta individual por cada puesto breve del perfil en LinkedIn, Indeed, InfoJobs y Tecnoempleo, más Wellfound cuando se busca remoto. `filtersApplied` indica parámetros pedidos por el enlace, no confirma que la página los haya aplicado; comprobar palabras, zona, remoto y fecha en la página. La ventana solo se acorta tras revisar todos los planes de ese perfil y criterios sin incidencias; una ronda parcial conserva la ventana amplia. Registrar cada portal con `ui-source-review` (sourceUrl del plan, alcance y resultado reales). En Wellfound, comprobar contratación remota desde el país buscado y conservar anuncios sin salario si se usa un filtro salarial. Con un perfil redactado como frase, sin puestos breves, `available` es false: proponer puestos concretos sin inventarlos.
+- **discoveryYield:** cuenta solo rondas seguidas del mismo perfil y criterios en las que todas las webs de empresa configuradas y activas se captaron correctamente sin añadir ofertas. Una web omitida, bloqueada o parcial no acredita agotamiento. `sourcesExhausted` y `skipScanner` se refieren solo a esas webs, no al mercado ni a los portales. Con `skipScanner`, no repetir el captador de esas webs durante 24 horas; continuar los planes de portal pendientes y registrar su cobertura propia.
 - **sourceStats:** ofertas, envíos y descartes de cada web de empresa configurada. `lowYield` señala una web con muchas ofertas, casi ningún envío y la mayoría descartadas por la persona. Solo la persona decide dejar de revisarla (en Lo que busco o pidiéndolo expresamente: `ui-source-toggle` con sourceId, enabled y expected); el captador deja de recorrerla y sus ofertas e historial se conservan.
+
+## Catálogo de portales · 04/11/2026
+
+`plans` devuelve planes por puesto de los portales principales y, en `morePortals`, los demás de la zona, sin obligación de completarlos: úsalos cuando los principales se agoten. Respeta `excludedPortals`: esos portales no se usan. `sourceUrls` sustituye a todo lo demás. Si propones una fuente nueva con buenos resultados, dilo en el resumen.
 
 ## Cerrar la búsqueda dejando un punto de continuación
 
